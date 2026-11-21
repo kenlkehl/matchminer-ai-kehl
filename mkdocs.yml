@@ -48,6 +48,7 @@ nav:
       - Structured Clinical Extraction: api/extraction.md
       - Extraction-Based Workup Checks: api/workup-queries.md
       - SQL-Agent Workup Checks: api/workup-sql.md
+      - Structured-Record Criteria Screening: api/structured-criteria.md
       - Embedding: api/embedding.md
       - Candidate Matching: api/candidate-matching.md
       - Teacher Labeling: api/labeling.md

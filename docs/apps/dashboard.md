@@ -29,24 +29,32 @@ TrialSpace model and says so on Data and Models if they differ.
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
-  and GoodOption LLM checks run on demand.
+  and GoodOption LLM checks run on demand. **Screen with structured data** checks the cohort's criteria lines on the
+  structured records of every candidate the mode's extraction store holds (each line's query is compiled once; see
+  [Structured-Record Criteria Screening](../api/structured-criteria.md)), and the search can be limited to patients
+  with stored records.
 - **Population management:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default), compress their notes, and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
   workup item or a patient, and export the cohort and its results.
-- **Patient-centric:** one patient for two views. The patient is a corpus patient, an entered summary, or clinical notes
-  (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are compressed and summarized.
-  - *Trials:* the ranked trial cohorts with decision-model scores and the GoodOption check.
+- **Patient-centric:** one patient for three views. The patient is a corpus patient, an entered summary, or clinical
+  notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are compressed and summarized.
+  - *Trials:* the ranked trial cohorts with decision-model scores and the GoodOption check. A trial's criteria check
+    runs on the decision model, the LLM, or the patient's structured records (**Check with structured data**).
   - *Guidelines:* guideline spaces for the patient's summary, their workup and treatment menus with sources, a
     workup review, and a Markdown report.
+  - *Structured data:* the clinical facts extracted from the notes, patient level or note by note, each with its
+    quotes. A corpus patient the mode's extraction store holds shows its stored records; otherwise the notes are
+    extracted on request with the guideline concordance connection, and the Guidelines extraction review reuses
+    them.
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line ([Evaluation](../evaluation/index.md)).
 - **Data and Models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization, note compression,
-  guideline concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM
-  check.
+  guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
+  GoodOption check and the per-criterion LLM check.
 
 ## Run
 
@@ -108,10 +116,17 @@ with `patient_summary` (`mrn`, `patient_summary`, `patient_boilerplate`, `is_cur
 `mrn`, `rpt_text`, `narrative_text`, `event_date`, `note_source`) tables:
 
 - `python -m matchminer_ai.apps.dashboard.guidelines.preprocess_population` builds the cache (0700, with 0600 files)
-  beside the database.
+  beside the database; `--limit N` builds it for a seeded sample of N patients.
 - `python -m matchminer_ai.apps.dashboard.guidelines.preprocess_extractions` builds structured extraction records for
-  the extraction-based workup checks (`--phi` for a population cache). Every note goes to the LLM endpoint given, so
-  use one authorized for the notes.
+  the Structured data view, the extraction-based workup checks and criteria screening (`--phi` for a population
+  cache; `--population-sample` for synthetic mode's default Population sample). Every note goes to the LLM endpoint
+  given, so use one authorized for the notes:
+  - an OpenAI-compatible server (`--endpoint`, `--server-registry`); the adaptive limit starts at `--concurrency`;
+  - or Claude through the site's Databricks gateway (`--claude haiku`): the limit starts at 32 and grows to
+    `--concurrency` while requests succeed, halving on rate limits or dropped connections. Each request's status and
+    token counts (never content) go to `<output>.gateway_requests.jsonl`, totaled in the store's manifest;
+    `python -m matchminer_ai.llm.gateway_usage <log> --rates <input>,<output>` reports tokens, cache reads,
+    throughput, latency, the concurrency over time, when rate limits began, and the cost.
 
 Both read `MMAI_SITE_CONFIG` and `MMAI_DATA_ROOT`. `examples/guidelines/` has workup spot checks and benchmarks on
 synthetic notes.

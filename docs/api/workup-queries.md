@@ -21,6 +21,10 @@ of the notes (the note-reading reviews are `review_patient_workup` and `review_p
    patient's extraction items. The evaluator is pure Python with no I/O and no
    model calls: the same query and records always give the same result.
 
+The same matchers, windows and applicability rules serve trial criteria lines, as a second query kind
+(`validate_query(..., kind="criterion")`, with `meets_when` and `fails_when` in place of `requirement`): see
+[Structured-Record Criteria Screening](structured-criteria.md).
+
 ```python
 from matchminer_ai import load_default_preset
 from matchminer_ai.patients import (

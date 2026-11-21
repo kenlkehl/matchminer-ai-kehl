@@ -100,7 +100,7 @@ class StoreHandle:
         extraction = manifest.get("extraction") or {}
         return {"available": True, "name": store.path.name, "created_utc": manifest.get("created_utc"),
                 "patients": (manifest.get("counts") or {}).get("patients", 0), "levels": manifest.get("levels"),
-                "schema_version": extraction.get("schema_version"), "model": extraction.get("model")}
+                "schema_version": extraction.get("schema_version"), "model": model_label(extraction.get("model"))}
 
 
 def criteria_query_cache(settings, config):
@@ -221,7 +221,7 @@ def store_records(handle: StoreHandle, pid: str | None):
 def source_of(store) -> dict:
     extraction = store.manifest.get("extraction") or {}
     return {"kind": "store", "name": store.path.name, "created_utc": store.manifest.get("created_utc"),
-            "model": extraction.get("model"), "schema_version": extraction.get("schema_version"),
+            "model": model_label(extraction.get("model")), "schema_version": extraction.get("schema_version"),
             "levels": store.manifest.get("levels")}
 
 
@@ -254,9 +254,17 @@ def extract_workspace(frame, levels, config, sessions, owner, progress):
     return extraction
 
 
+def model_label(name):
+    """A model's display name (Claude endpoint names as "Claude Haiku 5.5")."""
+    from ..llm import claude_name
+
+    return ", ".join(claude_name(part.strip()) for part in str(name).split(",")) if name else name
+
+
 def extraction_estimate(frame, levels, config) -> dict:
     cost = estimate_cost(frame, levels, compile_requests=0, cached_queries=0, items=0)
-    return {**cost, "model": config.document_extraction["remote"]["model_name"]}
+    cost.pop("typical_reasoning_tokens", None)
+    return {**cost, "model": model_label(config.document_extraction["remote"]["model_name"])}
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +302,7 @@ def compile_cohort_criteria(cohort, engine, *, settings, config, store, progress
     summary = {k: metadata.get(k) for k in ("model", "compiled_by", "requests", "cached", "compiled", "distinct",
                                             "failed", "unchecked_lines")}
     summary["engine"] = engine
+    summary["model"] = model_label(summary.get("model"))
     return compiled, summary
 
 

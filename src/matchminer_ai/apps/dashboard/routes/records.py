@@ -75,7 +75,7 @@ def router(state: DashState) -> APIRouter:
             saved = saved or rec.session_records(g.session_extractions, owner, frame, levels, config)
         if saved is not None:
             documents, patients = rec.extraction_frames(saved)
-            source = {"kind": "session", **saved["metadata"]}
+            source = {"kind": "session", **saved["metadata"], "model": rec.model_label(saved["metadata"].get("model"))}
             return documents, patients, source, rec.note_numbers(frame), rec.WORKSPACE
         return None
 
@@ -107,7 +107,8 @@ def router(state: DashState) -> APIRouter:
         def run(progress):
             extraction = rec.extract_workspace(frame, body.levels, config, g.session_extractions, owner, progress)
             documents, patients = rec.extraction_frames(extraction)
-            return {"source": {"kind": "session", **extraction["metadata"]},
+            return {"source": {"kind": "session", **extraction["metadata"],
+                               "model": rec.model_label(extraction["metadata"].get("model"))},
                     "view": rec.records_view(documents, patients, rec.note_numbers(frame))}
 
         job = g.jobs.submit("records", f"structured records of {len(frame)} notes", run, owner=owner,
