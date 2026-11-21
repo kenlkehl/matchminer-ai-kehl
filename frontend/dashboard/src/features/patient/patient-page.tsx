@@ -31,7 +31,7 @@ export function PatientPage() {
   }, []);
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Patient">
+      <PageHeader title="Patient-centric">
         <p>
           Choose a patient, enter a summary, or add clinical notes. Trials matches the patient's
           cancer summary against the open trials' cohorts; Guidelines finds the guideline

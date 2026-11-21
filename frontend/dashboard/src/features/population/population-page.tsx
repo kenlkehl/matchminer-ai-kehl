@@ -48,7 +48,7 @@ export function PopulationPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Population">
+      <PageHeader title="Population management">
         <p>
           Find the patients of a population who match a guideline space, then check their documented
           workup against the guideline&apos;s recommendations, item by item and patient by patient.

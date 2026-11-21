@@ -21,20 +21,20 @@ come from and how the server is reached.
 
 TrialSpace, its rounds and the decision model come from the synthetic run in both modes. Real mode compares the
 population cache's vectors with cohort vectors made by the round's encoder, so it requires both to be the same
-TrialSpace model and says so on the Trials tab if they differ.
+TrialSpace model and says so on Data and Models if they differ.
 
 ## Tabs
 
-- **Trials:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+- **Trial-centric:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
   and GoodOption LLM checks run on demand.
-- **Population:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
+- **Population management:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default), compress their notes, and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
   workup item or a patient, and export the cohort and its results.
-- **Patient:** one patient for two views. The patient is a corpus patient, an entered summary, or clinical notes
+- **Patient-centric:** one patient for two views. The patient is a corpus patient, an entered summary, or clinical notes
   (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are compressed and summarized.
   - *Trials:* the ranked trial cohorts with decision-model scores and the GoodOption check.
   - *Guidelines:* guideline spaces for the patient's summary, their workup and treatment menus with sources, a

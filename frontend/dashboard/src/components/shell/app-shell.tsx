@@ -92,9 +92,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {tab === "trials" ? (
                     <NavItem to="/" icon={TableIcon} label="Trials Overview" active={false} />
                   ) : tab === "population" ? (
-                    <NavItem to="/population" icon={UsersIcon} label="Population" active />
+                    <NavItem
+                      to="/population"
+                      icon={UsersIcon}
+                      label="Population management"
+                      active
+                    />
                   ) : tab === "patient" ? (
-                    <NavItem to="/patient" icon={UserIcon} label="Patient" active />
+                    <NavItem to="/patient" icon={UserIcon} label="Patient-centric" active />
                   ) : (
                     <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarks" active />
                   )}

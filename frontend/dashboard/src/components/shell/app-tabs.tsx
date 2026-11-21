@@ -25,9 +25,9 @@ const TABS: {
   to: "/" | "/population" | "/patient" | "/benchmarking";
   label: string;
 }[] = [
-  { tab: "trials", to: "/", label: "Trials" },
-  { tab: "population", to: "/population", label: "Population" },
-  { tab: "patient", to: "/patient", label: "Patient" },
+  { tab: "trials", to: "/", label: "Trial-centric" },
+  { tab: "patient", to: "/patient", label: "Patient-centric" },
+  { tab: "population", to: "/population", label: "Population management" },
   { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
 ];
 
