@@ -3,7 +3,8 @@
 The gateway path has no endpoint pool (that speaks OpenAI to vLLM servers), so the same additive-increase,
 halve-on-pressure control (:class:`~matchminer_ai.llm.adaptive_concurrency.AdaptiveConcurrency`, the remote
 section's ``adaptive_concurrency`` settings) runs here: the limit grows while requests succeed and more are waiting,
-and halves on a 429/503/529. Rate-limited requests wait (``Retry-After`` when the gateway sends one) and retry
+and halves on a 429/503/529 or a dropped connection (measured 2026-11-21: the gateway sheds load both ways). Such
+requests wait (``Retry-After`` when the gateway sends one) and retry
 without counting as failed attempts. Each change of the limit is a line of the gateway request log.
 """
 from __future__ import annotations
@@ -82,7 +83,7 @@ async def limited_request(limiter: GatewayLimiter, create, request: dict[str, An
         try:
             response = await asyncio.wait_for(create(**request), timeout=timeout)
         except GatewayError as exc:
-            limited = exc.http_status in RATE_LIMITED
+            limited = exc.http_status in RATE_LIMITED or getattr(exc, "connection", False)
             await limiter.release(pressure=limited)
             if limited and waits < MAX_RATE_LIMIT_WAITS:
                 waits += 1

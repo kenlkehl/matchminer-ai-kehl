@@ -228,9 +228,12 @@ def send_messages(config, body: dict, *, guards=()) -> dict:
 class GatewayError(RuntimeError):
     """A failed gateway request: the HTTP status (or the failure's type), never provider text."""
 
-    def __init__(self, message: str, *, http_status: int | None = None, retry_after: float | None = None):
+    def __init__(self, message: str, *, http_status: int | None = None, retry_after: float | None = None,
+                 connection: bool = False):
         super().__init__(message)
         self.http_status, self.retry_after = http_status, retry_after
+        #: A dropped or refused connection (the gateway sheds load this way as well as with 429s).
+        self.connection = connection
 
 
 _LOG_LOCK = threading.Lock()
@@ -333,7 +336,7 @@ class GatewayChatClient:
         except anthropic.APIConnectionError as exc:
             entry.update(status=type(exc).__name__, seconds=round(time.monotonic() - started, 3))
             _log_request(entry)
-            raise GatewayError(f"Gateway request failed: {type(exc).__name__}") from None
+            raise GatewayError(f"Gateway request failed: {type(exc).__name__}", connection=True) from None
         result = chat_completion(message, streamed=True)
         usage = result["usage"]
         entry.update(status=200, seconds=round(time.monotonic() - started, 3), served_model=result["model"],

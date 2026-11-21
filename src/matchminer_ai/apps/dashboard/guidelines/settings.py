@@ -111,7 +111,7 @@ CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
-QUERY_WRITERS = ("workup_query_compile", "workup_sql_agent")
+QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
 
 
 def databricks_profile():
@@ -162,7 +162,7 @@ LLM_TASKS = {
     "summarize": "Patient summarization",
     "compress": "Note compression",
     "workup": "Guideline concordance checks",
-    SQL_TASK: "Guideline concordance checks: query writing (compiled queries and SQL agent)",
+    SQL_TASK: "Query writing: guideline workup and trial criteria (compiled queries and SQL agent)",
     "workup_full_backup": "Guideline concordance checks: Full note backup",
     "workup_agent_backup": "Guideline concordance checks: Agent backup",
     "good_option": "GoodOption checks",
@@ -272,7 +272,7 @@ class Settings:
 
         This connection serves on-demand document and patient extraction (their
         preset sections, with its endpoint, model and thinking switch). The query
-        writers, the compile step of extraction queries and the SQL workup agent,
+        writers, the compile steps of workup and criteria queries and the SQL agent,
         use the query-writing task's connection (``SQL_TASK``), which is this one
         until set (the app sets Claude Sonnet 5.5 through the gateway; user,
         2026-11-21).
@@ -286,7 +286,7 @@ class Settings:
         for name in ("document_extraction", "patient_extraction"):
             self._connect_section(getattr(c, name), name)
         writer = self.for_task(SQL_TASK)
-        for name in ("workup_query_compile", "workup_sql_agent"):
+        for name in QUERY_WRITERS:
             writer._connect_section(getattr(c, name), name, own_connection=True)
         return c
 

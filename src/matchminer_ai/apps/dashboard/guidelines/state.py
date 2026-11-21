@@ -35,6 +35,10 @@ class GuidelineState:
         self.jobs = JobManager(ttl=settings.ttl, exclusive=True, name="mmai-guidelines")
         self.note_compressions = NoteCompressions(settings.ttl)
         self.session_extractions = SessionExtractions(settings.ttl)
+        from .records import StoreHandle
+
+        # The mode's extraction record store (the Patient tab's Structured data, criteria screening).
+        self.records = StoreHandle(settings)
         self.population_sessions = PopulationSessions(settings.ttl)
         self.workspace_settings: dict[str, dict] = {}
         self.lock = threading.RLock()

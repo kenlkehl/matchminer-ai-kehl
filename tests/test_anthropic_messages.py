@@ -351,3 +351,32 @@ def test_the_remote_path_sends_chat_requests_to_claude(monkeypatch, tmp_path):
     assert "patient" not in log.read_text() and "fabricated" not in log.read_text()
     with pytest.raises(ValueError, match="gateway URL"):
         am.GatewayChatClient("https://example.com/v1")
+
+
+def test_gateway_limiter_waits_out_rate_limits_and_halves_on_pressure(monkeypatch):
+    import asyncio
+
+    from matchminer_ai.llm import gateway_limits
+    from matchminer_ai.llm.anthropic_messages import GatewayError
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(gateway_limits.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(gateway_limits, "log_event", lambda *a, **k: None)
+    failures = [GatewayError("Gateway HTTP 429", http_status=429)] * 3 + [
+        GatewayError("Gateway request failed: APIConnectionError", connection=True)] * 3
+
+    async def create(**request):
+        if failures:
+            raise failures.pop(0)
+        return "answer"
+
+    async def run():
+        limiter = gateway_limits.GatewayLimiter({"initial": 32, "adjustment_interval": 0.001}, 512)
+        # Six overload answers in a row, more than max_retries, still end in the answer.
+        answer = await gateway_limits.limited_request(limiter, create, {}, timeout=5, max_retries=2)
+        return answer, limiter.limit
+
+    answer, limit = asyncio.run(run())
+    assert answer == "answer" and limit < 32
