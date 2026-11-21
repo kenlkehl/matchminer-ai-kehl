@@ -3537,8 +3537,14 @@ merge and boilerplate steps when they run with <code>section="protocol_cohort_ex
 <tr>
 <td><code>model_path</code></td>
 <td><code>null</code></td>
-<td>required</td>
-<td>TrialSpace directory or Hugging Face model ID; <code>null</code> uses the site config's <code>paths.trialspace_model</code></td>
+<td>the default model</td>
+<td>TrialSpace directory or Hugging Face model ID (with <code>revision</code> for a Hub model); <code>null</code> uses the site config's <code>paths.trialspace_model</code>, else <code>default_model</code></td>
+</tr>
+<tr>
+<td><code>default_model</code>, <code>default_revision</code></td>
+<td><code>ksg-dfci/TrialSpace-1226</code>, its pinned commit</td>
+<td>none</td>
+<td>The published TrialSpace used when neither <code>model_path</code> nor the site config names one</td>
 </tr>
 <tr>
 <td><code>device</code></td>
@@ -3603,12 +3609,12 @@ merge and boilerplate steps when they run with <code>section="protocol_cohort_ex
 </tbody>
 </table>
 <ul>
-<li><strong><code>model_path</code>:</strong> your TrialSpace checkpoint (<code>google/embeddinggemma-2</code> fine-tuned by <code>mmai-train</code>). The preset
-  leaves it unset; then the <a href="../site-config/">site config</a>'s <code>paths.trialspace_model</code> is used, and with neither,
-  embedding raises <code>ValueError</code>. A path that starts with <code>/</code> or <code>.</code>, or that exists, must be a readable directory, or
-  embedding raises <code>FileNotFoundError</code>. Nothing falls back to another model. The checkpoint
-  was saved by sentence-transformers 6.1 and needs 6.1 or later. The newest public model, <code>ksg-dfci/TrialSpace-0526</code>,
-  is a different model family with a different text format.</li>
+<li><strong><code>model_path</code>:</strong> a TrialSpace checkpoint (<code>google/embeddinggemma-2</code> fine-tuned by <code>mmai-train</code>). The preset
+  leaves it unset; then the <a href="../site-config/">site config</a>'s <code>paths.trialspace_model</code> is used (a site's local copy),
+  else the published <code>ksg-dfci/TrialSpace-1226</code> at <code>default_revision</code>. A path that starts with <code>/</code> or <code>.</code>, or that
+  exists, must be a readable directory, or embedding raises <code>FileNotFoundError</code>. Nothing falls back from a named
+  model to another. The checkpoint was saved by sentence-transformers 6.1 and needs 6.1 or later. The older public
+  <code>ksg-dfci/TrialSpace-0526</code> is a different model family with a different text format.</li>
 <li><strong>Model-specific keys:</strong> <code>dtype</code>, <code>autocast</code>, <code>prompt_profile</code>, <code>default_prompt_name</code>, <code>include_prompt_in_pooling</code>,
   <code>text_only</code> and <code>max_seq_length</code> describe the EmbeddingGemma 2 checkpoint. Review them when changing <code>model_path</code>;
   a wrong <code>max_seq_length</code> silently truncates at the wrong point.</li>
@@ -3634,12 +3640,12 @@ with Transformers and the checkpoint's own code (<code>trust_remote_code</code>)
 <tbody>
 <tr>
 <td><code>model_name</code></td>
-<td><code>LiquidAI/d1-2B</code></td>
+<td><code>ksg-dfci/MatchEval-1226</code></td>
 <td>Hugging Face model ID, or a local checkpoint directory from <code>mmai-train</code> (<code>matchminer_ai.training.decision_model</code>) holding the weights, the d1 code and <code>decision_contract.json</code>, whose fingerprint is reported as <code>model_sha</code></td>
 </tr>
 <tr>
 <td><code>revision</code></td>
-<td><code>652f920e544ea37f81e4b0ce89b81d4ed0da90b1</code></td>
+<td>MatchEval-1226's pinned commit</td>
 <td>Commit of a Hub model; required for every Hub model because its code runs, ignored for a local directory</td>
 </tr>
 <tr>

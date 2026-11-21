@@ -2260,8 +2260,8 @@ skip others; see <a href="../../api/trials/">trials</a>.</p>
 <p>Steps 5-7 are independent checks of the same pairs. A typical review keeps the pairs that pass step 5, then reads
 steps 6 and 7 as flags.</p>
 <h2 id="the-decision-models-questions">The decision model's questions<a class="headerlink" href="#the-decision-models-questions" title="Permanent link">&para;</a></h2>
-<p>The decision model, <a href="https://huggingface.co/LiquidAI/d1-2B"><code>LiquidAI/d1-2B</code></a> or a checkpoint fine-tuned from it by
-the <a href="../../training/">training pipeline</a>, answers yes/no questions about a pair in one forward pass. Each answer
+<p>The decision model, <a href="https://huggingface.co/ksg-dfci/MatchEval-1226"><code>ksg-dfci/MatchEval-1226</code></a> (fine-tuned from <a href="https://huggingface.co/LiquidAI/d1-2B"><code>LiquidAI/d1-2B</code></a>) or a
+checkpoint from the <a href="../../training/">training pipeline</a>, answers yes/no questions about a pair in one forward pass. Each answer
 is reported as P(yes).</p>
 <table>
 <thead>
@@ -2315,8 +2315,8 @@ left for the reviewer, not screened out.</p>
 <p><code>score_match_quality</code> returns only passing pairs unless <code>filter_low_quality=False</code>, and <code>check_eligibility_criteria</code>
 can return only failing lines (<code>filter_failing=True</code>). Outputs are derived tables keyed on <code>patient_id</code> and
 <code>cohort_trial_id</code>; merge them back onto the pairs.</p>
-<p>The default decision model is the zero-shot base model. Treat its scores as provisional until it is replaced by a
-fine-tuned checkpoint (<code>decision_model.model_name</code>) evaluated for your setting.</p>
+<p>The default decision model, MatchEval-1226, was trained on synthetic data only. Treat its scores as provisional until
+it has been evaluated for your setting.</p>
 <h2 id="llm-versions-of-the-checks">LLM versions of the checks<a class="headerlink" href="#llm-versions-of-the-checks" title="Permanent link">&para;</a></h2>
 <p><code>score_match_quality_with_llm</code>, <code>exclusion_criteria_check_with_llm</code> and <code>check_eligibility_criteria_with_llm</code> ask an
 LLM the same questions and return a reason with each answer. The match and per-criterion versions use the prompts

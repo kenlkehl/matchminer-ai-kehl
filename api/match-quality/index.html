@@ -2698,7 +2698,7 @@ pass, in-process with Transformers. It serves the match questions, the boilerpla
 <tbody>
 <tr>
 <td><code>model_name</code></td>
-<td><code>LiquidAI/d1-2B</code></td>
+<td><code>ksg-dfci/MatchEval-1226</code></td>
 <td>Hub model, or a fine-tuned checkpoint directory from the training pipeline</td>
 </tr>
 <tr>
@@ -2741,8 +2741,8 @@ pass, in-process with Transformers. It serves the match questions, the boilerpla
 <p>The section is read from the configuration's raw mapping:</p>
 <div class="highlight"><pre><span></span><code><span class="n">config</span><span class="o">.</span><span class="n">raw</span><span class="p">[</span><span class="s2">"decision_model"</span><span class="p">][</span><span class="s2">"model_name"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"/path/to/decision-model"</span>   <span class="c1"># a fine-tuned checkpoint</span>
 </code></pre></div>
-<p>The preset's default is the base model without fine-tuning. Treat its scores as provisional until a fine-tuned
-checkpoint has been evaluated for your setting. The decision model runs locally, so patient text reaches only that
+<p>The preset's default, MatchEval-1226, was trained on synthetic data only and is published without evaluation
+results. Treat its scores as provisional until it has been evaluated for your setting. The decision model runs locally, so patient text reaches only that
 model. See <a href="../../user-guide/patient-centric-matching/#the-decision-models-questions">how matching works</a> for the
 questions of all three checks.</p>
 

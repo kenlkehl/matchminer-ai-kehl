@@ -2087,10 +2087,10 @@ pass <code>source="protocol"</code> to <code>process_trials</code>.</p>
   To use a running OpenAI-compatible server instead, set <code>config.remote["enabled"] = True</code> and
   <code>config.remote["server_urls"] = ["http://localhost:8000/v1"]</code>. The server must serve the preset's model, or you
   change <code>model_name</code>. <a href="../../user-guide/local-vs-remote/">Choosing an inference setup</a> compares the two.</li>
-<li><strong>TrialSpace.</strong> The preset leaves <code>embedding.model_path</code> unset, so point it at your own checkpoint. Embedding fails
-  rather than fall back to a different model.</li>
-<li><strong>Decision model.</strong> It runs in-process on a GPU (<code>decision_model.device</code>). It is the pinned base <code>LiquidAI/d1-2B</code>
-  unless <code>decision_model.model_name</code> names a fine-tuned checkpoint.</li>
+<li><strong>TrialSpace.</strong> The preset embeds with the published <code>ksg-dfci/TrialSpace-1226</code>, pinned; <code>embedding.model_path</code>
+  names another checkpoint. A named model that is missing raises an error rather than fall back to another.</li>
+<li><strong>Decision model.</strong> It runs in-process on a GPU (<code>decision_model.device</code>). It is the published
+  <code>ksg-dfci/MatchEval-1226</code>, pinned, unless <code>decision_model.model_name</code> names another checkpoint.</li>
 </ul>
 <p>Only send clinical text to an endpoint approved for it.</p>
 <h2 id="1-trials-to-cohorts">1. Trials to cohorts<a class="headerlink" href="#1-trials-to-cohorts" title="Permanent link">&para;</a></h2>
