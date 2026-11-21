@@ -35,11 +35,11 @@ See the [GPU recommendations](gpu-recommendations.md) for memory sizes and the h
 
 ## Models
 
-- **TrialSpace checkpoint:** you supply it. The default preset leaves `embedding.model_path` unset, and embedding fails
-  rather than fall back to another model. Set it to your own TrialSpace model directory (or `paths.trialspace_model`
-  in a [site config](../reference/site-config.md)), and embed patients and cohorts with the same model.
-- **Decision model:** `LiquidAI/d1-2B` at a pinned revision is downloaded from Hugging Face on first use. It runs its
-  own model code (`trust_remote_code`). Set `decision_model.model_name` to a fine-tuned checkpoint to use one.
+- **TrialSpace checkpoint:** [`ksg-dfci/TrialSpace-1226`](https://huggingface.co/ksg-dfci/TrialSpace-1226) at a pinned revision is downloaded from Hugging Face on first use. To use another
+  (a local copy, or your own), set `embedding.model_path` or `paths.trialspace_model` in a
+  [site config](../reference/site-config.md). Embed patients and cohorts with the same model.
+- **Decision model:** [`ksg-dfci/MatchEval-1226`](https://huggingface.co/ksg-dfci/MatchEval-1226) at a pinned revision is downloaded from Hugging Face on first use. It runs its own model
+  code (`trust_remote_code`). Set `decision_model.model_name` to another checkpoint to use one.
 - **LLM:** downloaded from Hugging Face when it runs in-process. In either setup, `summarize_patients` loads the LLM's
   tokenizer (`patient.remote.tokenizer_name` or the model name) to split notes into chunks.
 

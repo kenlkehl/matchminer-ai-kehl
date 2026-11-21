@@ -27,10 +27,10 @@ config.embedding["model_path"] = "/path/to/trialspace"    # your TrialSpace chec
   To use a running OpenAI-compatible server instead, set `config.remote["enabled"] = True` and
   `config.remote["server_urls"] = ["http://localhost:8000/v1"]`. The server must serve the preset's model, or you
   change `model_name`. [Choosing an inference setup](../user-guide/local-vs-remote.md) compares the two.
-- **TrialSpace.** The preset leaves `embedding.model_path` unset, so point it at your own checkpoint. Embedding fails
-  rather than fall back to a different model.
-- **Decision model.** It runs in-process on a GPU (`decision_model.device`). It is the pinned base `LiquidAI/d1-2B`
-  unless `decision_model.model_name` names a fine-tuned checkpoint.
+- **TrialSpace.** The preset embeds with the published `ksg-dfci/TrialSpace-1226`, pinned; `embedding.model_path`
+  names another checkpoint. A named model that is missing raises an error rather than fall back to another.
+- **Decision model.** It runs in-process on a GPU (`decision_model.device`). It is the published
+  `ksg-dfci/MatchEval-1226`, pinned, unless `decision_model.model_name` names another checkpoint.
 
 Only send clinical text to an endpoint approved for it.
 

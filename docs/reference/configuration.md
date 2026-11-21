@@ -454,7 +454,8 @@ TrialSpace embedding (`embedding.embed_for_matching`). Retrieval embeds key text
 
 | Key | Default | Absent | Meaning |
 | --- | --- | --- | --- |
-| `model_path` | `null` | required | TrialSpace directory or Hugging Face model ID; `null` uses the site config's `paths.trialspace_model` |
+| `model_path` | `null` | the default model | TrialSpace directory or Hugging Face model ID (with `revision` for a Hub model); `null` uses the site config's `paths.trialspace_model`, else `default_model` |
+| `default_model`, `default_revision` | `ksg-dfci/TrialSpace-1226`, its pinned commit | none | The published TrialSpace used when neither `model_path` nor the site config names one |
 | `device` | `cuda` | `cpu` | One device |
 | `dtype` | `float32` | model's own | Weight precision: `float32` or `bfloat16` |
 | `autocast` | `bfloat16` | off | CUDA autocast precision |
@@ -466,12 +467,12 @@ TrialSpace embedding (`embedding.embed_for_matching`). Retrieval embeds key text
 | `prompt_file` | `embedding.txt` | required | `query` prompt for a model that saved none and has no `prompt_profile`, prepended exactly (only its final newline removed) |
 | `max_seq_length` | `4096` | required | Truncation length in tokens, also used by QC to flag key text over the limit |
 
-- **`model_path`:** your TrialSpace checkpoint (`google/embeddinggemma-2` fine-tuned by `mmai-train`). The preset
-  leaves it unset; then the [site config](site-config.md)'s `paths.trialspace_model` is used, and with neither,
-  embedding raises `ValueError`. A path that starts with `/` or `.`, or that exists, must be a readable directory, or
-  embedding raises `FileNotFoundError`. Nothing falls back to another model. The checkpoint
-  was saved by sentence-transformers 6.1 and needs 6.1 or later. The newest public model, `ksg-dfci/TrialSpace-0526`,
-  is a different model family with a different text format.
+- **`model_path`:** a TrialSpace checkpoint (`google/embeddinggemma-2` fine-tuned by `mmai-train`). The preset
+  leaves it unset; then the [site config](site-config.md)'s `paths.trialspace_model` is used (a site's local copy),
+  else the published `ksg-dfci/TrialSpace-1226` at `default_revision`. A path that starts with `/` or `.`, or that
+  exists, must be a readable directory, or embedding raises `FileNotFoundError`. Nothing falls back from a named
+  model to another. The checkpoint was saved by sentence-transformers 6.1 and needs 6.1 or later. The older public
+  `ksg-dfci/TrialSpace-0526` is a different model family with a different text format.
 - **Model-specific keys:** `dtype`, `autocast`, `prompt_profile`, `default_prompt_name`, `include_prompt_in_pooling`,
   `text_only` and `max_seq_length` describe the EmbeddingGemma 2 checkpoint. Review them when changing `model_path`;
   a wrong `max_seq_length` silently truncates at the wrong point.
@@ -490,8 +491,8 @@ with Transformers and the checkpoint's own code (`trust_remote_code`). See
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `model_name` | `LiquidAI/d1-2B` | Hugging Face model ID, or a local checkpoint directory from `mmai-train` (`matchminer_ai.training.decision_model`) holding the weights, the d1 code and `decision_contract.json`, whose fingerprint is reported as `model_sha` |
-| `revision` | `652f920e544ea37f81e4b0ce89b81d4ed0da90b1` | Commit of a Hub model; required for every Hub model because its code runs, ignored for a local directory |
+| `model_name` | `ksg-dfci/MatchEval-1226` | Hugging Face model ID, or a local checkpoint directory from `mmai-train` (`matchminer_ai.training.decision_model`) holding the weights, the d1 code and `decision_contract.json`, whose fingerprint is reported as `model_sha` |
+| `revision` | MatchEval-1226's pinned commit | Commit of a Hub model; required for every Hub model because its code runs, ignored for a local directory |
 | `backend` | `transformers` | The only backend |
 | `device` | `cuda` | Where the model runs |
 | `dtype` | `bfloat16` | Weight type |

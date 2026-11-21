@@ -41,10 +41,10 @@ def default_embedding_caches() -> tuple[Path, ...]:
 # Relative to the data root. The run's own decision model (train_from_summaries.py --models-dir trialspace/models)
 # is used once its stage receipt shows it complete; until then the fit-2 smoke checkpoint (user, 2026-11-08).
 RUN_DECISION_MODEL = "trialspace/models/decision_model"
-DEFAULT_DECISION_MODEL = "smoke_tests/round1_labels_fit2_20261107/decision_fit/model"
 RECEIPT_FORMAT = "mmai-stage-receipt-v1"
-BASE_DECISION_MODEL = "LiquidAI/d1-2B"
-BASE_DECISION_REVISION = "652f920e544ea37f81e4b0ce89b81d4ed0da90b1"
+#: The published decision model (the run's final model, MatchEval-1226 on the Hub), when the run has none.
+PUBLISHED_DECISION_MODEL = "ksg-dfci/MatchEval-1226"
+PUBLISHED_DECISION_REVISION = "7040834b637353d55ffc3a3944e52359244c2252"
 # EmbeddingGemma 2 needs sentence-transformers 6. The query encoder runs in its own process, by default with this
 # Python (checked 2026-11-20: the app's environment with sentence-transformers 6.1 embeds a round-3 query exactly
 # as the former separate environment did); a site may name another environment and Hub caches
@@ -59,7 +59,7 @@ class Settings:
     port: int = 8781
     # The decision model: a local checkpoint directory, or a Hub id pinned by decision_revision.
     decision_model: str | None = None  # None: the run's decision model, else fit 2, else base d1-2B
-    decision_revision: str = BASE_DECISION_REVISION
+    decision_revision: str = PUBLISHED_DECISION_REVISION
     device: str = "cpu"
     dtype: str = "bfloat16"
     threads: int = 32
@@ -106,10 +106,8 @@ class Settings:
         pending = complete_decision_model(run)
         if pending is None:
             return str(run), None, f"the run's trained decision model ({RUN_DECISION_MODEL})"
-        smoke = self.synthetic_run / DEFAULT_DECISION_MODEL
-        if (smoke / "config.json").exists():
-            return str(smoke), None, f"fine-tuned smoke checkpoint (fit 2); {RUN_DECISION_MODEL}: {pending}"
-        return BASE_DECISION_MODEL, BASE_DECISION_REVISION, f"fallback: {smoke} not found, using base d1-2B"
+        return (PUBLISHED_DECISION_MODEL, PUBLISHED_DECISION_REVISION,
+                f"the published MatchEval-1226 ({RUN_DECISION_MODEL}: {pending})")
 
     def describe(self) -> dict:
         value = asdict(self)

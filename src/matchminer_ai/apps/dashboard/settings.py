@@ -12,9 +12,8 @@ The app starts in one of two modes (``--mode``, on the command line only):
   ``--require-token``. It never reads or writes a ``phi`` folder.
 
 The TrialSpace rounds, the encoder and the decision model come from the synthetic n=5000 run in both modes
-(``core.settings``), except two decision-model defaults (user, 2026-11-12): the newest interim export of the run's
-decision model, taken from a Trainer checkpoint while it trains, comes before the fit-2 checkpoint, and the model
-runs on ``cuda:0`` when CUDA is available. Each trial's drugs and mechanisms come from the GoodOption catalog
+(``core.settings``): the run's final decision model, else the published MatchEval-1226 (only a final model scores;
+user, 2026-11-21). The model runs on ``cuda:0`` when CUDA is available. Each trial's drugs and mechanisms come from the GoodOption catalog
 (``good_options_catalog``), read in place.
 
 A mode's own data paths come from the site config's ``dashboard.<mode>`` section, shared values from its
@@ -24,14 +23,13 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-import json
 import os
 from pathlib import Path
 
 from matchminer_ai.apps.common.security import LOOPBACK_HOSTS
 from matchminer_ai.site import DATA_ROOT_ENV, SITE_CONFIG_ENV, data_root, load_site_config
 
-from .core.settings import RUN_DECISION_MODEL, Settings, complete_decision_model
+from .core.settings import Settings
 from .llm import NEMOTRON, default_backend, default_endpoint, default_model
 
 # The bundled trial-group rules: a small example. A site's own rules: the site config's dashboard.grouping.
@@ -72,12 +70,6 @@ def default_grouping() -> Path:
 ENV_PREFIX = "MMAI_DASH_"
 ACCESS_TOKEN_ENV = "MMAI_DASH_ACCESS_TOKEN"
 ACCESS_TOKEN_FILE = "~/.config/mmai-dashboard/access_token"
-# Interim exports of the run's decision model while it trains (relative to the data root): step-<N>/, each with
-# interim.json written last, listing every file's size. The run's final model replaces them once its stage receipt is
-# complete (core.settings.complete_decision_model). Since 2026-11-15 (user) these are the relabeled retrain's
-# exports; the old-label run's (stopped at step 31,181 on 2026-11-13) stay in trialspace/models/decision_model_interim.
-INTERIM_DECISION_MODELS = "trialspace/models/decision_model_interim_relabel_20261114"
-INTERIM_FORMAT = "mmai-decision-interim-v1"
 DEFAULT_DEVICE = "cuda:0"  # the decision model's default when CUDA is available (user, 2026-11-12); else cpu
 AUTO_DEVICE = "auto"
 
@@ -166,25 +158,6 @@ class DashSettings(Settings):
     def store_path(self) -> Path:
         return self.store_dir / "dashboard.json"
 
-    def resolved_decision_model(self) -> tuple[str, str | None, str]:
-        """(model name or directory, Hub revision or None, why it was chosen): an explicit --decision-model, else the
-        run's trained decision model once its stage receipt is complete, else the newest complete interim export
-        (``INTERIM_DECISION_MODELS/step-<N>``), else fit 2, else base d1-2B (as ``core.settings``,
-        with the interim export inserted before fit 2)."""
-        if self.decision_model:
-            return super().resolved_decision_model()
-        pending = complete_decision_model(self.synthetic_run / RUN_DECISION_MODEL)
-        if pending is None:
-            return super().resolved_decision_model()
-        found = newest_interim_decision_model(self.synthetic_run / INTERIM_DECISION_MODELS)
-        if found is None:
-            return super().resolved_decision_model()
-        path, info = found
-        return str(path), None, (f"INTERIM checkpoint of the run's decision model, not the final model (step "
-                                 f"{info['checkpoint_step']:,} of {info['max_steps']:,}, {info['epoch']:.3f} epoch); "
-                                 f"{RUN_DECISION_MODEL}: {pending}")
-
-
 def guideline_settings(dash: "DashSettings", decision_model: dict | None = None):
     """The guideline features' settings (``guidelines.settings.Settings``) for the app: real mode reads real
     patients; the default model connection is the app's (``--llm-*``); TrialSpace and the decision model run on
@@ -213,39 +186,6 @@ def cuda_available() -> bool:
     import torch
 
     return bool(torch.cuda.is_available())
-
-
-def complete_interim_decision_model(directory: Path) -> dict | None:
-    """interim.json of a complete interim export (every file it lists has its size), else None."""
-    path = Path(directory) / "interim.json"
-    try:
-        info = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-    outputs = info.get("outputs") or {}
-    if (info.get("format") != INTERIM_FORMAT or info.get("interim") is not True
-            or not isinstance(info.get("checkpoint_step"), int) or not isinstance(info.get("max_steps"), int)
-            or not all(name in outputs for name in ("config.json", "decision_contract.json", "model.safetensors"))):
-        return None
-    for name, size in outputs.items():
-        file = Path(directory) / name
-        if not file.is_file() or file.stat().st_size != size:
-            return None
-    return info
-
-
-def newest_interim_decision_model(directory: Path) -> tuple[Path, dict] | None:
-    """The complete ``step-<N>`` export with the highest N, with its interim.json."""
-    steps = []
-    for child in Path(directory).glob("step-*") if Path(directory).is_dir() else ():
-        number = child.name[len("step-"):]
-        if child.is_dir() and number.isdigit():
-            steps.append((int(number), child))
-    for _, child in sorted(steps, reverse=True):
-        info = complete_interim_decision_model(child)
-        if info is not None:
-            return child, info
-    return None
 
 
 def _env(name: str):

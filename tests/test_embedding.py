@@ -453,7 +453,7 @@ def test_count_embedding_tokens_uses_tokenizer_without_loading_model(monkeypatch
 
     class FakeAutoTokenizer:
         @staticmethod
-        def from_pretrained(model_path, trust_remote_code=True):
+        def from_pretrained(model_path, trust_remote_code=True, revision=None):
             loaded_tokenizers.append((model_path, trust_remote_code))
             return FakeTokenizer()
 
@@ -465,7 +465,7 @@ def test_count_embedding_tokens_uses_tokenizer_without_loading_model(monkeypatch
         "matchminer_ai.embedding.inference._load_prompt_text",
         lambda filename: "query prompt",
     )
-    monkeypatch.setattr("matchminer_ai.embedding.inference._saved_prompts", lambda _path: {})
+    monkeypatch.setattr("matchminer_ai.embedding.inference._saved_prompts", lambda _path, _revision=None: {})
     monkeypatch.setitem(
         sys.modules,
         "transformers",
@@ -525,27 +525,31 @@ def test_a_models_saved_prompt_is_applied_by_name_and_never_replaced(monkeypatch
             seen.extend(texts)
             return {"input_ids": [[0] * len(text) for text in texts]}
 
-    monkeypatch.setattr("matchminer_ai.embedding.inference._get_embedding_tokenizer", lambda _path: Tokenizer())
-    monkeypatch.setattr("matchminer_ai.embedding.inference._saved_prompts", lambda _path: {"query": saved})
+    monkeypatch.setattr("matchminer_ai.embedding.inference._get_embedding_tokenizer", lambda _path, _revision=None: Tokenizer())
+    monkeypatch.setattr("matchminer_ai.embedding.inference._saved_prompts", lambda _path, _revision=None: {"query": saved})
     seen.clear()
     assert embedding_inference.count_embedding_tokens(["Age: 64."], embedding_config=config) == [len(saved) + 8]
     assert seen == [saved + "Age: 64."]  # token counts see exactly what is encoded
 
 
-def test_trialspace_path_comes_from_the_config_or_the_site_config(tmp_path, monkeypatch):
-    """The preset names no TrialSpace; the site config's paths.trialspace_model fills it, and with
-    neither, embedding refuses instead of falling back to another model."""
+def test_trialspace_model_is_the_config_then_the_site_copy_then_the_published_release(tmp_path, monkeypatch):
+    """embedding.model_path wins; else the site config's local copy; else the preset's published TrialSpace-1226,
+    pinned. With none of them, embedding refuses instead of falling back to another model."""
     import pytest
 
-    from matchminer_ai.embedding.inference import _model_path
+    from matchminer_ai import load_default_preset
+    from matchminer_ai.embedding.inference import _model_source
 
     model = tmp_path / "trialspace"
     model.mkdir()
     monkeypatch.delenv("MMAI_SITE_CONFIG", raising=False)
+    preset = dict(load_default_preset().embedding)
+    assert _model_source(preset) == ("ksg-dfci/TrialSpace-1226", preset["default_revision"])
+    assert len(preset["default_revision"]) == 40
     with pytest.raises(ValueError, match="No TrialSpace model"):
-        _model_path({"model_path": None})
+        _model_source({"model_path": None})
     site = tmp_path / "site.yaml"
     site.write_text(f"paths:\n  trialspace_model: {model}\n")
     monkeypatch.setenv("MMAI_SITE_CONFIG", str(site))
-    assert _model_path({"model_path": None}) == str(model)
-    assert _model_path({"model_path": str(model)}) == str(model)
+    assert _model_source(preset) == (str(model), None)
+    assert _model_source({**preset, "model_path": "org/other", "revision": "abc"}) == ("org/other", "abc")

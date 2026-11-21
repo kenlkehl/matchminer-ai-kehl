@@ -455,12 +455,15 @@ synthetic_protocol_generation:
         enable_thinking: true
 embedding:
   # TrialSpace embeds key text only: cohort key criteria and patient key sections.
-  # model_path names your TrialSpace checkpoint (google/embeddinggemma-2 fine-tuned by
-  # matchminer_ai.training). Unset, it comes from the site config's paths.trialspace_model;
-  # with neither, embedding fails. Nothing falls back to TrialSpace-0526 or any Hub model, so
-  # vectors from different models are never mixed. Loading a checkpoint saved by
+  # The TrialSpace checkpoint: embedding.model_path (a local directory or Hub id, with an optional
+  # embedding.revision), else the site config's paths.trialspace_model (a site's local copy), else
+  # default_model at default_revision: the published TrialSpace-1226 (user, 2026-11-21). Nothing falls
+  # back from a named model that is missing to another, so vectors from different models are never
+  # mixed: re-embed both sides when changing models. Loading a checkpoint saved by
   # sentence-transformers >= 6.1 needs that version.
   model_path: null
+  default_model: ksg-dfci/TrialSpace-1226
+  default_revision: 7b1cdebf2e9b65ed261113948fa187b0e9da886e
   device: cuda
   # Encoded as training's mining encodes it (trialspace/mining.py encoder_settings): float32
   # weights with bfloat16 autocast on CUDA, the trialspace prompt profile (patients get
@@ -482,8 +485,10 @@ embedding:
 # fine-tuned checkpoint directory from the training repository's train_decision_model.py. Its own
 # model code runs (trust_remote_code), so a Hub model must pin its revision.
 decision_model:
-  model_name: "LiquidAI/d1-2B"
-  revision: "652f920e544ea37f81e4b0ce89b81d4ed0da90b1"
+  # The published decision model, MatchEval-1226 (LiquidAI/d1-2B fine-tuned; LFM Open License v1.0), pinned:
+  # its own code runs (trust_remote_code). A local checkpoint directory needs no revision.
+  model_name: "ksg-dfci/MatchEval-1226"
+  revision: "7040834b637353d55ffc3a3944e52359244c2252"
   backend: transformers
   device: cuda
   dtype: bfloat16

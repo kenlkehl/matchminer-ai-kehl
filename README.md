@@ -55,17 +55,18 @@ use the training teacher's prompts.
   either in-process with vLLM or on any OpenAI-compatible server. Other models (Gemma 4, Qwen 3.5, Reflection Beam)
   are selected per section with `model_name`, and their sampling settings come with them; see
   [LLM runtime](docs/reference/llm-runtime.md).
-- **TrialSpace.** The retriever is `google/embeddinggemma-2` fine-tuned by the training pipeline. The default preset leaves
-  `embedding.model_path` unset. Set it to your own TrialSpace model (or `paths.trialspace_model` in a site config):
-  embedding fails rather than fall back to a different model. Never compare vectors made by different TrialSpace
-  models; re-embed both sides instead.
-- **Decision model.** [`LiquidAI/d1-2B`](https://huggingface.co/LiquidAI/d1-2B) answers yes/no questions about a
-  pair in a single forward pass and runs in-process with Transformers. The default is the pinned base model, which
-  is zero-shot, so treat its scores as provisional. Point `decision_model.model_name` at a checkpoint fine-tuned by
-  the training pipeline to use one.
+- **TrialSpace.** The retriever is `google/embeddinggemma-2` fine-tuned by the training pipeline. The default is the
+  published [`ksg-dfci/TrialSpace-1226`](https://huggingface.co/ksg-dfci/TrialSpace-1226), pinned. `embedding.model_path`, or `paths.trialspace_model` in a site config, names another
+  checkpoint (a local copy, or your own). A named model that is missing raises an error rather than fall back to
+  another. Never compare vectors made by different TrialSpace models; re-embed both sides instead.
+- **Decision model.** The default is the published [`ksg-dfci/MatchEval-1226`](https://huggingface.co/ksg-dfci/MatchEval-1226), pinned: `LiquidAI/d1-2B` fine-tuned on the synthetic
+  release. It answers yes/no questions about a pair in a single forward pass and runs in-process with Transformers.
+  Point `decision_model.model_name` at a checkpoint from the training pipeline to use your own.
 
 Published models and synthetic datasets are on [Hugging Face](https://huggingface.co/ksg-dfci). The latest
-release, [collection 0526](https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526), predates the cohort and
+release is [collection 1226](https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c)
+(TrialSpace-1226, MatchEval-1226, and the mmai-synthetic-1226 dataset as it is uploaded); the earlier
+[collection 0526](https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526) predates the cohort and
 decision-model pipeline in this repository.
 
 ## Installation

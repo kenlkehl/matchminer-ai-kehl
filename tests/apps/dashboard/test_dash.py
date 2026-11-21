@@ -507,53 +507,6 @@ def test_store_is_owner_only(dash, dash_settings):
     assert json.loads(dash_settings.store_path.read_text())["format"] == "mmai-dash-store-v2"
 
 
-def write_interim(root: Path, step: int, *, complete: bool = True) -> Path:
-    """A fabricated interim export (step-<N>) with interim.json listing its files' sizes."""
-    from matchminer_ai.apps.dashboard.settings import INTERIM_DECISION_MODELS
-    folder = root / INTERIM_DECISION_MODELS / f"step-{step}"
-    folder.mkdir(parents=True)
-    files = {"config.json": b"{}", "decision_contract.json": b'{"interim": true}', "model.safetensors": b"weights"}
-    for name, data in files.items():
-        (folder / name).write_bytes(data)
-    outputs = {name: len(data) + (0 if complete else 1) for name, data in files.items()}
-    write_json(folder / "interim.json", {"format": "mmai-decision-interim-v1", "interim": True, "checkpoint_step": step,
-                                         "max_steps": 66136, "epoch": step / 66136, "outputs": outputs})
-    return folder
-
-
-def test_decision_model_prefers_final_then_newest_interim_then_fit2(dataset, tmp_path):
-    from matchminer_ai.apps.dashboard.settings import DashSettings
-
-    s = DashSettings(synthetic_run=dataset["root"], store_dir=tmp_path / "store", device="cpu")
-    root = s.synthetic_run
-    assert "fallback" in s.resolved_decision_model()[2]  # nothing yet: base d1-2B
-    smoke = root / "smoke_tests/round1_labels_fit2_20261107/decision_fit/model"
-    smoke.mkdir(parents=True)
-    (smoke / "config.json").write_text("{}")
-    assert s.resolved_decision_model()[0] == str(smoke)
-    write_interim(root, 1000, complete=False)  # still copying: sizes differ from interim.json
-    assert s.resolved_decision_model()[0] == str(smoke)
-    first = write_interim(root, 9000)
-    write_interim(root, 10000, complete=False)
-    model, revision, why = s.resolved_decision_model()
-    assert model == str(first) and revision is None
-    assert "INTERIM" in why and "9,000 of 66,136" in why and "not trained yet" in why
-    newer = write_interim(root, 12000)
-    assert s.resolved_decision_model()[0] == str(newer)
-    run = root / "trialspace/models/decision_model"  # the final model replaces the interim ones once complete
-    run.mkdir(parents=True)
-    files = {"decision_contract.json": b"{}", "model.safetensors": b"weights"}
-    for name, data in files.items():
-        (run / name).write_bytes(data)
-    assert s.resolved_decision_model()[0] == str(newer)  # no stage receipt yet
-    write_json(run / "stage_receipt.json", {"format": "mmai-stage-receipt-v1", "kind": "decision-model",
-                                            "outputs": {name: len(data) for name, data in files.items()}})
-    model, _, why = s.resolved_decision_model()
-    assert model == str(run) and "trained decision model" in why
-    explicit = DashSettings(synthetic_run=root, store_dir=tmp_path / "store", device="cpu", decision_model=str(smoke))
-    assert explicit.resolved_decision_model()[0] == str(smoke)
-
-
 def test_decision_model_device_tries_gpu0(monkeypatch, tmp_path):
     from matchminer_ai.apps.dashboard import settings as dash_settings_module
     from matchminer_ai.apps.dashboard.settings import DashSettings, parse_settings

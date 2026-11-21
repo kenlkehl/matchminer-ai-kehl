@@ -40,15 +40,15 @@ and the model metadata. Without `entity_type` it uses the model's shared `query`
 
 ## Model and settings
 
-The `embedding` configuration section selects the model and how it encodes. The preset leaves `model_path` unset:
-set it to your TrialSpace checkpoint (`google/embeddinggemma-2` fine-tuned by the training pipeline), or name it as
-`paths.trialspace_model` in the [site config](../reference/site-config.md). With neither, embedding raises
-`ValueError`; a local path that is missing or unreadable raises `FileNotFoundError`. Embedding never falls back to
-another model.
+The `embedding` configuration section selects the model and how it encodes. By default it is the published
+[`ksg-dfci/TrialSpace-1226`](https://huggingface.co/ksg-dfci/TrialSpace-1226) at a pinned revision. `model_path`, or `paths.trialspace_model` in the
+[site config](../reference/site-config.md), names another checkpoint (a local copy, or one the training pipeline
+made). A local path that is missing or unreadable raises `FileNotFoundError`; embedding never falls back from a named
+model to another.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `model_path` | `null` (the site config's `paths.trialspace_model`) | TrialSpace directory or Hugging Face model ID |
+| `model_path` | `null` (the site config's `paths.trialspace_model`, else `ksg-dfci/TrialSpace-1226`) | TrialSpace directory or Hugging Face model ID |
 | `device` | `cuda` | One device |
 | `dtype`, `autocast` | `float32`, `bfloat16` | Weight precision; autocast precision, applied on CUDA only |
 | `prompt_profile` | `trialspace` | Per-side prompts (see below) |

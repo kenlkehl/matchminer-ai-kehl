@@ -38,16 +38,28 @@ def _load_prompt_text(filename: str) -> str:
 
 
 def _model_path(embedding_config: Dict[str, Any]) -> str:
-    """The TrialSpace model: ``embedding.model_path``, else the site config's ``paths.trialspace_model``.
+    """The TrialSpace model's local directory or Hub id (see :func:`_model_source`)."""
+    return _model_source(embedding_config)[0]
 
-    A local path must be a readable directory. Nothing falls back to another model, so vectors
+
+def _model_source(embedding_config: Dict[str, Any]) -> tuple[str, str | None]:
+    """``(model, revision)``: ``embedding.model_path`` (with ``embedding.revision``), else the site config's
+    ``paths.trialspace_model``, else ``embedding.default_model`` at ``embedding.default_revision`` (the published
+    TrialSpace-1226).
+
+    A local path must be a readable directory. Nothing falls back from a named model to another, so vectors
     from different TrialSpace models are never mixed.
     """
     model_path = os.path.expanduser(str(embedding_config.get("model_path") or "").strip())
+    revision = str(embedding_config.get("revision") or "").strip() or None
     if not model_path:
         from matchminer_ai.site import load_site_config
 
         model_path = os.path.expanduser(str(load_site_config().get("paths.trialspace_model") or "").strip())
+        revision = None
+    if not model_path:
+        model_path = str(embedding_config.get("default_model") or "").strip()
+        revision = str(embedding_config.get("default_revision") or "").strip() or None
     if not model_path:
         raise ValueError(
             "No TrialSpace model: set embedding.model_path to your TrialSpace checkpoint "
@@ -61,7 +73,8 @@ def _model_path(embedding_config: Dict[str, Any]) -> str:
                 "Nothing falls back to another model: make it readable, or set "
                 "embedding.model_path to another TrialSpace and embed both sides again with it."
             )
-    return model_path
+        revision = None
+    return model_path, revision
 
 
 def _embedding_runtime(
@@ -75,11 +88,12 @@ def _embedding_runtime(
     prepended exactly as written (only the file's final newline is removed), as
     sentence-transformers prepends a model's saved prompts.
     """
-    model_path = _model_path(embedding_config)
+    model_path, revision = _model_source(embedding_config)
     device = str(embedding_config.get("device", "cpu")).strip() or "cpu"
     profile = embedding_config.get("prompt_profile")
     settings = EncoderSettings(
         model_path,
+        revision=revision,
         devices=(device,),
         batch_size=int(embedding_config.get("batch_size", 12)),
         max_seq_length=int(embedding_config["max_seq_length"]),
@@ -115,11 +129,11 @@ def _model_for(settings: EncoderSettings, prompt: str):
 
 
 @lru_cache(maxsize=4)
-def _get_embedding_tokenizer(model_path: str):
-    """Load and cache the tokenizer for embedding token counts."""
+def _get_embedding_tokenizer(model_path: str, revision: str | None = None):
+    """Load and cache the tokenizer for embedding token counts (a Hub model at its pinned revision)."""
     from transformers import AutoTokenizer
 
-    return AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    return AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, revision=revision)
 
 
 def _has_side_prompts(prompts: dict) -> bool:
@@ -136,7 +150,7 @@ def _prompt_name(prompts: dict, entity_type: str | None) -> str:
 
 
 @lru_cache(maxsize=8)
-def _saved_prompts(model_path: str) -> dict:
+def _saved_prompts(model_path: str, revision: str | None = None) -> dict:
     """The prompts a sentence-transformers model saved with its weights, without loading it.
 
     Reads config_sentence_transformers.json from a local directory or the Hugging Face
@@ -147,9 +161,9 @@ def _saved_prompts(model_path: str) -> dict:
         if not path.is_file():
             from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
-            cached = try_to_load_from_cache(model_path, "config_sentence_transformers.json")
+            cached = try_to_load_from_cache(model_path, "config_sentence_transformers.json", revision=revision)
             path = Path(cached if isinstance(cached, str) else
-                        hf_hub_download(model_path, "config_sentence_transformers.json"))
+                        hf_hub_download(model_path, "config_sentence_transformers.json", revision=revision))
         return dict(json.loads(path.read_text(encoding="utf-8")).get("prompts") or {})
     except Exception:  # noqa: BLE001 - token counting then uses the configured prompt
         return {}
@@ -247,8 +261,8 @@ def count_embedding_tokens(
     """Count embedding-model input tokens of exactly the text the encoder sees: the side's
     prompt (as :func:`generate_embeddings` resolves it) followed directly by the text."""
     settings, query_prompt = _embedding_runtime(embedding_config)
-    tokenizer = _get_embedding_tokenizer(settings.model)
-    prompts = {"query": query_prompt, **_saved_prompts(settings.model), **settings.prompts}
+    tokenizer = _get_embedding_tokenizer(settings.model, settings.revision)
+    prompts = {"query": query_prompt, **_saved_prompts(settings.model, settings.revision), **settings.prompts}
     prompt = prompts[_prompt_name(prompts, entity_type)]
     prepared = [prompt + text for text in texts]
     encoded = tokenizer(prepared, add_special_tokens=True, truncation=False)

@@ -64,7 +64,10 @@ def test_default_preset_uses_vendor_profiles_and_compatible_matching_models():
     assert set(model_prompts("trialspace")) >= {"patient_summary", "this_space", "query"}
     from matchminer_ai.matching.decision_model import decision_settings
     decision = decision_settings(config)
-    assert (decision["model_name"], decision["revision"]) == ("LiquidAI/d1-2B", "652f920e544ea37f81e4b0ce89b81d4ed0da90b1")
+    # The published MatchEval-1226 and TrialSpace-1226, pinned (user, 2026-11-21).
+    assert (decision["model_name"], len(decision["revision"])) == ("ksg-dfci/MatchEval-1226", 40)
+    assert (config.embedding["default_model"], len(config.embedding["default_revision"])) == (
+        "ksg-dfci/TrialSpace-1226", 40)
     assert decision["max_length"] == 10000
     assert config.raw["match_quality"] == {"reasonableness_cutoff": 0.5}
 

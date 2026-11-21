@@ -95,8 +95,8 @@ steps 6 and 7 as flags.
 
 ## The decision model's questions
 
-The decision model, [`LiquidAI/d1-2B`](https://huggingface.co/LiquidAI/d1-2B) or a checkpoint fine-tuned from it by
-the [training pipeline](../training/index.md), answers yes/no questions about a pair in one forward pass. Each answer
+The decision model, [`ksg-dfci/MatchEval-1226`](https://huggingface.co/ksg-dfci/MatchEval-1226) (fine-tuned from [`LiquidAI/d1-2B`](https://huggingface.co/LiquidAI/d1-2B)) or a
+checkpoint from the [training pipeline](../training/index.md), answers yes/no questions about a pair in one forward pass. Each answer
 is reported as P(yes).
 
 | Question | Asked by | Reads | Yes means |
@@ -124,8 +124,8 @@ left for the reviewer, not screened out.
 can return only failing lines (`filter_failing=True`). Outputs are derived tables keyed on `patient_id` and
 `cohort_trial_id`; merge them back onto the pairs.
 
-The default decision model is the zero-shot base model. Treat its scores as provisional until it is replaced by a
-fine-tuned checkpoint (`decision_model.model_name`) evaluated for your setting.
+The default decision model, MatchEval-1226, was trained on synthetic data only. Treat its scores as provisional until
+it has been evaluated for your setting.
 
 ## LLM versions of the checks
 

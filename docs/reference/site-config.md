@@ -36,7 +36,7 @@ its command line.
 | `paths.data_root` | everything that reads data | The data root, when neither `--data-root` nor `MMAI_DATA_ROOT` is set |
 | `paths.models_root` | `training.from_summaries` | Where trained models go (default `<data root>/../models`) |
 | `paths.hf_cache` | `evaluation.retro_fidelity` | Hugging Face cache for the teacher tokenizer (`--cache-dir` overrides it) |
-| `paths.trialspace_model` | `embed_for_matching` and everything that embeds with TrialSpace, including the dashboard's guideline features | The TrialSpace checkpoint, when the configuration's `embedding.model_path` is unset |
+| `paths.trialspace_model` | `embed_for_matching` and everything that embeds with TrialSpace, including the dashboard's guideline features | A local TrialSpace checkpoint, used when the configuration's `embedding.model_path` is unset (otherwise the published `ksg-dfci/TrialSpace-1226`) |
 | `paths.embeddinggemma2_cache` | `evaluation.retro_fidelity` | A cache holding the pinned EmbeddingGemma 2 snapshot (default: the Hugging Face cache) |
 | `paths.retro_source_root` | `evaluation.retro_cohorts` | The institution's structured EHR extract (`structured_data/`, `derived_data/`) |
 | `paths.phi_roots` | `evaluation.retro_cohorts.build_note_level_dataset` | Directories besides `<data root>/phi` where note text may be written |

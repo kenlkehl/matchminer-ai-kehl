@@ -10,7 +10,7 @@ import pytest
 from .conftest import COHORTS, PATIENTS, encoder_identity_for, write_json, write_round
 from matchminer_ai.apps.dashboard.core.cache import JSONCache
 from matchminer_ai.apps.dashboard.core.corpus import Corpus, parse_header
-from matchminer_ai.apps.dashboard.core.settings import BASE_DECISION_MODEL, Settings
+from matchminer_ai.apps.dashboard.core.settings import PUBLISHED_DECISION_MODEL, Settings
 from matchminer_ai.apps.dashboard.core.vectors import (VectorStore, discover_rounds, encoder_settings, find_hub_cache, npy_shape,
                                     select_round, validate_round)
 
@@ -47,24 +47,19 @@ def test_environment_and_command_line_overrides(tmp_path, monkeypatch):
             == tmp_path / "cli")
 
 
-def test_decision_model_default_and_fallback(tmp_path, settings):
+def test_decision_model_is_the_runs_final_model_else_the_published_one(tmp_path, settings):
+    """Only a final model scores (user, 2026-11-21): the run's, once its receipt is complete, else MatchEval-1226."""
     model, revision, why = settings.resolved_decision_model()
-    assert model == BASE_DECISION_MODEL and revision and "fallback" in why
-    smoke = settings.synthetic_run / "smoke_tests/round1_labels_fit2_20261107/decision_fit/model"
-    smoke.mkdir(parents=True)
-    (smoke / "config.json").write_text("{}")
-    model, revision, why = settings.resolved_decision_model()
-    assert model == str(smoke) and revision is None and "fit 2" in why and "not trained yet" in why
-    run = settings.synthetic_run / "trialspace/models/decision_model"  # the run's own model, once its receipt is complete
+    assert model == PUBLISHED_DECISION_MODEL and len(revision) == 40 and "published" in why
+    run = settings.synthetic_run / "trialspace/models/decision_model"
     run.mkdir(parents=True)
     files = {"decision_contract.json": b"{}", "model.safetensors": b"weights"}
     for name, data in files.items():
         (run / name).write_bytes(data)
-    assert "fit 2" in settings.resolved_decision_model()[2]
     receipt = {"format": "mmai-stage-receipt-v1", "kind": "decision-model",
                "outputs": {name: len(data) + (name == "model.safetensors") for name, data in files.items()}}
     (run / "stage_receipt.json").write_text(json.dumps(receipt))
-    assert settings.resolved_decision_model()[0] == str(smoke)  # a size differs: still copying
+    assert settings.resolved_decision_model()[0] == PUBLISHED_DECISION_MODEL  # a size differs: still copying
     receipt["outputs"]["model.safetensors"] = len(files["model.safetensors"])
     (run / "stage_receipt.json").write_text(json.dumps(receipt))
     model, revision, why = settings.resolved_decision_model()

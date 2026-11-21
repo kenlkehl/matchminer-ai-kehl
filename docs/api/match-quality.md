@@ -98,7 +98,7 @@ pass, in-process with Transformers. It serves the match questions, the boilerpla
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `model_name` | `LiquidAI/d1-2B` | Hub model, or a fine-tuned checkpoint directory from the training pipeline |
+| `model_name` | `ksg-dfci/MatchEval-1226` | Hub model, or a fine-tuned checkpoint directory from the training pipeline |
 | `revision` | a pinned commit | Required for a Hub model, because the model's own code runs (`trust_remote_code`) |
 | `backend` | `transformers` | The only backend |
 | `device`, `dtype` | `cuda`, `bfloat16` | Where and in what precision it runs |
@@ -113,8 +113,8 @@ The section is read from the configuration's raw mapping:
 config.raw["decision_model"]["model_name"] = "/path/to/decision-model"   # a fine-tuned checkpoint
 ```
 
-The preset's default is the base model without fine-tuning. Treat its scores as provisional until a fine-tuned
-checkpoint has been evaluated for your setting. The decision model runs locally, so patient text reaches only that
+The preset's default, MatchEval-1226, was trained on synthetic data only and is published without evaluation
+results. Treat its scores as provisional until it has been evaluated for your setting. The decision model runs locally, so patient text reaches only that
 model. See [how matching works](../user-guide/patient-centric-matching.md#the-decision-models-questions) for the
 questions of all three checks.
 
