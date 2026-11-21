@@ -8,7 +8,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, type Job, waitForJob } from "@/lib/api";
 import {
-  type CourseCancer,
+  type CourseRow,
+  type DiseaseCourse as Course,
   describeSource,
   type Levels,
   type RecordEvidence,
@@ -33,6 +34,7 @@ const FIELDS: Record<string, string[]> = {
     "setting",
     "line_of_therapy",
     "treatment_status",
+    "end_date",
     "best_response",
   ],
   procedure: ["procedure_type", "specimen_site", "specimen_result", "result_text"],
@@ -247,114 +249,259 @@ type Show = (evidence: RecordEvidence) => void;
 type CanShow = (evidence: RecordEvidence) => boolean;
 type ShowJson = (view: JsonView) => void;
 
-const STATUS_TONES: Record<string, string> = {
-  progression: "bg-red-50 text-red-800 ring-red-200",
-  response: "bg-green-50 text-green-800 ring-green-200",
-  no_evidence_of_disease: "bg-green-50 text-green-800 ring-green-200",
+/** The disease course's item types (singular), in display order. */
+const COURSE_TYPES: Record<string, string> = {
+  diagnosis: "Diagnosis",
+  biomarker: "Biomarker",
+  treatment: "Treatment",
+  procedure: "Procedure",
+  imaging_study: "Imaging",
+  lab_test: "Lab",
+  performance_status: "Performance status",
+  disease_assessment: "Disease assessment",
+  event: "Event",
+  counseling: "Counseling",
+};
+/** Types hidden until chosen: frequent, and seldom the course itself. */
+const HIDDEN_TYPES = ["lab_test", "counseling"];
+/** The fields each type's tag shows (so not repeated among the details). */
+const TAG_FIELDS: Record<string, string[]> = {
+  diagnosis: ["extent_at_diagnosis"],
+  biomarker: ["result"],
+  treatment: ["treatment_type"],
+  procedure: ["specimen_result"],
+  event: ["event_type"],
+  disease_assessment: ["disease_status"],
+  imaging_study: ["modality"],
+  lab_test: ["result_flag"],
+  counseling: ["counseling_kind"],
+  performance_status: ["scale", "score"],
+};
+
+const RED = "bg-red-50 text-red-800 ring-red-200";
+const GREEN = "bg-green-50 text-green-800 ring-green-200";
+const AMBER = "bg-amber-50 text-amber-800 ring-amber-200";
+const NEUTRAL = "bg-gray-100 text-gray-800 ring-gray-300";
+/** Tag colors: worsening red, improving green, stable blue, mixed or equivocal amber, the rest neutral. */
+const TAG_TONES: Record<string, string> = {
+  progression: RED,
+  recurrence: RED,
+  new_metastasis: RED,
+  death: RED,
+  malignant: RED,
+  response: GREEN,
+  no_evidence_of_disease: GREEN,
+  remission: GREEN,
   stable: "bg-sky-50 text-sky-800 ring-sky-200",
-  mixed: "bg-amber-50 text-amber-800 ring-amber-200",
-  present: "bg-gray-100 text-gray-800 ring-gray-300",
+  mixed: AMBER,
+  suspicious_or_atypical: AMBER,
+  equivocal: AMBER,
   indeterminate: "bg-white text-gray-500 ring-gray-200",
 };
 
-const first = (row: { evidence: RecordEvidence[] }): RecordEvidence | undefined =>
-  row.evidence.at(0);
+const typeLabel = (type: string) => COURSE_TYPES[type] ?? type.replace(/_/g, " ");
 
-/** Each cancer's assessments over time (the notes' disease assessments, in date order). */
+function courseDate(row: CourseRow): string {
+  if (!row.date) return "Undated";
+  const date = noteDate(row.date);
+  if (row.date_bound === "on_or_before") return `≤ ${date}`;
+  if (row.date_bound === "on_or_after") return `≥ ${date}`;
+  return date;
+}
+
+function courseSource(row: CourseRow): string {
+  if (row.source === "note" && row.note) {
+    return [
+      row.note.note_number ? `Note ${String(row.note.note_number)}` : "Note",
+      row.note.note_type,
+      row.note.document_type?.replace(/_/g, " "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (row.source === "notes") {
+    return row.mentions && row.mentions > 1
+      ? `Merged from ${String(row.mentions)} mentions`
+      : "From one note";
+  }
+  return "Patient-level record";
+}
+
+/**
+ * The patient's course on one timeline: every item type, each fact once (the patient-level record's,
+ * or merged from the notes) and each note's time points (disease assessments, performance status), in
+ * date order, with the type's tag.
+ */
 function DiseaseCourse({
   course,
   show,
   canShow,
   json,
 }: {
-  course: CourseCancer[];
+  course: Course;
   show: Show;
   canShow: CanShow;
   json: ShowJson;
 }) {
-  if (!course.length) {
-    return (
-      <p className="text-sm text-gray-600">
-        No note in these records assesses the cancer's status.
-      </p>
-    );
+  const [hidden, setHidden] = useState<string[]>(HIDDEN_TYPES);
+  const [cancer, setCancer] = useState("all");
+  if (!course.rows.length) {
+    return <p className="text-sm text-gray-600">These records have no items.</p>;
   }
+  const counts = new Map<string, number>();
+  for (const row of course.rows) counts.set(row.type, (counts.get(row.type) ?? 0) + 1);
+  const types = [
+    ...Object.keys(COURSE_TYPES).filter((t) => counts.has(t)),
+    ...[...counts.keys()].filter((t) => !(t in COURSE_TYPES)),
+  ];
+  const several = course.cancers.length > 1;
+  const labels = new Map(course.cancers.map((c) => [c.id, c.label]));
+  const rows = course.rows.filter(
+    (row) =>
+      !hidden.includes(row.type) &&
+      (cancer === "all" ||
+        (cancer === "unlinked" ? !row.cancer_ids.length : row.cancer_ids.includes(cancer))),
+  );
   return (
-    <div className="flex flex-col gap-4">
-      {course.map((cancer) => (
-        <section key={cancer.cancer_ids.join(",") || "unlinked"}>
-          <h4 className="mb-1 text-sm font-bold">
-            {cancer.label}{" "}
-            <span className="font-normal text-gray-500">({cancer.rows.length} assessments)</span>
-          </h4>
-          <table className="w-full table-fixed border-collapse rounded-md border border-gray-200 text-sm">
-            <thead className="bg-gray-50 text-left text-xs text-gray-500">
-              <tr>
-                <th className="w-28 px-2 py-1 font-medium">Date</th>
-                <th className="w-44 px-2 py-1 font-medium">Status</th>
-                <th className="px-2 py-1 font-medium">Sites with cancer</th>
-                <th className="w-56 px-2 py-1 font-medium">Source</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {cancer.rows.map((row, i) => (
-                <tr key={i} className="align-top">
-                  <td className="px-2 py-1.5 text-gray-700 tabular-nums">{noteDate(row.date)}</td>
-                  <td className="px-2 py-1.5">
-                    <span
-                      className={`rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${
-                        STATUS_TONES[row.status ?? ""] ?? STATUS_TONES.indeterminate
-                      }`}
-                    >
-                      {(row.status ?? "not stated").replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1.5 text-gray-800">
-                    {row.sites.join(", ") || "—"}
-                    {row.site_groups.length ? (
-                      <div className="text-xs text-gray-500">
-                        {row.site_groups.map((g) => g.replace(/_/g, " ")).join(" · ")}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="px-2 py-1.5 text-xs text-gray-600">
-                    <div>
-                      {row.note_number ? `Note ${String(row.note_number)}` : "Note"}
-                      {[row.note_type, row.document_type?.replace(/_/g, " ")]
-                        .filter(Boolean)
-                        .map((t) => ` · ${t ?? ""}`)
-                        .join("")}
-                    </div>
-                    <div className="flex gap-2">
-                      {first(row) && canShow(first(row) as RecordEvidence) ? (
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => {
-                            show(first(row) as RecordEvidence);
-                          }}
-                        >
-                          show in note
-                        </button>
-                      ) : null}
-                      <JsonLink
-                        onClick={() => {
-                          json({
-                            title: `Disease assessment · ${noteDate(row.date)}`,
-                            name: "disease-assessment.json",
-                            value: row.raw,
-                          });
-                        }}
-                      />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ))}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {types.map((type) => {
+          const on = !hidden.includes(type);
+          return (
+            <button
+              key={type}
+              type="button"
+              aria-pressed={on}
+              className={`rounded-full px-2 py-0.5 text-xs ring-1 ${
+                on ? "bg-gray-800 text-white ring-gray-800" : "bg-white text-gray-600 ring-gray-300"
+              }`}
+              onClick={() => {
+                setHidden(on ? [...hidden, type] : hidden.filter((h) => h !== type));
+              }}
+            >
+              {typeLabel(type)} <span className="tabular-nums">{counts.get(type)}</span>
+            </button>
+          );
+        })}
+        {several ? (
+          <select
+            aria-label="Cancer"
+            className="ml-auto h-7 rounded-md border border-gray-300 bg-white px-2 text-xs"
+            value={cancer}
+            onChange={(e) => {
+              setCancer(e.target.value);
+            }}
+          >
+            <option value="all">All cancers</option>
+            {course.cancers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+            <option value="unlinked">Not linked to a cancer</option>
+          </select>
+        ) : null}
+      </div>
+      {rows.length ? (
+        <table className="w-full table-fixed border-collapse rounded-md border border-gray-200 text-sm">
+          <thead className="bg-gray-50 text-left text-xs text-gray-500">
+            <tr>
+              <th className="w-28 px-2 py-1 font-medium">Date</th>
+              <th className="w-36 px-2 py-1 font-medium">Type</th>
+              <th className="w-40 px-2 py-1 font-medium">Tag</th>
+              <th className="px-2 py-1 font-medium">Details</th>
+              <th className="w-52 px-2 py-1 font-medium">Source</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((row, i) => (
+              <CourseLine
+                key={i}
+                row={row}
+                cancers={several ? row.cancer_ids.map((id) => labels.get(id) ?? id) : []}
+                show={show}
+                canShow={canShow}
+                json={json}
+              />
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="text-sm text-gray-600">No items of the chosen types.</p>
+      )}
     </div>
+  );
+}
+
+function CourseLine({
+  row,
+  cancers,
+  show,
+  canShow,
+  json,
+}: {
+  row: CourseRow;
+  cancers: string[];
+  show: Show;
+  canShow: CanShow;
+  json: ShowJson;
+}) {
+  const skip = TAG_FIELDS[row.type] ?? [];
+  const fields = (FIELDS[row.type] ?? [])
+    .filter((name) => !skip.includes(name) && shown(name, row.fields[name]))
+    .map((name) => fieldText(name, row.fields[name]));
+  const evidence = row.evidence.find((e) => canShow(e));
+  return (
+    <tr className="align-top">
+      <td className="px-2 py-1.5 text-gray-700 tabular-nums" title={row.date_text}>
+        {courseDate(row)}
+      </td>
+      <td className="px-2 py-1.5 text-gray-700">{typeLabel(row.type)}</td>
+      <td className="px-2 py-1.5">
+        {row.tag ? (
+          <span
+            className={`rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${TAG_TONES[row.tag] ?? NEUTRAL}`}
+          >
+            {row.tag.replace(/_/g, " ")}
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400">—</span>
+        )}
+      </td>
+      <td className="px-2 py-1.5 text-gray-800">
+        <div>{row.label}</div>
+        {fields.length ? <div className="text-xs text-gray-600">{fields.join(" · ")}</div> : null}
+        {cancers.length ? (
+          <div className="text-xs text-gray-500">Cancer: {cancers.join("; ")}</div>
+        ) : null}
+      </td>
+      <td className="px-2 py-1.5 text-xs text-gray-600">
+        <div>{courseSource(row)}</div>
+        <div className="flex gap-2">
+          {evidence ? (
+            <button
+              type="button"
+              className="link"
+              title={evidence.quote}
+              onClick={() => {
+                show(evidence);
+              }}
+            >
+              show in note
+            </button>
+          ) : null}
+          <JsonLink
+            onClick={() => {
+              json({
+                title: `${typeLabel(row.type)} · ${courseDate(row)}`,
+                name: `${row.item_id ?? row.type}.json`,
+                value: row.raw,
+              });
+            }}
+          />
+        </div>
+      </td>
+    </tr>
   );
 }
 

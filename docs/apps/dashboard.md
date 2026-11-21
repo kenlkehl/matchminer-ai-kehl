@@ -47,8 +47,13 @@ TrialSpace model and says so on Data and Models if they differ.
     workup review, and a Markdown report.
   - *Structured data:* the clinical facts extracted from the notes, patient level or note by note, each with its
     quotes and its raw JSON (each item, each note's record, the patient record). Imaging, labs and counseling are
-    extracted note by note; Patient level lists each study or test once, merged from the notes in code. **Disease course** lists each
-    cancer's assessments in date order: status, sites with cancer and the note. A corpus patient the mode's extraction store holds shows its stored records; otherwise the notes are
+    extracted note by note; Patient level lists each study or test once, merged from the notes in code.
+    **Disease course** puts every item type on one timeline in date order: each fact once (the patient-level
+    record's, else merged from the notes) and each note's disease assessments and performance status. Each row has
+    its type and a tag, the type's category: disease status, event type (such as progression or recurrence),
+    treatment type, biomarker result, specimen result, modality, ECOG score. Type chips filter the rows (labs and
+    counseling start hidden), and a patient with several cancers gets a cancer filter. A corpus patient the mode's
+    extraction store holds shows its stored records; otherwise the notes are
     extracted on request with the guideline concordance connection, and the Guidelines extraction review reuses
     them.
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision

@@ -15,6 +15,8 @@ export interface RecordItem {
   type: string;
   label: string;
   date: string | null;
+  /** Undated items: dated on or before (a mention) or on or after (planned) ``date``, a note's date. */
+  date_bound?: "on_or_before" | "on_or_after" | null;
   date_text: string;
   status: string;
   fields: Record<string, unknown>;
@@ -37,23 +39,24 @@ export interface RecordNote {
   record: unknown;
 }
 
-/** One assessment of a cancer's status in a note (disease_assessment items, in date order). */
-export interface CourseRow {
-  date: string | null;
-  note_id: string | null;
-  note_number: number | null;
-  note_type: string | null;
-  document_type: string | null;
-  status: string | null;
-  sites: string[];
-  site_groups: string[];
-  evidence: RecordEvidence[];
-  raw: unknown;
+/** One row of the disease course: a fact once, or one note's time point, with its type's tag. */
+export interface CourseRow extends RecordItem {
+  /** The type's categorical value (disease status, event type, treatment type, biomarker result, ECOG 1…). */
+  tag: string | null;
+  /** patient: the patient-level record's item; notes: merged from the notes; note: one note's time point. */
+  source: "patient" | "notes" | "note";
+  note: {
+    note_number: number | null;
+    note_type: string | null;
+    document_type: string | null;
+  } | null;
+  /** The patient-level diagnoses it concerns (a patient-level diagnosis is its own). */
+  cancer_ids: string[];
 }
 
-export interface CourseCancer {
-  cancer_ids: string[];
-  label: string;
+/** Every item type on one timeline, in date order (undated last). */
+export interface DiseaseCourse {
+  cancers: { id: string; label: string }[];
   rows: CourseRow[];
 }
 
@@ -67,7 +70,7 @@ export interface RecordsView {
     record: unknown;
   };
   documents: RecordNote[];
-  disease_course: CourseCancer[];
+  disease_course: DiseaseCourse;
   counts: {
     notes: number;
     patient_items: number;

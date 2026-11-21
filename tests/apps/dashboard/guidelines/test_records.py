@@ -47,7 +47,9 @@ def test_records_extract_view_and_criteria_screen(make_client, monkeypatch):
     done = job(client, "/api/patient/records/extract", body)["result"]
     assert done["source"]["kind"] == "session" and done["view"]["counts"]["document_items"] == 2
     course = done["view"]["disease_course"]
-    assert course[0]["label"] == "Not linked to a diagnosis" and course[0]["rows"][0]["status"] == "progression"
+    tags = {r["type"]: (r["tag"], r["source"], r["cancer_ids"]) for r in course["rows"]}
+    assert course["cancers"] == [] and tags == {"disease_assessment": ("progression", "note", []),
+                                               "performance_status": ("ECOG 3", "note", [])}
     assert done["view"]["documents"][0]["record"]["items"]["disease_assessments"]
     item = next(i for i in done["view"]["documents"][0]["items"] if i["type"] == "performance_status")
     assert item["label"].startswith("ECOG") and item["evidence"][0]["note_number"] == 1 and item["raw"]["score"] == 3

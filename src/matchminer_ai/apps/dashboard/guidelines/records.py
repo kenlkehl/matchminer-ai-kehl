@@ -40,6 +40,12 @@ TYPE_LABELS = {
 _SKIP = {"evidence", "item_type", "item_id"}
 #: Item types extracted note by note only (schema v4): the Patient level view merges their note items in code.
 NOTE_LEVEL_TYPES = ("imaging_study", "lab_test", "counseling")
+#: Item types that are time points: the disease course has a row for each note's (the others, one per fact).
+POINT_TYPES = ("disease_assessment", "performance_status")
+#: The disease course's tag of each item type: its categorical field (performance status: scale and score).
+COURSE_TAGS = {"diagnosis": "extent_at_diagnosis", "biomarker": "result", "treatment": "treatment_type",
+               "procedure": "specimen_result", "event": "event_type", "disease_assessment": "disease_status",
+               "imaging_study": "modality", "lab_test": "result_flag", "counseling": "counseling_kind"}
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +159,7 @@ def _item(item, *, level, note_id=None, note_date=None, document_type=None, numb
 
     view = item_view(item, level=level, note_id=note_id, note_date=note_date, document_type=document_type)
     return {"item_id": item.get("item_id"), "type": item["item_type"], "label": describe_item(view),
-            "date": view.date_value, "date_text": _date_text(view), "status": view.status,
+            "date": view.date_value, "date_bound": view.bound, "date_text": _date_text(view), "status": view.status,
             "fields": {k: _plain(v) for k, v in item.items() if k not in _SKIP}, "raw": item,
             "evidence": [{k: e.get(k) for k in ("note_id", "note_date", "quote", "start", "end")}
                          | {"note_number": numbers.get(e.get("note_id"))} for e in item.get("evidence") or []]}
@@ -191,28 +197,35 @@ def records_view(documents, patients, numbers: dict) -> dict:
                       "document_type": (record or {}).get("document_type") if isinstance(record, dict) else None,
                       "status": row.get("extraction_status"), "items": items,
                       "record": record if isinstance(record, dict) else None})
-    merged = merged_note_items(_records(documents), numbers, skip=set(by_type)) if patient_rows else {}
+    rows = _records(documents)
+    merged = merged_note_items(rows, numbers, lambda t: t in NOTE_LEVEL_TYPES and t not in by_type) \
+        if patient_rows else {}
     order = list(TYPE_LABELS)
     types = [{"type": t, "label": TYPE_LABELS.get(t, t.replace("_", " ").capitalize()),
               "items": by_type.get(t) or merged[t], "merged": t in merged}
              for t in sorted({*by_type, *merged}, key=lambda t: (order.index(t) if t in order else len(order), t))]
-    statuses = [r.get("extraction_status") for r in _records(documents)]
+    statuses = [r.get("extraction_status") for r in rows]
     patient_record = patient_rows[0].get("record") if patient_rows else None
     return {
         "patient": {"available": bool(patient_rows), "types": types,
                     "status": patient_rows[0].get("extraction_status") if patient_rows else None,
                     "record": patient_record if isinstance(patient_record, dict) else None},
         "documents": notes,
-        "disease_course": disease_course(notes, by_type.get("diagnosis", [])),
+        # Facts once each: the Patient level view's items, else (no patient-level record) the notes' merged.
+        "disease_course": disease_course(
+            notes, {**by_type, **merged} if patient_rows else
+            merged_note_items(rows, numbers, lambda t: t not in POINT_TYPES),
+            linked=bool(patient_rows), merged=set(merged) if patient_rows else None),
         "counts": {"notes": len(notes), "patient_items": sum(len(t["items"]) for t in types),
                    "document_items": sum(len(n["items"]) for n in notes),
                    "failed_notes": statuses.count("failed"), "partial_notes": statuses.count("partial")},
     }
 
 
-def merged_note_items(rows, numbers: dict, skip=frozenset()) -> dict[str, list]:
-    """Imaging studies, lab tests and counseling of the notes, one entry per distinct study or test (the same
-    clustering the workup and criteria queries use), for the Patient level view: no model call."""
+def merged_note_items(rows, numbers: dict, keep) -> dict[str, list]:
+    """The notes' items of the types ``keep`` accepts, one entry per distinct study, test or fact (the same
+    clustering the workup and criteria queries use): the Patient level view's imaging, labs and counseling, and
+    the disease course's facts without a patient-level record. No model call."""
     from matchminer_ai.patients.workup_queries.evaluate import cluster_items, item_view
 
     views: dict[str, list] = {}
@@ -222,7 +235,7 @@ def merged_note_items(rows, numbers: dict, skip=frozenset()) -> dict[str, list]:
             continue
         for values in record["items"].values():
             for item in values:
-                if item["item_type"] in NOTE_LEVEL_TYPES and item["item_type"] not in skip:
+                if keep(item["item_type"]):
                     views.setdefault(item["item_type"], []).append(item_view(
                         item, level="document", note_id=row.get("note_id"), note_date=row.get("note_date"),
                         document_type=record.get("document_type")))
@@ -249,32 +262,43 @@ def merged_note_items(rows, numbers: dict, skip=frozenset()) -> dict[str, list]:
     return merged
 
 
-def disease_course(notes: list[dict], diagnoses: list[dict]) -> list[dict]:
-    """Each cancer's assessments over time, from the notes' disease_assessment items (no model call).
+def _tag(item: dict):
+    fields = item["fields"]
+    if item["type"] == "performance_status":
+        scale = {"ecog": "ECOG", "karnofsky": "KPS"}.get(fields.get("scale"), fields.get("scale") or "")
+        return f"{scale} {fields['score']}".strip() if fields.get("score") is not None else None
+    value = fields.get(COURSE_TAGS.get(item["type"], ""))
+    return None if value in (None, "", "not_stated") else value
 
-    An assessment is linked to the patient-level diagnoses its ``cancer_ids`` name; assessments with none are grouped
-    as unlinked. Rows are in note-date order, each with its status, sites, site groups and quotes."""
-    labels = {d["item_id"]: d["label"] for d in diagnoses if d.get("item_id")}
-    groups: dict[tuple, list] = {}
+
+def disease_course(notes: list[dict], facts: dict[str, list], *, linked: bool, merged: set | None) -> dict:
+    """The patient's course as one timeline of every item type (no model call): each fact once (``facts``, by
+    type, the patient-level record's items or the notes' merged), and each note's time points (disease
+    assessments, performance status). Each row has its type's tag (``COURSE_TAGS``) and the patient-level
+    diagnoses it concerns (``cancer_ids``; a patient-level diagnosis is its own). ``merged``: the fact types merged
+    from the notes (None: all of them). Rows are in date order, undated last."""
+    diagnoses = facts.get("diagnosis", []) if linked else []
+    cancers = [{"id": d["item_id"], "label": d["label"]} for d in diagnoses if d.get("item_id")]
+    rows = []
+    for kind, items in facts.items():
+        if kind in POINT_TYPES:
+            continue
+        source = "notes" if merged is None or kind in merged else "patient"
+        for item in items:
+            own = kind == "diagnosis" and source == "patient" and item.get("item_id")
+            rows.append({**item, "tag": _tag(item), "source": source, "note": None,
+                         "cancer_ids": [item["item_id"]] if own else
+                         list(item["fields"].get("cancer_ids") or []) if linked else []})
     for note in notes:
         for item in note["items"]:
-            if item["type"] != "disease_assessment":
-                continue
-            fields = item["fields"]
-            key = tuple(sorted(fields.get("cancer_ids") or []))
-            groups.setdefault(key, []).append({
-                "date": note["note_date"], "note_id": note["note_id"], "note_number": note["note_number"],
-                "note_type": note["note_type"], "document_type": note["document_type"],
-                "status": fields.get("disease_status"), "sites": fields.get("disease_sites") or [],
-                "site_groups": fields.get("site_groups") or [], "evidence": item["evidence"], "raw": item["raw"],
-            })
-    course = []
-    for key, rows in sorted(groups.items(), key=lambda kv: (not kv[0], kv[0])):
-        rows.sort(key=lambda r: (r["date"] or "", r["note_number"] or 0))
-        course.append({"cancer_ids": list(key),
-                       "label": "; ".join(labels.get(c, c) for c in key) if key else "Not linked to a diagnosis",
-                       "rows": rows})
-    return course
+            if item["type"] in POINT_TYPES:
+                rows.append({**item, "tag": _tag(item), "source": "note",
+                             "note": {k: note[k] for k in ("note_number", "note_type", "document_type")},
+                             "cancer_ids": list(item["fields"].get("cancer_ids") or []) if linked else []})
+    order = list(TYPE_LABELS)
+    rows.sort(key=lambda r: (r["date"] is None, r["date"] or "", (r["note"] or {}).get("note_number") or 0,
+                             order.index(r["type"]) if r["type"] in order else len(order), r["label"]))
+    return {"cancers": cancers, "rows": rows}
 
 
 # ---------------------------------------------------------------------------
