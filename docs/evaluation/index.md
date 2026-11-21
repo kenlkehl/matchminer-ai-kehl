@@ -32,6 +32,24 @@ cohorts are extracted with the training run's frozen programs, so they match tra
 `--extraction-source SNAPSHOT` they are extracted by a code snapshot (`git archive` with a `commits.json`) instead.
 Results go to `metrics.json` and `report.md`; progress to `run_status.json` and `logs/`.
 
+### On synthetic data
+
+A synthetic run shows how the evaluation works without PHI, for the dashboard's synthetic mode. Its patients are one
+generator split of the n=5000 run (`test`: the decision model never trained on them), and its cohorts are the run's
+ctgov cohorts, both taken from its TrialSpace corpus instead of the extraction, patients and cohort table stages:
+
+```bash
+python -m matchminer_ai.evaluation.retro_fidelity.run --root <data root>/no_phi/benchmarks/<evaluation> \
+    --synthetic-corpus <n=5000 run>/trialspace/trialspace_corpus --synthetic-split test \
+    --patient-queries 100 --cohort-queries 50 --criteria-lines 1000 --embed-device cuda:0,cuda:1 --gpu 0 \
+    --no-proxy --teacher-after <files that must exist first>
+```
+
+`--embed-device` encodes on GPUs instead of the CPU. `--teacher-after` holds the label jobs until other teacher work
+is done (such as builds whose manifests it names). TrialSpace round 2 was fine-tuned on every synthetic patient, the
+test split included, so its synthetic retrieval results are optimistic; the run's `design_notes.json` says so. The
+real-patient evaluation is the meaningful one.
+
 ## Dual judge
 
 ```bash
@@ -51,6 +69,11 @@ The `databricks` judge sends the same requests to Claude Opus through a Databric
 `databricks.host` and `databricks.profile`, and `--model` or `databricks.endpoints.opus` for the endpoint name.
 Azure uses `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT`. `judge_worker --dry-run` prices the remaining
 requests without sending any, and `--max-usd` caps a judge's spending. The judge prompts are `prompts/judge.*.txt`.
+
+A synthetic judge run builds its items from a synthetic fidelity run: `build_items --synthetic-notes
+<all_synthetic_notes.parquet> --synthetic-summaries <patient_summaries_with_spaces.parquet> --synthetic-prompts
+<the prompts of the code snapshot that wrote the summaries> --components summary decision`. The extraction component
+needs the extraction stage's per-trial checkpoints, which the n=5000 run did not keep.
 
 Adjudication, browsing runs and rerunning compare and metrics are on the [dashboard](../apps/dashboard.md)'s
 Benchmarking tab, which finds runs under the site config's `dashboard.<mode>.benchmark_roots`. Real mode serves this

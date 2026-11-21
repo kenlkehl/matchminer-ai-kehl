@@ -69,7 +69,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `synthetic.population_summaries`, `synthetic.population_notes` | `<data root>/no_phi/patient_summaries.parquet`, `<data root>/no_phi/all_synthetic_notes.parquet` | Synthetic mode's population (Population management samples it) |
 | `synthetic.population_split` | none (every patient) | The split the synthetic sample is drawn from, when the summaries have a `split` column |
 | `synthetic.population_key` | `pseudo_mrn` | The synthetic tables' patient key; `patient_id` when it is the patient's own ID (the patient corpus's), not a generation-prompt ID |
-| `real.benchmark_roots`, `synthetic.benchmark_roots` | none | Folders searched for evaluation runs (Benchmarking tab) |
+| `real.benchmark_roots`, `synthetic.benchmark_roots` | none | Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under `phi` |
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
 | `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
 | `grouping` | the bundled example rules | Trial-group rules per center |
@@ -127,6 +127,7 @@ dashboard:
     benchmark_roots: [/srv/mmai/data/phi]
   synthetic:
     store_dir: /srv/mmai/data/no_phi/dashboard_synthetic
+    benchmark_roots: [/srv/mmai/data/no_phi/benchmarks]
   synthetic_run: /srv/mmai/data/no_phi/synthetic_run
   guideline_catalogs: /srv/mmai/data/no_phi/space_paradigms_nccn
   grouping: /srv/mmai/site/grouping.yaml
