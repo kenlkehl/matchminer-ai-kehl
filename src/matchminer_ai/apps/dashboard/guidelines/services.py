@@ -12,9 +12,7 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-
-class InputError(ValueError):
-    pass
+from ..core.errors import InputError  # noqa: F401  (raised here; imported from here by the routes)
 
 
 class Catalogs:
@@ -216,7 +214,10 @@ def display_considerations(frame):
 
 
 def synthetic_note_sources(settings):
-    """Expose named synthetic samples, without accepting client-supplied file paths."""
+    """Expose named synthetic samples, without accepting client-supplied file paths. Synthetic mode only: real mode
+    works on real records."""
+    if settings.phi:
+        return []
     sources = []
     if settings.biliary_synthetic_notes.is_file():
         sources.append({"id": "biliary", "label": "Biliary cancer · cholangiocarcinoma"})

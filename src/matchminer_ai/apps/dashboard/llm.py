@@ -75,6 +75,13 @@ class Connection:
             raise ValueError("Choose the model the endpoint serves (check the endpoint for its models).")
         return cls(OPENAI, normalize_endpoint(endpoint), model, (tokenizer or "").strip())
 
+    @classmethod
+    def for_task(cls, settings) -> "Connection":
+        """A session's connection for a check: its task's ``guidelines.settings.Settings`` (backend ``local`` is an
+        OpenAI-compatible server)."""
+        backend = OPENAI if settings.llm_backend == "local" else settings.llm_backend
+        return cls.make(backend, settings.endpoint, settings.model, settings.tokenizer)
+
     @property
     def configured(self) -> bool:
         return bool(self.endpoint and self.model)

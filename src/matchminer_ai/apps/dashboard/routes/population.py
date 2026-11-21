@@ -1,4 +1,5 @@
-"""Session-scoped population routes using the existing cancellable job worker."""
+"""The Population tab: a browser session's patient population, its guideline-space cohort and the concordance
+review (``guidelines.population``). Real mode adds the population cache and DuckDB sources."""
 
 import asyncio
 import json
@@ -7,13 +8,15 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
-from .jobs import BusyError
-from .population import (
+from ..core.errors import BusyError, InputError
+from ..guidelines.state import GuidelineState
+from .common import owner as session_owner
+from ..guidelines.population import (
     PopulationInference,
     adapt_tables,
     browse_databases,
@@ -23,7 +26,6 @@ from .population import (
     records,
     resolve_database,
 )
-from .services import InputError
 
 
 class PopulationRequest(BaseModel):
@@ -67,14 +69,18 @@ class PopulationReview(PopulationRequest):
     extraction_records: str | None = Field(default=None, max_length=4096)
 
 
-def register_population_routes(api, *, settings, catalogs, jobs, sessions, current_settings):
+def router(g: GuidelineState) -> APIRouter:
+    api = APIRouter()
+    settings, catalogs, jobs, sessions = g.settings, g.catalogs, g.jobs, g.population_sessions
+    current_settings = g.current_settings
+
+    def submit(owner, kind, run):
+        job = jobs.submit(kind, kind.replace("-", " "), run, owner=owner, device=settings.device)
+        return {"job": job.describe(with_result=False)}
+
     def idle(owner):
-        with jobs.lock:
-            if any(
-                j["owner"] == owner and j["status"] in {"queued", "running", "cancelling"}
-                for j in jobs.items.values()
-            ):
-                raise BusyError("Wait for the current job to finish or stop it first.")
+        if owner in jobs.active_owners():
+            raise BusyError("Wait for the current job to finish or stop it first.")
 
     def entry_for(owner, version=None, active=False):
         entry = sessions.get(owner)
@@ -88,16 +94,10 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.get("/api/population")
     def state(request: Request):
-        with jobs.lock:
-            mine = [
-                j
-                for j in jobs.items.values()
-                if j["owner"] == request.state.owner and j["kind"].startswith("population-")
-            ]
-            latest = max(mine, key=lambda j: j["updated"], default=None)
+        latest = jobs.latest(session_owner(request), prefix="population-")
         return {
-            "population": sessions.view(request.state.owner),
-            "job": jobs.get(request.state.owner, latest["id"]) if latest else None,
+            "population": sessions.view(session_owner(request)),
+            "job": latest.describe() if latest else None,
             "defaults": {
                 "size": settings.population_sample_size,
                 "seed": settings.population_seed,
@@ -110,22 +110,22 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
     if settings.phi:
         @api.get("/api/population/cache")
         def cache(path: str | None = None):
-            from .population_cache import inspect_cache
+            from ..guidelines.population_cache import inspect_cache
 
             return inspect_cache(settings, path)
 
         @api.post("/api/population/cache", status_code=202)
         def load_cache(body: CacheRequest, request: Request):
-            from .population_cache import cached_population, open_cache, resolve_cache
+            from ..guidelines.population_cache import cached_population, open_cache, resolve_cache
 
-            owner = request.state.owner
+            owner = session_owner(request)
             resolve_cache(settings, body.path)
 
             def run(progress):
                 progress("Loading preprocessed summaries and TrialSpace embeddings")
                 return sessions.save(owner, cached_population(open_cache(settings, body.path)))
 
-            return {"job_id": jobs.submit(owner, "population-cache", run)}
+            return submit(owner, "population-cache", run)
 
         @api.get("/api/population/databases")
         def databases(path: str | None = None):
@@ -138,7 +138,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
     @api.get("/api/population/extractions")
     def extractions(path: str | None = None):
         """Manifest facts of an extraction record store; no patient rows are read."""
-        from .extraction_workup import inspect_store
+        from ..guidelines.extraction_workup import inspect_store
 
         return inspect_store(settings, path)
 
@@ -169,7 +169,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.post("/api/population/sample", status_code=202)
     def sample(body: sample_request, request: Request):
-        owner = request.state.owner
+        owner = session_owner(request)
         database = getattr(body, "database", None)
         if settings.phi:
             resolve_database(settings, database)
@@ -180,13 +180,13 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
             )
             return sessions.save(owner, cohort)
 
-        return {"job_id": jobs.submit(owner, "population-sample", run)}
+        return submit(owner, "population-sample", run)
 
     @api.post("/api/population/tables", status_code=202)
     async def tables(
         request: Request, summaries: UploadFile = File(...), notes: UploadFile = File(...)
     ):
-        owner = request.state.owner
+        owner = session_owner(request)
         idle(owner)
         try:
             a = await summaries.read(settings.population_upload_limit + 1)
@@ -214,13 +214,13 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
                 ) from None
             return sessions.save(owner, cohort)
 
-        return {"job_id": jobs.submit(owner, "population-tables", run)}
+        return submit(owner, "population-tables", run)
 
     @api.post("/api/population/import")
     async def restore(request: Request, file: UploadFile = File(...)):
         from matchminer_ai.population import load_patient_cohort
 
-        owner = request.state.owner
+        owner = session_owner(request)
         idle(owner)
         try:
             with tempfile.TemporaryDirectory(prefix="guideline-cohort-import-") as tmp:
@@ -250,7 +250,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.post("/api/population/retrieve", status_code=202)
     def retrieve(body: PopulationSearch, request: Request):
-        owner = request.state.owner
+        owner = session_owner(request)
         entry = entry_for(owner, body.version)
         paths = catalogs.resolve([body.catalog_id])
         worker = PopulationInference(current_settings(owner))
@@ -266,7 +266,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
             )
             return sessions.save(owner, entry["source"], active, expected=entry)
 
-        return {"job_id": jobs.submit(owner, "population-retrieve", run)}
+        return submit(owner, "population-retrieve", run)
 
     def stage(owner, body, kind, action):
         entry = entry_for(owner, body.version, active=True)
@@ -280,32 +280,32 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
             cohort = action(worker, entry["active"], progress)
             return sessions.save(owner, entry["source"], cohort, expected=entry)
 
-        return {"job_id": jobs.submit(owner, kind, run)}
+        return submit(owner, kind, run)
 
     @api.post("/api/population/compress", status_code=202)
     def compress(body: PopulationRequest, request: Request):
         return stage(
-            request.state.owner, body, "population-compress", lambda w, c, p: w.compress(c, p)
+            session_owner(request), body, "population-compress", lambda w, c, p: w.compress(c, p)
         )
 
     @api.post("/api/population/review", status_code=202)
     def review(body: PopulationReview, request: Request):
-        entry = entry_for(request.state.owner, body.version, active=True)
+        entry = entry_for(session_owner(request), body.version, active=True)
         if body.method in ("extraction_queries", "extraction_sql"):
-            from .extraction_workup import resolve_store
+            from ..guidelines.extraction_workup import resolve_store
 
             if body.note_source != "original":
                 raise InputError("Extraction records quote the original notes; select "
                                  "original notes.")
             path = resolve_store(settings, body.extraction_records)
             return stage(
-                request.state.owner, body, "population-review",
+                session_owner(request), body, "population-review",
                 lambda w, c, p: w.review_extractions(c, path, p, method=body.method),
             )
         if body.note_source == "compressed" and entry["active"].compressed_notes is None:
             raise InputError("Compress the cohort notes first, or select original notes.")
         return stage(
-            request.state.owner,
+            session_owner(request),
             body,
             "population-review",
             lambda w, c, p: w.review(
@@ -315,7 +315,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.get("/api/population/items/{number}")
     def patients_for_item(number: int, request: Request, version: str):
-        cohort = entry_for(request.state.owner, version, active=True)["active"]
+        cohort = entry_for(session_owner(request), version, active=True)["active"]
         if not cohort.report or not 0 <= number < len(cohort.report["aggregate"]):
             raise HTTPException(404, "This workup review is unavailable.")
         # Evidence is fetched for an individual patient, avoiding an enormous dashboard payload.
@@ -335,7 +335,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.get("/api/population/patient")
     def patient(request: Request, version: str, patient_id: str):
-        cohort = entry_for(request.state.owner, version, active=True)["active"]
+        cohort = entry_for(session_owner(request), version, active=True)["active"]
         frame = cohort.summaries.loc[cohort.summaries.patient_id == patient_id]
         if frame.empty:
             raise HTTPException(404, "Patient is not in this active cohort.")
@@ -364,7 +364,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
     def results(request: Request, version: str, format: Literal["json", "csv"] = "json"):
         from matchminer_ai.population import population_results_table
 
-        cohort = entry_for(request.state.owner, version, active=True)["active"]
+        cohort = entry_for(session_owner(request), version, active=True)["active"]
         if cohort.report is None:
             raise InputError("Run the population review first.")
         if format == "json":
@@ -394,7 +394,7 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
     def export(request: Request, version: str):
         from matchminer_ai.population import save_patient_cohort
 
-        owner = request.state.owner
+        owner = session_owner(request)
         idle(owner)
         cohort = entry_for(owner, version, active=True)["active"]
         if cohort.summaries.empty:
@@ -414,11 +414,11 @@ def register_population_routes(api, *, settings, catalogs, jobs, sessions, curre
 
     @api.delete("/api/population", status_code=204)
     def clear(request: Request):
+        owner = session_owner(request)
         with jobs.lock:
-            idle(request.state.owner)
-            sessions.clear(request.state.owner)
-            for key, job in list(jobs.items.items()):
-                if job["owner"] == request.state.owner and job["kind"].startswith("population-"):
-                    del jobs.items[key]
-                    jobs.controls.pop(key, None)
+            idle(owner)
+            sessions.clear(owner)
+            jobs.clear(owner, prefix="population-")
         return Response(status_code=204)
+
+    return api

@@ -438,9 +438,9 @@ class PopulationInference:
 
     @staticmethod
     def connection(settings):
-        from .settings import VERTEX_PROFILES
+        from .settings import VERTEX_BACKENDS, vertex_profiles
 
-        profile = VERTEX_PROFILES.get(settings.llm_backend, {})
+        profile = vertex_profiles()[settings.llm_backend] if settings.llm_backend in VERTEX_BACKENDS else {}
         return {
             "provider": settings.llm_backend,
             "model": profile.get("model", settings.model),

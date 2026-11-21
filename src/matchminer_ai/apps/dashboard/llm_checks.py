@@ -107,20 +107,22 @@ class LLMChecks:
 
         return {"version": getattr(matchminer_ai, "__version__", None), "path": str(Path(matchminer_ai.__file__).parent)}
 
-    def connection_unavailable(self) -> str | None:
-        if not self.connection.configured:
+    def connection_unavailable(self, connection: Connection | None = None) -> str | None:
+        connection = connection or self.connection
+        if not connection.configured:
             return "No LLM endpoint is configured (Data and Models)."
-        return vertex_credentials_error() if self.connection.vertex else None
+        return vertex_credentials_error() if connection.vertex else None
 
-    def good_option_unavailable(self) -> str | None:
-        if reason := self.connection_unavailable():
+    def good_option_unavailable(self, connection: Connection | None = None) -> str | None:
+        if reason := self.connection_unavailable(connection):
             return reason
-        if not (Path(self.settings.good_options_catalog) / "manifest.json").is_file():
+        if not self.settings.good_options_catalog or not (Path(self.settings.good_options_catalog)
+                                                          / "manifest.json").is_file():
             return f"No GoodOption catalog at {self.settings.good_options_catalog}."
         return None
 
-    def criteria_unavailable(self) -> str | None:
-        if reason := self.connection_unavailable():
+    def criteria_unavailable(self, connection: Connection | None = None) -> str | None:
+        if reason := self.connection_unavailable(connection):
             return reason
         import matchminer_ai.matching as matching
 
@@ -131,14 +133,19 @@ class LLMChecks:
             return "The installed inference package's preset has no llm_criteria_check section."
         return None
 
-    def describe(self) -> dict:
-        return {"connection": self.connection.describe(), "notice": NOTICE,
+    def describe(self, connections: dict[str, Connection] | None = None) -> dict:
+        """The checks' state; ``connections``: the session's connection per check (``good_option``,
+        ``criteria_llm``), else the server's default."""
+        connections = connections or {}
+        good_option, criteria = connections.get("good_option"), connections.get("criteria_llm")
+        return {"connection": (good_option or self.connection).describe(), "notice": NOTICE,
                 "defaults": {"backend": DEFAULT_BACKEND, "endpoint": default_endpoint(), "model": NEMOTRON},
                 "vertex_profiles": {k: {**v, "label": VERTEX_LABELS[k], "project": vertex_project()}
                                     for k, v in vertex_profiles().items()},
-                "good_option": {"available": self.good_option_unavailable() is None,
-                                "reason": self.good_option_unavailable()},
-                "criteria": {"available": self.criteria_unavailable() is None, "reason": self.criteria_unavailable()},
+                "good_option": {"available": self.good_option_unavailable(good_option) is None,
+                                "reason": self.good_option_unavailable(good_option)},
+                "criteria": {"available": self.criteria_unavailable(criteria) is None,
+                             "reason": self.criteria_unavailable(criteria)},
                 "package": self.package(), "rubric": rubric(), "jobs": self.jobs.recent(10)}
 
     # ------------------------------------------------------------------ keys
@@ -193,27 +200,29 @@ class LLMChecks:
             self.running[key] = job.id
         return {"job": job.describe(with_result=False)}
 
-    def good_option(self, patient: dict, trial_id: str, drugs: list[dict], rerun: bool = False) -> dict:
+    def good_option(self, patient: dict, trial_id: str, drugs: list[dict], rerun: bool = False,
+                    connection: Connection | None = None) -> dict:
         """Start (or return the cached) GoodOption check of a patient (``id`` and ``key``, the cancer history the
-        dashboard scores with) and a trial; ``drugs`` are the store's drug entries of the trial (class links)."""
-        reason = self.good_option_unavailable()
+        dashboard scores with) and a trial; ``drugs`` are the store's drug entries of the trial (class links).
+        ``connection``: the session's (else the server's default)."""
+        connection = connection or self.connection
+        reason = self.good_option_unavailable(connection)
         if reason:
             raise ValueError(reason)
-        connection = self.connection
         config = connection.configure(self.base_config(), ("llm_good_option",))
         key = self.good_option_key(patient["key"], trial_id, connection, config)
         return self._start(key, "good_option", f"GoodOption check {patient['id']} x {trial_id}",
                            lambda progress: self._run_good_option(patient, trial_id, drugs, connection, config,
                                                                   progress), rerun)
 
-    def criteria(self, pair, rerun: bool = False) -> dict:
+    def criteria(self, pair, rerun: bool = False, connection: Connection | None = None) -> dict:
         """Start (or return the cached) per-criterion LLM check of a patient and a cohort (a ``PairText``)."""
-        reason = self.criteria_unavailable()
+        connection = connection or self.connection
+        reason = self.criteria_unavailable(connection)
         if reason:
             raise ValueError(reason)
         if not pair.items:
             raise ValueError("this cohort has no tagged criteria lines (per-criterion checks need them)")
-        connection = self.connection
         config = connection.configure(self.base_config(), ("llm_criteria_check",))
         key = self.criteria_key(pair, connection, config)
         return self._start(key, "criteria_llm", f"LLM criteria check {pair.patient_id} x {pair.cohort_id}",

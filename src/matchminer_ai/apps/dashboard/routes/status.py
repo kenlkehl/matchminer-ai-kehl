@@ -2,20 +2,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
 
 from .. import pipeline
 from ..core import cancer_types
-from ..llm import Connection, discover_models
 from ..state import DashState
 from .common import owner
-
-
-class ConnectionRequest(BaseModel):
-    backend: str = "openai"
-    endpoint: str | None = Field(default=None, max_length=2048)
-    model: str | None = Field(default=None, max_length=512)
-    tokenizer: str | None = Field(default=None, max_length=512)
 
 
 def router(state: DashState) -> APIRouter:
@@ -62,23 +53,5 @@ def router(state: DashState) -> APIRouter:
         if found is None:
             raise HTTPException(404, "This job has expired, belongs to another browser session or cannot be stopped.")
         return found.describe(with_result=False)
-
-    # The LLM checks' connection (replaced by the per-task models in routes.models).
-
-    @api.get("/api/llm")
-    def llm():
-        return state.llm.describe()
-
-    @api.post("/api/llm")
-    def set_llm(request: ConnectionRequest):
-        state.llm.set_connection(Connection.make(request.backend, request.endpoint, request.model, request.tokenizer))
-        return state.llm.describe()
-
-    @api.post("/api/llm/models")
-    async def llm_models(request: ConnectionRequest):
-        connection = (Connection.make(request.backend) if request.backend != "openai"
-                      else state.llm.connection if not request.endpoint
-                      else Connection("openai", "", "", ""))
-        return await discover_models(connection, request.endpoint)
 
     return api

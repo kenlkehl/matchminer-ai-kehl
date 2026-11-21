@@ -192,11 +192,12 @@ class JobManager:
                     job.finished = job.updated
             return job
 
-    def latest(self, owner: str, *, kinds: tuple[str, ...] | None = None,
-               exclude_prefix: str | None = None) -> Job | None:
+    def latest(self, owner: str, *, prefix: str | None = None, exclude_prefix: str | None = None) -> Job | None:
+        """The session's most recently updated job (of kinds starting with ``prefix``, not ``exclude_prefix``)."""
         with self.lock:
             self.clean()
-            mine = [j for j in self.jobs.values() if j.owner == owner and (kinds is None or j.kind in kinds)
+            mine = [j for j in self.jobs.values() if j.owner == owner
+                    and (prefix is None or j.kind.startswith(prefix))
                     and not (exclude_prefix and j.kind.startswith(exclude_prefix))]
             return max(mine, key=lambda j: j.updated) if mine else None
 

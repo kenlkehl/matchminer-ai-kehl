@@ -1,30 +1,22 @@
-"""Server-side configuration; no clinical data or model weights live in this package.
+"""Settings of the app's guideline features (the Patient tab's Guidelines, the Population tab) and its model
+connections, one per LLM task.
 
-One app, two deployments. The default is the non-PHI app. PHI mode (`mmai-guideline-fetcher --phi`,
-Settings(phi=True)) reads real patient records from an operator-selected DuckDB file
-or preprocessed population cache, binds only to loopback, requires an access token
-and keeps its own cache under the data root's phi/ folder.
+``phi`` follows the app's mode (``DashSettings.mode == "real"``): real patient records come from an operator-selected
+DuckDB file or a preprocessed population cache, and the caches stay under the data root's ``phi/`` side; synthetic
+mode reads the synthetic population and never a ``phi`` folder.
 
-Paths default to folders under the data root (``matchminer_ai.site.data_root``: ``--data-root``,
-``MMAI_DATA_ROOT`` or the site config's ``paths.data_root``). Institution-specific values come from the site
-config (``matchminer_ai.site``), under ``guideline_fetcher``, ``vertex`` and ``databricks``; see the
-site-config reference in the docs.
+Paths default to folders under the data root (``matchminer_ai.site.data_root``). Institution-specific values come
+from the site config, read when a value is needed (never at import, so ``--site-config`` applies):
+``dashboard.<mode>.<key>`` for a mode's data (``real`` or ``synthetic``), ``dashboard.guideline_catalogs``, and
+``vertex`` and ``databricks`` for the connection profiles; see the site-config reference in the docs.
 """
 
-import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from matchminer_ai.apps.common import security
 from matchminer_ai.llm import connections
 from matchminer_ai.site import data_root, load_site_config
-
-ROOT = Path(__file__).resolve().parent
-SITE = load_site_config()
-DEFAULT_PORT = 8034
-# PHI mode only.
-PHI_PORT = 8044
 
 
 def data_path(relative):
@@ -32,70 +24,81 @@ def data_path(relative):
     return data_root() / relative
 
 
-def site_path(key, relative):
-    """The site config's ``guideline_fetcher.<key>``, else ``relative`` under the data root."""
-    value = SITE.get(f"guideline_fetcher.{key}")
-    return Path(value).expanduser() if value else data_path(relative)
+def site_path(phi, key, relative):
+    """The site config's ``dashboard.<mode>.<key>``, else ``relative`` under the data root (None without one)."""
+    value = load_site_config().get(f"dashboard.{'real' if phi else 'synthetic'}.{key}")
+    if value:
+        return Path(value).expanduser()
+    return data_path(relative) if relative else None
 
 
 # Each mode keeps model metadata and guideline embeddings on its own side of the data root.
 NO_PHI_CACHE = "no_phi/guideline_fetcher_cache"
 PHI_CACHE = "phi/guideline_fetcher_phi_cache"
+POPULATION_ARCHIVE_LIMIT = 8 * 1024**3
+
+
+def default_catalog_root():
+    """The finalized NCCN catalogs both modes use (site config ``dashboard.guideline_catalogs``)."""
+    value = load_site_config().get("dashboard.guideline_catalogs")
+    return (Path(value).expanduser() if value else data_path("no_phi/space_paradigms_nccn")).resolve()
 
 
 def default_population_duckdb():
-    """PHI mode's real-patient database copy (site config ``guideline_fetcher.population_duckdb``)."""
-    return site_path("population_duckdb", "phi/guideline_fetcher_population.duckdb")
+    """Real mode's patient database copy (site config ``dashboard.real.population_duckdb``)."""
+    return site_path(True, "population_duckdb", "phi/guideline_fetcher_population.duckdb")
 
 
 def default_population_cache():
-    """Built by the preprocess_population command; contains PHI, so it stays beside the database."""
+    """Built by the preprocess_population command; contains PHI, so it stays beside the database (site config
+    ``dashboard.real.population_cache``)."""
+    configured = site_path(True, "population_cache", None)
+    if configured:
+        return configured
     duckdb = default_population_duckdb()
     return duckdb.parent / "guideline_population_cache" / duckdb.stem
 
 
 def default_duckdb_roots():
-    """Folders PHI mode may browse for DuckDB files (site config ``guideline_fetcher.duckdb_roots``)."""
-    roots = SITE.get("guideline_fetcher.duckdb_roots")
-    return os.pathsep.join(str(Path(r).expanduser()) for r in roots) if roots else str(data_root())
+    """Folders real mode may browse for DuckDB files (site config ``dashboard.real.duckdb_roots``)."""
+    roots = load_site_config().get("dashboard.real.duckdb_roots")
+    return [Path(r).expanduser() for r in roots] if roots else [data_root()]
 
 
 def default_extraction_records(phi):
-    """Structured extraction records built offline by the preprocess_extractions command. PHI mode's sit beside its
-    population cache; the non-PHI app's hold synthetic notes only."""
+    """Structured extraction records built offline by the preprocess_extractions command. Real mode's sit beside its
+    population cache; synthetic mode's hold synthetic notes only."""
+    configured = site_path(phi, "extraction_records", None)
+    if configured:
+        return configured
     if phi:
         duckdb = default_population_duckdb()
         return duckdb.parent / "guideline_extraction_records" / duckdb.stem
     return data_path("no_phi/guideline_fetcher_extractions/synthetic")
 
 
-DEFAULT_ACCESS_TOKEN_FILE = "~/.config/guideline-fetcher-phi/access_token"
-MIN_ACCESS_TOKEN_LENGTH = security.MIN_ACCESS_TOKEN_LENGTH
-# The connection profiles (matchminer_ai.llm.connections), read once at import: the Vertex project is the site
-# config's vertex.project. Gemini 4 Hydrogen (GA 2026-11-12) is the default since 2026-11-14 (user: the Gemma 4 26B
-# MaaS endpoint "is very janky").
-GEMINI_PROJECT = connections.vertex_project()
-VERTEX_PROFILES = connections.vertex_profiles()
-GEMINI4_PROFILE = VERTEX_PROFILES["gemini4_vertex"]
-GEMINI_PROFILE = VERTEX_PROFILES["gemini_vertex"]
-GEMMA_PROFILE = VERTEX_PROFILES["gemma_vertex"]
+# The connection profiles (matchminer_ai.llm.connections): the Vertex project is the site config's vertex.project.
+# Gemini 4 Hydrogen (GA 2026-11-12) is the default since 2026-11-14 (user: the Gemma 4 26B MaaS endpoint "is very
+# janky").
 VERTEX_LABELS = connections.VERTEX_LABELS
 GEMINI_BACKENDS = connections.GEMINI_BACKENDS
+VERTEX_BACKENDS = frozenset(connections.VERTEX_MODELS)  # Gemini and Gemma MaaS
+DEFAULT_BACKEND = "gemini4_vertex"
+LOCAL = "local"  # an OpenAI-compatible server (vLLM)
+
+
+def vertex_project():
+    return connections.vertex_project()
+
+
+def vertex_profiles():
+    return connections.vertex_profiles()
+
+
 # Claude through the Databricks Unity AI Gateway's Anthropic Messages route, for the SQL agent only (2026-11-19, user
-# instruction; Gemini stays available). The server fixes the gateway URL (GUIDELINE_DATABRICKS_HOST, else the site
-# config's databricks.host). The model is the full three-part endpoint name from the gateway onboarding email
-# (GUIDELINE_DATABRICKS_SONNET_ENDPOINT fills it in). Access tokens come from the Databricks CLI login profile
-# (`databricks auth login --host <host> --profile unity-gateway`).
-DATABRICKS_HOST = (os.getenv("GUIDELINE_DATABRICKS_HOST") or connections.databricks_host()).rstrip("/")
-DATABRICKS_PROFILE = os.getenv("GUIDELINE_DATABRICKS_PROFILE") or connections.databricks_profile()
-CLAUDE_PROFILE = {
-    "endpoint": connections.claude_gateway_endpoint(DATABRICKS_HOST),
-    "model": (os.getenv("GUIDELINE_DATABRICKS_SONNET_ENDPOINT") or SITE.get("databricks.sonnet_endpoint")
-              or "").strip(),
-    # Unused: hosted prompt budgets use conservative UTF-8 bytes.
-    "tokenizer": connections.VERTEX_TOKENIZER,
-}
-CLAUDE_BACKENDS = {"claude_databricks": CLAUDE_PROFILE}
+# instruction; Gemini stays available). The server fixes the gateway URL (the site config's databricks.host). The
+# model is the full three-part endpoint name (default: the site config's databricks.endpoints.sonnet). Access tokens
+# come from the Databricks CLI login profile (`databricks auth login --host <host> --profile <profile>`).
 CLAUDE_LABELS = {"claude_databricks": "Claude · Databricks AI Gateway"}
 # Sonnet 5.5's default. On two colon items (2026-11-19) medium took the same time (~25 s per item) but skipped
 # reference-date bounds and planned-only reasons that high effort checked.
@@ -103,8 +106,27 @@ CLAUDE_EFFORT = "high"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
 CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 # Backends that serve only this task.
-SQL_ONLY_BACKENDS = frozenset(CLAUDE_BACKENDS)
+SQL_ONLY_BACKENDS = frozenset(CLAUDE_LABELS)
 SQL_TASK = "workup_sql"
+
+
+def databricks_profile():
+    return connections.databricks_profile()
+
+
+def claude_backends():
+    """{backend: {endpoint, model, tokenizer}}: the gateway URL from the site config, the Sonnet endpoint name
+    offered first."""
+    host = connections.databricks_host().rstrip("/")
+    return {"claude_databricks": {
+        "endpoint": connections.claude_gateway_endpoint(host),
+        "model": str(load_site_config().get("databricks.endpoints.sonnet") or "").strip(),
+        # Unused: hosted prompt budgets use conservative UTF-8 bytes.
+        "tokenizer": connections.VERTEX_TOKENIZER,
+    }}
+
+
+# Every LLM task of the app, each with its own connection (until set: see Settings.for_task).
 LLM_TASKS = {
     "summarize": "Patient summarization",
     "compress": "Note compression",
@@ -112,6 +134,8 @@ LLM_TASKS = {
     SQL_TASK: "Guideline concordance checks: SQL agent",
     "workup_full_backup": "Guideline concordance checks: Full note backup",
     "workup_agent_backup": "Guideline concordance checks: Agent backup",
+    "good_option": "GoodOption checks",
+    "criteria_llm": "Per-criterion LLM checks",
 }
 
 
@@ -121,32 +145,18 @@ normalize_endpoint = connections.normalize_endpoint
 def mode_side_error(phi, path):
     """Why ``path`` is on the other mode's side of data/ (None when it is not).
 
-    PHI-mode data and caches never sit in a no_phi folder, and the non-PHI app
-    never reads or writes a phi folder.
+    Real-mode data and caches never sit in a no_phi folder, and synthetic mode never reads or writes a phi folder.
     """
     parts = Path(path).expanduser().resolve().parts
     if phi and "no_phi" in parts:
-        return "PHI mode keeps patient records out of no_phi folders."
+        return "Real mode keeps patient records out of no_phi folders."
     if not phi and "phi" in parts:
-        return "The non-PHI app never uses a phi folder."
+        return "Synthetic mode never uses a phi folder."
     return None
 
 
-def access_token_file():
-    return Path(os.getenv("GUIDELINE_ACCESS_TOKEN_FILE", DEFAULT_ACCESS_TOKEN_FILE)).expanduser()
-
-
-def load_access_token():
-    """PHI mode: GUIDELINE_ACCESS_TOKEN, else a private token file created on first use
-    (``matchminer_ai.apps.common.security.load_access_token``)."""
-    return security.load_access_token("GUIDELINE_ACCESS_TOKEN", access_token_file())
-
-
 def default_device():
-    """Use CUDA when PyTorch can access it; honor an operator's explicit choice."""
-    requested = os.getenv("MMAI_DEVICE", "auto").strip() or "auto"
-    if requested != "auto":
-        return requested
+    """CUDA when PyTorch can reach it, else the CPU (the app passes its own device)."""
     import torch
 
     return "cuda" if torch.cuda.is_available() else "cpu"
@@ -154,72 +164,39 @@ def default_device():
 
 @dataclass
 class Settings:
-    # The PHI deployment (mmai-guideline-fetcher --phi); see the module docstring.
+    # Real patient records (the app's real mode); see the module docstring.
     phi: bool = False
-    llm_backend: str = field(
-        default_factory=lambda: os.getenv("MMAI_LLM_BACKEND", "gemini4_vertex")
-    )
-    # None takes GUIDELINE_ALLOWED_HOSTS, else the mode's default (see __post_init__).
-    allowed_hosts: list[str] | None = None
+    # The default connection; a task's own connection overrides it (task_connections, for_task).
+    llm_backend: str = DEFAULT_BACKEND
     # Both modes use the same finalized NCCN catalogs.
-    catalog_root: Path = field(
-        default_factory=lambda: Path(
-            os.getenv("GUIDELINE_CATALOG_ROOT") or str(data_path("no_phi/space_paradigms_nccn"))
-        ).resolve()
-    )
-    endpoint: str = field(
-        default_factory=lambda: os.getenv("MMAI_ENDPOINT", "http://localhost:8000/v1").rstrip(
-            "/"
-        )
-    )
-    model: str = field(
-        default_factory=lambda: os.getenv("MMAI_LLM_MODEL", "Qwen/Qwen3.8-27B-FP8")
-    )
-    tokenizer: str = field(
-        default_factory=lambda: os.getenv("MMAI_TOKENIZER", "Qwen/Qwen3.8-27B-FP8")
-    )
+    catalog_root: Path = field(default_factory=default_catalog_root)
+    endpoint: str = "http://localhost:8000/v1"
+    model: str = "Qwen/Qwen3.8-27B-FP8"
+    tokenizer: str = "Qwen/Qwen3.8-27B-FP8"
+    # TrialSpace and the decision model run in the app's process, on this device.
     device: str = field(default_factory=default_device)
-    # None takes GUIDELINE_CACHE, else NO_PHI_CACHE or, in PHI mode, PHI_CACHE.
+    # The app's decision-model section (model, revision, dtype, budgets), so guideline features score with the
+    # model the other tabs use and the package holds one loaded copy. Empty: the preset's.
+    decision_model: dict = field(default_factory=dict)
+    # None: NO_PHI_CACHE or, in real mode, PHI_CACHE.
     cache: Path | None = None
-    example: Path = field(
-        default_factory=lambda: Path(
-            os.getenv("GUIDELINE_SYNTHETIC_EXAMPLE")
-            or str(data_path("no_phi/guideline_fetcher_examples/patient_summary.json"))
-        )
-    )
-    # The non-PHI synthetic population sample.
-    population_summaries: Path = field(default_factory=lambda: Path(
-        os.getenv("GUIDELINE_POPULATION_SUMMARIES")
-        or site_path("population_summaries", "no_phi/patient_summaries.parquet")))
-    population_notes: Path = field(default_factory=lambda: Path(
-        os.getenv("GUIDELINE_POPULATION_NOTES")
-        or site_path("population_notes", "no_phi/all_synthetic_notes.parquet")))
-    # PHI mode only: the real-patient database, its preprocessed cache and browsable folders.
-    population_duckdb: Path = field(default_factory=lambda: Path(
-        os.getenv("GUIDELINE_POPULATION_DUCKDB") or default_population_duckdb()))
-    population_cache: Path = field(default_factory=lambda: Path(
-        os.getenv("GUIDELINE_POPULATION_CACHE") or default_population_cache()))
-    duckdb_roots: list[Path] = field(default_factory=lambda: [
-        Path(p) for p in (os.getenv("GUIDELINE_DUCKDB_ROOTS") or default_duckdb_roots()).split(os.pathsep)
-        if p.strip()
-    ])
-    # None takes GUIDELINE_EXTRACTION_RECORDS, else the mode's default (see __post_init__).
+    # Synthetic mode's population sample.
+    population_summaries: Path | None = None
+    population_notes: Path | None = None
+    # Real mode only: the patient database, its preprocessed cache and browsable folders.
+    population_duckdb: Path = field(default_factory=default_population_duckdb)
+    population_cache: Path = field(default_factory=default_population_cache)
+    duckdb_roots: list[Path] = field(default_factory=default_duckdb_roots)
+    # None: the mode's default (see __post_init__).
     extraction_records: Path | None = None
-    population_sample_size: int = field(default_factory=lambda: int(os.getenv("GUIDELINE_POPULATION_SAMPLE_SIZE", "1000")))
-    population_seed: int = field(default_factory=lambda: int(os.getenv("GUIDELINE_POPULATION_SEED", "23")))
+    population_sample_size: int = 1000
+    population_seed: int = 23
     population_upload_limit: int = 512 * 1024 * 1024
-    population_archive_limit: int = field(default_factory=lambda: int(os.getenv(
-        "GUIDELINE_POPULATION_ARCHIVE_MAX_BYTES", str(8 * 1024**3))))
+    population_archive_limit: int = POPULATION_ARCHIVE_LIMIT
     ttl: int = 3600
-    synthetic_notes: str | None = field(
-        default_factory=lambda: os.getenv("GUIDELINE_SYNTHETIC_NOTES")
-    )
-    biliary_synthetic_notes: Path = field(
-        default_factory=lambda: Path(
-            os.getenv("GUIDELINE_BILIARY_SYNTHETIC_NOTES")
-            or str(data_path("no_phi/guideline_fetcher_examples/biliary_patient_notes.csv"))
-        )
-    )
+    # Synthetic mode's example notes: a CSV in place of the Hub sample, and the biliary case.
+    synthetic_notes: str | None = None
+    biliary_synthetic_notes: Path | None = None
     max_upload: int = 20 * 1024 * 1024
     reasoning: bool = False
     backup_enabled: bool = False
@@ -227,32 +204,30 @@ class Settings:
     task_connections: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.allowed_hosts is None:
-            # PHI mode accepts loopback names only, rejecting DNS-rebinding Host headers.
-            default = ",".join(security.LOOPBACK_HOSTS) if self.phi else "*"
-            self.allowed_hosts = [
-                host.strip()
-                for host in os.getenv("GUIDELINE_ALLOWED_HOSTS", default).split(",")
-                if host.strip()
-            ]
         if self.cache is None:
-            self.cache = Path(os.getenv("GUIDELINE_CACHE") or data_path(PHI_CACHE if self.phi else NO_PHI_CACHE))
+            self.cache = data_path(PHI_CACHE if self.phi else NO_PHI_CACHE)
+        self.cache = Path(self.cache)
         # A cache override must stay on the mode's own side of data/.
-        parts = Path(self.cache).expanduser().resolve().parts
-        if self.phi and "no_phi" in parts:
-            raise ValueError("PHI mode never writes to a no_phi folder. Choose a PHI GUIDELINE_CACHE.")
-        if not self.phi and "phi" in parts:
-            raise ValueError("The non-PHI app never writes to a phi folder. Choose another GUIDELINE_CACHE.")
+        side_error = mode_side_error(self.phi, self.cache)
+        if side_error:
+            raise ValueError(side_error + " Choose another guideline cache.")
+        if self.population_summaries is None:
+            self.population_summaries = site_path(False, "population_summaries", "no_phi/patient_summaries.parquet")
+        if self.population_notes is None:
+            self.population_notes = site_path(False, "population_notes", "no_phi/all_synthetic_notes.parquet")
+        if self.biliary_synthetic_notes is None:
+            self.biliary_synthetic_notes = data_path("no_phi/guideline_fetcher_examples/biliary_patient_notes.csv")
+        self.duckdb_roots = [Path(p) for p in self.duckdb_roots]
         if self.extraction_records is None:
-            self.extraction_records = Path(os.getenv("GUIDELINE_EXTRACTION_RECORDS")
-                                           or default_extraction_records(self.phi))
+            self.extraction_records = default_extraction_records(self.phi)
+        self.extraction_records = Path(self.extraction_records)
         side_error = mode_side_error(self.phi, self.extraction_records)
         if side_error:
-            raise ValueError(side_error + " Choose another GUIDELINE_EXTRACTION_RECORDS.")
+            raise ValueError(side_error + " Choose other extraction records.")
 
     @property
     def mode(self):
-        return "phi" if self.phi else "standard"
+        return "real" if self.phi else "synthetic"
 
     def extraction_config(self):
         """The inference configuration for extraction-based workup checks.
@@ -282,13 +257,13 @@ class Settings:
         """
         remote = dict(section["remote"])
         local = dict(section.get("local", {}))
-        if self.llm_backend in CLAUDE_BACKENDS:
+        if self.llm_backend in SQL_ONLY_BACKENDS:
             if name != "workup_sql_agent":
                 raise ValueError("Claude through Databricks serves only the SQL agent.")
-            profile = CLAUDE_BACKENDS[self.llm_backend]
+            profile = claude_backends()[self.llm_backend]
             remote.update(
                 provider="databricks_anthropic", server_urls=[profile["endpoint"]],
-                databricks_profile=DATABRICKS_PROFILE, model_name=self.model,
+                databricks_profile=databricks_profile(), model_name=self.model,
                 tokenizer_name=profile["tokenizer"], extra_body={},
                 request_params={"max_tokens": min(
                     65536, remote.get("request_params", {}).get("max_tokens", 32768)),
@@ -298,9 +273,9 @@ class Settings:
             local["engine"] = {**local.get("engine", {}), "max_model_len": CLAUDE_CONTEXT}
             section.update(structured_outputs=True, reasoning_effort=CLAUDE_EFFORT,
                            sampling_profile="none")
-        elif self.llm_backend in VERTEX_PROFILES:
+        elif self.llm_backend in VERTEX_BACKENDS:
             backend = self.llm_backend
-            profile = VERTEX_PROFILES[backend]
+            profile = vertex_profiles()[backend]
             remote.update(
                 model_name=profile["model"], tokenizer_name=profile["tokenizer"],
                 request_params=connections.vertex_request_params(
@@ -345,7 +320,7 @@ class Settings:
     @property
     def thinking_supported(self):
         return self.llm_backend == "gemma_vertex" or (
-            self.llm_backend == "local"
+            self.llm_backend == LOCAL
             and bool(re.search(r"(?:qwen[-_ ]?3|gemma[-_ ]?4)", self.model, re.IGNORECASE))
         )
 
@@ -357,7 +332,8 @@ class Settings:
         c.model_metadata_cache_dir = str(self.cache)
         # TrialSpace and the decision model (match-quality scoring) run locally.
         c.embedding["device"] = self.device
-        c.raw["decision_model"]["device"] = self.device
+        c.raw["decision_model"].update(self.decision_model)
+        c.raw["decision_model"]["device"] = self.decision_model.get("device", self.device)
         c.remote.update(
             enabled=True,
             server_urls=[self.endpoint],
@@ -376,9 +352,9 @@ class Settings:
         c.patient["remote"]["extra_body"] = (
             {"chat_template_kwargs": template.copy()} if template else {}
         )
-        if self.llm_backend in VERTEX_PROFILES:
+        if self.llm_backend in VERTEX_BACKENDS:
             backend = self.llm_backend
-            profile = VERTEX_PROFILES[backend]
+            profile = vertex_profiles()[backend]
             context_window = connections.vertex_context_tokens(backend)
             # Provider, project, endpoint and, for Gemma MaaS, its request pacing.
             c.remote.update(connections.vertex_remote(backend))
@@ -394,9 +370,9 @@ class Settings:
                 request_params=connections.vertex_request_params(backend, connections.VERTEX_MAX_OUTPUT_TOKENS),
                 extra_body=connections.vertex_extra_body(backend, self.reasoning),
             )
-        elif self.llm_backend in CLAUDE_BACKENDS:
+        elif self.llm_backend in SQL_ONLY_BACKENDS:
             raise ValueError("Claude through Databricks serves only the SQL agent; choose another "
                              "connection for this task.")
-        elif self.llm_backend != "local":
+        elif self.llm_backend != LOCAL:
             raise ValueError("Unsupported LLM backend")
         return c

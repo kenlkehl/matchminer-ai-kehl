@@ -17,6 +17,7 @@ from .core.notes import NotesIndex
 from .core.vectors import VectorStore, select_round
 
 from .evidence import CatalogEvidence
+from .guidelines.state import GuidelineState
 from .llm import Connection
 from .llm_checks import LLMChecks
 from .pipeline import Builder, Sources, read_store, write_store
@@ -28,7 +29,8 @@ class NotFound(KeyError):
 
 
 class DashState:
-    def __init__(self, settings, *, decisions=None, encoder=None, verify_digests: bool = True, log=print):
+    def __init__(self, settings, *, decisions=None, encoder=None, guideline_inference=None,
+                 verify_digests: bool = True, log=print):
         started = time.monotonic()
         self.settings, self.log = settings, log
         settings.store_dir.mkdir(parents=True, exist_ok=True)
@@ -74,8 +76,16 @@ class DashState:
                                                        settings.llm_tokenizer),
                              ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
         self.custom: dict[str, dict] = {}
+        # The guideline features (Patient tab's Guidelines, Population tab) and every session's model connections,
+        # scoring with this app's decision model.
+        from .settings import guideline_settings
+
+        config = getattr(self.decisions, "config", None)
+        section = config.raw.get("decision_model") if config is not None else None
+        self.guidelines = GuidelineState(guideline_settings(settings, section), inference=guideline_inference)
         # Every job manager, so one route finds and stops any job (core.jobs).
-        self.registry = JobRegistry(model=self.jobs, background=self.background, llm=self.llm.jobs)
+        self.registry = JobRegistry(model=self.jobs, background=self.background, llm=self.llm.jobs,
+                                    guidelines=self.guidelines.jobs)
         self.startup_seconds = round(time.monotonic() - started, 1)
 
     # ------------------------------------------------------------------ the trial store
@@ -98,6 +108,10 @@ class DashState:
 
     def watch(self, interval: float, stop: threading.Event):
         while not stop.wait(interval):
+            try:
+                self.guidelines.clean(self.registry.active_owners())
+            except Exception as exc:
+                self.log(f"Session cleanup failed: {type(exc).__name__}")
             try:
                 self.check_store()
             except Exception as exc:  # a half-written source; tried again next time

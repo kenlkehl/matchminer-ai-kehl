@@ -4,12 +4,13 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ..llm import Connection
 from ..state import DashState
-from .common import cohort_detail, cohort_row, type_labels
+from .common import cohort_detail, cohort_row, owner, type_labels
 
 DIRECTIONS = ("patients_for_cohort", "trials_for_patient")
 
@@ -169,20 +170,29 @@ def router(state: DashState) -> APIRouter:
 
     # LLM checks (the configured endpoint)
 
+    def connection(request: Request, task: str) -> Connection:
+        """The session's connection for the check (Data and Models)."""
+        return Connection.for_task(state.guidelines.task_settings(owner(request), task))
+
+    @api.get("/api/llm")
+    def llm(request: Request):
+        return state.llm.describe({task: connection(request, task) for task in ("good_option", "criteria_llm")})
+
     @api.post("/api/good-option")
-    def good_option(request: LLMCheckRequest):
-        if not request.trial_id:
+    def good_option(body: LLMCheckRequest, request: Request):
+        if not body.trial_id:
             raise ValueError("give trial_id")
-        trial = state.trial(request.trial_id)
-        entity = state.patient_entity(request.patient_id)
+        trial = state.trial(body.trial_id)
+        entity = state.patient_entity(body.patient_id)
         return state.llm.good_option({"id": entity["id"], "key": entity["key"]}, trial["id"], trial.get("drugs") or [],
-                                     request.rerun)
+                                     body.rerun, connection=connection(request, "good_option"))
 
     @api.post("/api/criteria-llm")
-    def criteria_llm(request: LLMCheckRequest):
-        if not request.cohort_id:
+    def criteria_llm(body: LLMCheckRequest, request: Request):
+        if not body.cohort_id:
             raise ValueError("give cohort_id")
-        cohort = state.cohort(request.cohort_id)
-        return state.llm.criteria(state.pair(request.patient_id, cohort["id"]), request.rerun)
+        cohort = state.cohort(body.cohort_id)
+        return state.llm.criteria(state.pair(body.patient_id, cohort["id"]), body.rerun,
+                                  connection=connection(request, "criteria_llm"))
 
     return api
