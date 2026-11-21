@@ -71,3 +71,17 @@ def test_jobs_belong_to_their_session_stop_and_hide_error_text():
     assert registry.get(system.id, "session-b").result == {"ok": True}  # system jobs are visible to every session
     assert registry.cancel(system.id, "session-b") is None  # and not stopped from a page
     jobs.shutdown()
+
+
+def test_haiku_through_the_gateway_is_the_default_when_the_site_names_it(tmp_path, monkeypatch):
+    from matchminer_ai.apps.dashboard.settings import DashSettings, guideline_settings
+
+    assert DashSettings(mode="synthetic", store_dir=tmp_path / "a", device="cpu").llm_backend == "gemini4_vertex"
+    site = tmp_path / "gateway.yaml"
+    site.write_text("databricks:\n  host: https://workspace.example.cloud.databricks.com\n  profile: p\n"
+                    "  endpoints:\n    haiku: catalog.schema.team-claude-haiku-5-5\n")
+    monkeypatch.setenv("MMAI_SITE_CONFIG", str(site))
+    settings = DashSettings(mode="synthetic", store_dir=tmp_path / "b", device="cpu")
+    assert (settings.llm_backend, settings.llm_model) == ("claude_databricks", "catalog.schema.team-claude-haiku-5-5")
+    tasks = guideline_settings(settings)
+    assert {tasks.for_task(t).llm_backend for t in ("summarize", "workup_sql", "criteria_llm")} == {"claude_databricks"}

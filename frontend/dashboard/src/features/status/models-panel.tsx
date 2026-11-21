@@ -8,11 +8,11 @@ import { api } from "@/lib/api";
 import {
   BACKUP_TASKS,
   type Backend,
+  claudeName,
   connectionLabel,
   type ModelCheck,
   type ModelConfig,
   modelsOptions,
-  SQL_TASK,
   type Task,
 } from "@/lib/models";
 import { llmOptions } from "@/lib/queries";
@@ -21,8 +21,8 @@ const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm";
 
 /**
  * Each LLM task's connection for this browser session: an OpenAI-compatible server (its models read
- * from /v1/models), a Vertex profile, or, for the SQL agent only, Claude through the Databricks
- * gateway. A job keeps the connection it started with. The server's command line sets the default.
+ * from /v1/models), a Vertex profile, or Claude through the Databricks gateway (the default). A job
+ * keeps the connection it started with. The server's command line sets the default.
  */
 export function ModelsPanel() {
   const config = useQuery(modelsOptions());
@@ -169,9 +169,8 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
               </option>
             ))}
             {Object.entries(config.claude_profiles).map(([key, p]) => (
-              <option key={key} value={key} disabled={task !== SQL_TASK}>
+              <option key={key} value={key}>
                 {p.label}
-                {task !== SQL_TASK ? " (SQL agent only)" : ""}
               </option>
             ))}
           </select>
@@ -184,14 +183,24 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
         ) : claude ? (
           <label className="flex min-w-96 flex-1 flex-col gap-1">
             <span className="text-xs text-gray-500">
-              Gateway endpoint name (profile {claude.databricks_profile})
+              Model (gateway endpoint; profile {claude.databricks_profile})
             </span>
-            <Input
+            <select
+              className={SELECT}
               value={model}
               onChange={(e) => {
                 setModel(e.target.value);
               }}
-            />
+            >
+              {Object.values(claude.models).includes(model) ? null : (
+                <option value={model}>{claudeName(model)}</option>
+              )}
+              {Object.values(claude.models).map((name) => (
+                <option key={name} value={name}>
+                  {claudeName(name)}
+                </option>
+              ))}
+            </select>
           </label>
         ) : (
           <>
@@ -302,17 +311,15 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
         >
           Save for this task
         </Button>
-        {!claude ? (
-          <Button
-            variant="outline"
-            disabled={save.isPending}
-            onClick={() => {
-              save.mutate(true);
-            }}
-          >
-            Use for every task
-          </Button>
-        ) : null}
+        <Button
+          variant="outline"
+          disabled={save.isPending}
+          onClick={() => {
+            save.mutate(true);
+          }}
+        >
+          Use for every task
+        </Button>
       </div>
       {checked ? (
         <p className={checked.available ? "text-green-700" : "text-red-700"}>

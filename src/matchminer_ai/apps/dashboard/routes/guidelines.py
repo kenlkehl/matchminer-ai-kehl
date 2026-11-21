@@ -5,7 +5,8 @@
 - ``/api/guidelines/*``: the guideline library, guideline-space retrieval for a summary, and workup reviews
   (with an extraction-cost estimate that makes no model calls).
 - ``/api/models*``: the session's connection per LLM task (``guidelines.settings.LLM_TASKS``) and connection
-  checks. Vertex and Claude destinations are built on the server, never from browser input.
+  checks. Vertex and Claude destinations are built on the server, never from browser input; Claude through
+  the Databricks gateway serves every task (since 2026-11-21).
 
 Long work runs as session jobs (``guidelines.state.GuidelineState.jobs``) polled through ``/api/jobs/{id}``.
 """
@@ -25,7 +26,7 @@ from matchminer_ai.llm import connections
 from ..core.errors import InputError
 from ..guidelines.services import parse_upload, synthetic_notes
 from ..guidelines.settings import (
-    CLAUDE_ENDPOINT_NAME, SQL_ONLY_BACKENDS, SQL_TASK, VERTEX_BACKENDS, VERTEX_LABELS, claude_backends,
+    CLAUDE_BACKENDS, CLAUDE_ENDPOINT_NAME, VERTEX_BACKENDS, VERTEX_LABELS, claude_backends,
     databricks_profile, normalize_endpoint, vertex_profiles, vertex_project,
 )
 from ..guidelines.state import GuidelineState
@@ -62,9 +63,7 @@ class LLMSettings(BaseModel):
             raise ValueError("Choose a source task when applying a model to all tasks.")
         if self.backup_enabled and self.task not in {"workup_full_backup", "workup_agent_backup"}:
             raise ValueError("Enable backup only for a concordance backup task.")
-        if self.llm_backend in SQL_ONLY_BACKENDS:
-            if self.task != SQL_TASK or self.apply_to_all:
-                raise ValueError("Claude through Databricks serves only the SQL agent task.")
+        if self.llm_backend in CLAUDE_BACKENDS:
             claude_endpoint_name(self.model)
         return self
 
@@ -163,7 +162,7 @@ def router(g: GuidelineState) -> APIRouter:
         if body.llm_backend in VERTEX_BACKENDS:
             # The Google destination is built on the server; ADC never goes to a browser-supplied endpoint.
             values.update(vertex_profiles()[body.llm_backend])
-        elif body.llm_backend in SQL_ONLY_BACKENDS:
+        elif body.llm_backend in CLAUDE_BACKENDS:
             # The same for Databricks tokens: the server fixes the gateway URL; the browser picks only the
             # gateway's endpoint name.
             profile = claude_backends()[body.llm_backend]
@@ -177,7 +176,7 @@ def router(g: GuidelineState) -> APIRouter:
         if body.task:
             selected = selected.for_task(body.task)
         backend = body.llm_backend or selected.llm_backend
-        if backend in SQL_ONLY_BACKENDS:
+        if backend in CLAUDE_BACKENDS:
             from matchminer_ai.llm.anthropic_messages import check_gateway
 
             profile = claude_backends()[backend]

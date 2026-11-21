@@ -33,7 +33,6 @@ def vertex_credentials(monkeypatch):
         state["calls"] += 1
         return state["error"]
 
-    monkeypatch.setattr("matchminer_ai.apps.dashboard.llm.vertex_credentials_error", check)
     monkeypatch.setattr("matchminer_ai.apps.dashboard.llm_checks.vertex_credentials_error", check)
     monkeypatch.setattr("matchminer_ai.llm.connections.vertex_credentials_error", check)
     return state
@@ -93,10 +92,11 @@ def test_choosing_the_endpoint_and_its_models(dash_client, monkeypatch):
     bad = dash_client.post("/api/models", json={"llm_backend": "local", "endpoint": "http://h/v1?q", "model": "m",
                                                 "task": "good_option"})
     assert bad.status_code == 422
-    # Claude through Databricks serves only the SQL agent.
+    # Claude through the Databricks gateway serves the checks too (since 2026-11-21).
     claude = dash_client.post("/api/models", json={"llm_backend": "claude_databricks", "endpoint": "x",
                                                    "model": "a.b.c-claude-sonnet-5-5", "task": "good_option"})
-    assert claude.status_code == 422
+    assert claude.status_code == 200 and claude.json()["tasks"]["good_option"]["llm_backend"] == "claude_databricks"
+    assert dash_client.get("/api/llm").json()["connection"]["label"] == "Claude Sonnet 5.5 (Databricks gateway)"
 
 
 @pytest.fixture

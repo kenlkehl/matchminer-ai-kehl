@@ -95,18 +95,20 @@ def vertex_profiles():
     return connections.vertex_profiles()
 
 
-# Claude through the Databricks Unity AI Gateway's Anthropic Messages route, for the SQL agent only (2026-11-19, user
-# instruction; Gemini stays available). The server fixes the gateway URL (the site config's databricks.host). The
-# model is the full three-part endpoint name (default: the site config's databricks.endpoints.sonnet). Access tokens
-# come from the Databricks CLI login profile (`databricks auth login --host <host> --profile <profile>`).
+# Claude through the Databricks Unity AI Gateway's Anthropic Messages route (provider ``databricks_anthropic``), for
+# every LLM task since 2026-11-21 (user instruction; before, the SQL agent only). The server fixes the gateway URL (the
+# site config's databricks.host). The model is the full three-part endpoint name from the site config's
+# databricks.endpoints (Haiku 5.5 is the app's default, user 2026-11-21). Access tokens come from the Databricks CLI
+# login profile (`databricks auth login --host <host> --profile <profile>`).
 CLAUDE_LABELS = {"claude_databricks": "Claude · Databricks AI Gateway"}
-# Sonnet 5.5's default. On two colon items (2026-11-19) medium took the same time (~25 s per item) but skipped
-# reference-date bounds and planned-only reasons that high effort checked.
-CLAUDE_EFFORT = "high"
+# The SQL agent: Sonnet 5.5's default effort. On two colon items (2026-11-19) medium took the same time (~25 s per
+# item) but skipped reference-date bounds and planned-only reasons that high effort checked.
+CLAUDE_SQL_EFFORT = "high"
+# Every other task: Haiku 5.5's default effort (the OA summarization test of 2026-11-20 ran at it).
+CLAUDE_EFFORT = "medium"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
 CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
-# Backends that serve only this task.
-SQL_ONLY_BACKENDS = frozenset(CLAUDE_LABELS)
+CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 SQL_TASK = "workup_sql"
 
 
@@ -114,16 +116,32 @@ def databricks_profile():
     return connections.databricks_profile()
 
 
+def claude_models() -> dict[str, str]:
+    """The gateway's Claude endpoint names by model (site config ``databricks.endpoints``: haiku, sonnet, opus)."""
+    endpoints = load_site_config().get("databricks.endpoints") or {}
+    if not isinstance(endpoints, dict):
+        return {}
+    return {str(k): str(v).strip() for k, v in endpoints.items() if str(v or "").strip()}
+
+
 def claude_backends():
-    """{backend: {endpoint, model, tokenizer}}: the gateway URL from the site config, the Sonnet endpoint name
-    offered first."""
+    """{backend: {endpoint, model, models, tokenizer}}: the gateway URL from the site config; Haiku's endpoint name
+    offered first, and every endpoint the site names."""
     host = connections.databricks_host().rstrip("/")
+    models = claude_models()
     return {"claude_databricks": {
         "endpoint": connections.claude_gateway_endpoint(host),
-        "model": str(load_site_config().get("databricks.endpoints.sonnet") or "").strip(),
+        "model": models.get("haiku") or next(iter(models.values()), ""),
+        "models": models,
         # Unused: hosted prompt budgets use conservative UTF-8 bytes.
         "tokenizer": connections.VERTEX_TOKENIZER,
     }}
+
+
+def default_backend() -> str:
+    """Claude Haiku 5.5 through the gateway when the site config names the gateway and a Haiku endpoint (user,
+    2026-11-21), else Gemini 4 Hydrogen on Vertex."""
+    return "claude_databricks" if connections.databricks_host() and claude_models().get("haiku") else DEFAULT_BACKEND
 
 
 # Every LLM task of the app, each with its own connection (until set: see Settings.for_task).
@@ -167,7 +185,7 @@ class Settings:
     # Real patient records (the app's real mode); see the module docstring.
     phi: bool = False
     # The default connection; a task's own connection overrides it (task_connections, for_task).
-    llm_backend: str = DEFAULT_BACKEND
+    llm_backend: str = field(default_factory=default_backend)
     # Both modes use the same finalized NCCN catalogs.
     catalog_root: Path = field(default_factory=default_catalog_root)
     endpoint: str = "http://localhost:8000/v1"
@@ -257,22 +275,21 @@ class Settings:
         """
         remote = dict(section["remote"])
         local = dict(section.get("local", {}))
-        if self.llm_backend in SQL_ONLY_BACKENDS:
-            if name != "workup_sql_agent":
-                raise ValueError("Claude through Databricks serves only the SQL agent.")
+        if self.llm_backend in CLAUDE_BACKENDS:
             profile = claude_backends()[self.llm_backend]
+            effort = CLAUDE_SQL_EFFORT if name == "workup_sql_agent" else CLAUDE_EFFORT
             remote.update(
                 provider="databricks_anthropic", server_urls=[profile["endpoint"]],
                 databricks_profile=databricks_profile(), model_name=self.model,
                 tokenizer_name=profile["tokenizer"], extra_body={},
                 request_params={"max_tokens": min(
                     65536, remote.get("request_params", {}).get("max_tokens", 32768)),
-                    "reasoning_effort": CLAUDE_EFFORT},
+                    "reasoning_effort": effort},
             )
             local["chat_template_kwargs"] = {}
             local["engine"] = {**local.get("engine", {}), "max_model_len": CLAUDE_CONTEXT}
-            section.update(structured_outputs=True, reasoning_effort=CLAUDE_EFFORT,
-                           sampling_profile="none")
+            # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
+            section.update(structured_outputs=True, reasoning_effort=effort, sampling_profile="none")
         elif self.llm_backend in VERTEX_BACKENDS:
             backend = self.llm_backend
             profile = vertex_profiles()[backend]
@@ -370,9 +387,20 @@ class Settings:
                 request_params=connections.vertex_request_params(backend, connections.VERTEX_MAX_OUTPUT_TOKENS),
                 extra_body=connections.vertex_extra_body(backend, self.reasoning),
             )
-        elif self.llm_backend in SQL_ONLY_BACKENDS:
-            raise ValueError("Claude through Databricks serves only the SQL agent; choose another "
-                             "connection for this task.")
+        elif self.llm_backend in CLAUDE_BACKENDS:
+            profile = claude_backends()[self.llm_backend]
+            # The gateway's Messages route with this server's Databricks CLI profile; hosted prompt budgets count
+            # conservative UTF-8 bytes; no sampling settings.
+            c.remote.update(provider="databricks_anthropic", server_urls=[profile["endpoint"]],
+                            databricks_profile=databricks_profile())
+            c.patient.update(sampling_profile="none", reasoning_effort=CLAUDE_EFFORT, context_window=CLAUDE_CONTEXT,
+                             tokenizer_mode="bytes")
+            c.patient["local"]["engine"]["max_model_len"] = CLAUDE_CONTEXT
+            c.patient["local"]["chat_template_kwargs"] = {}
+            c.patient["remote"].update(
+                model_name=self.model, tokenizer_name=profile["tokenizer"], extra_body={},
+                request_params={"max_tokens": connections.VERTEX_MAX_OUTPUT_TOKENS, "reasoning_effort": CLAUDE_EFFORT},
+            )
         elif self.llm_backend != LOCAL:
             raise ValueError("Unsupported LLM backend")
         return c

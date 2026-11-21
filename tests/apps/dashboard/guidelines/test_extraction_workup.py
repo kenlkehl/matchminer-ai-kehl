@@ -782,11 +782,13 @@ def test_the_sql_agent_task_has_its_own_connection(tmp_path):
     config = mixed.extraction_config()
     assert config.remote["server_urls"] == ["http://local.invalid/v1"]
     assert resolve_agent_llm(config).provider == "google_agent_platform"
-    with pytest.raises(ValueError, match="only the SQL agent"):
-        Settings(catalog_root=tmp_path, **claude_sql()).inference_config()
+    # Claude serves every task (since 2026-11-21): the gateway, no sampling settings, Haiku's default effort.
+    everywhere = Settings(catalog_root=tmp_path, **claude_sql()).inference_config()
+    assert everywhere.remote["provider"] == "databricks_anthropic"
+    assert everywhere.patient["sampling_profile"] == "none" and everywhere.patient["reasoning_effort"] == "medium"
 
 
-def test_connection_routes_keep_claude_to_the_sql_agent(tmp_path, monkeypatch, make_client):
+def test_connection_routes_take_claude_for_any_task(tmp_path, monkeypatch, make_client):
     import matchminer_ai.llm.anthropic_messages as anthropic_messages
 
     checks = []
@@ -799,17 +801,17 @@ def test_connection_routes_keep_claude_to_the_sql_agent(tmp_path, monkeypatch, m
     settings = Settings(catalog_root=tmp_path, llm_backend="gemini4_vertex", device="cpu")
     client = make_client(settings)
     config = client.get("/api/models").json()
-    assert config["claude_profiles"]["claude_databricks"]["task"] == "workup_sql"
     assert config["tasks"]["workup_sql"]["llm_backend"] == "gemini4_vertex"
-    for body in (claude_sql(task="workup"), claude_sql(task="workup_sql", apply_to_all=True),
-                 claude_sql(task="workup_sql", model="claude-sonnet-5-5")):
-        assert client.post("/api/models", json=body).status_code == 422
+    # Any task may use Claude; its model must be a full three-part gateway endpoint name.
+    assert client.post("/api/models", json=claude_sql(task="workup_sql", model="claude-sonnet-5-5")).status_code == 422
+    assert client.post("/api/models", json=claude_sql(task="summarize")).status_code == 200
     # The browser picks only the endpoint name; the server fixes the gateway URL.
     saved = client.post("/api/models", json=claude_sql(
         task="workup_sql", endpoint="http://untrusted.test/v1")).json()
     assert saved["tasks"]["workup_sql"]["endpoint"] == claude_backends()["claude_databricks"]["endpoint"]
     assert saved["tasks"]["workup_sql"]["model"] == CLAUDE_MODEL
     assert saved["tasks"]["workup"]["llm_backend"] == "gemini4_vertex"
+    assert saved["tasks"]["summarize"]["llm_backend"] == "claude_databricks"
     result = client.post("/api/models/check", json={
         "task": "workup_sql", "llm_backend": "claude_databricks",
         "endpoint": "http://untrusted.test/v1", "model": CLAUDE_MODEL}).json()

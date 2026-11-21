@@ -100,8 +100,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                     />
                   ) : tab === "patient" ? (
                     <NavItem to="/patient" icon={UserIcon} label="Patient-centric" active />
-                  ) : (
+                  ) : tab === "benchmarking" ? (
                     <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarks" active />
+                  ) : (
+                    <NavItem to="/status" icon={ActivityIcon} label="Data and Models" active />
                   )}
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -112,10 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {tab === "trials" && meta ? <CenterNav centers={meta.centers} /> : null}
           </SidebarContent>
           <SidebarFooter>
-            <SidebarMenu>
-              <NavItem to="/status" icon={ActivityIcon} label="Data and Models" active={false} />
-              {meta?.sign_in ? <SignOut /> : null}
-            </SidebarMenu>
+            <SidebarMenu>{meta?.sign_in ? <SignOut /> : null}</SidebarMenu>
           </SidebarFooter>
           <SidebarRail />
         </Sidebar>

@@ -27,10 +27,9 @@ import time
 from .core.cache import ScoreCache, text_key
 from .core.jobs import JobManager
 from .drugs import catalog_stamps
-from matchminer_ai.llm.connections import vertex_profiles
+from matchminer_ai.llm.connections import vertex_credentials_error, vertex_profiles, vertex_project
 
-from .llm import (DEFAULT_BACKEND, NEMOTRON, NOTICE, VERTEX_LABELS, Connection, default_endpoint,
-                  vertex_credentials_error, vertex_project)
+from .llm import NOTICE, VERTEX_LABELS, Connection, default_backend, default_endpoint, default_model
 
 CACHE_VERSION = "mmai-dash-llm-checks-v1"
 GOOD_OPTION_PROMPTS = ("llm_good_option.system.txt", "llm_good_option.user.txt", "llm_good_option.rubric.txt",
@@ -116,8 +115,9 @@ class LLMChecks:
     def good_option_unavailable(self, connection: Connection | None = None) -> str | None:
         if reason := self.connection_unavailable(connection):
             return reason
-        if not self.settings.good_options_catalog or not (Path(self.settings.good_options_catalog)
-                                                          / "manifest.json").is_file():
+        if not self.settings.good_options_catalog:
+            return "No GoodOption catalog is configured."
+        if not (Path(self.settings.good_options_catalog) / "manifest.json").is_file():
             return f"No GoodOption catalog at {self.settings.good_options_catalog}."
         return None
 
@@ -139,7 +139,7 @@ class LLMChecks:
         connections = connections or {}
         good_option, criteria = connections.get("good_option"), connections.get("criteria_llm")
         return {"connection": (good_option or self.connection).describe(), "notice": NOTICE,
-                "defaults": {"backend": DEFAULT_BACKEND, "endpoint": default_endpoint(), "model": NEMOTRON},
+                "defaults": {"backend": default_backend(), "endpoint": default_endpoint(), "model": default_model()},
                 "vertex_profiles": {k: {**v, "label": VERTEX_LABELS[k], "project": vertex_project()}
                                     for k, v in vertex_profiles().items()},
                 "good_option": {"available": self.good_option_unavailable(good_option) is None,

@@ -43,9 +43,9 @@ its command line.
 | `endpoints.teacher.url` | `evaluation.retro_fidelity`, `evaluation.retro_cohorts.summarize_retro_cohorts`, the dashboard | The on-premises OpenAI-compatible teacher server (`/v1`), approved for PHI. The dashboard offers it as its OpenAI-compatible endpoint |
 | `endpoints.secondary_teacher.url` | `evaluation.retro_fidelity` | An optional second teacher, reached through `teacher_proxy`; unset labels on the first teacher only |
 | `vertex.project` | the apps' Vertex profiles, `evaluation.dual_judge.judge_worker` | Google Cloud project of the Vertex (Agent Platform) endpoints, and of the Claude judge on Vertex |
-| `databricks.host` | the dashboard's SQL agent, `provider: databricks_anthropic`, `evaluation.dual_judge.judge_worker --judge databricks` | Workspace URL whose AI Gateway serves Claude |
+| `databricks.host` | the dashboard's model connections, `provider: databricks_anthropic`, `evaluation.dual_judge.judge_worker --judge databricks` | Workspace URL whose AI Gateway serves Claude |
 | `databricks.profile` | the same | Databricks CLI login profile (default `unity-gateway`) |
-| `databricks.endpoints.<name>` | the dashboard's SQL agent (`sonnet`), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
+| `databricks.endpoints.<name>` | the dashboard (`haiku`: its default model for every LLM task; the others selectable), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
 
 Without `vertex.project` the Vertex profiles have no project, and without `databricks.host` the Claude option has no
 gateway.
@@ -110,6 +110,7 @@ databricks:
   host: https://workspace.example.cloud.databricks.com
   profile: unity-gateway
   endpoints:
+    haiku: catalog.schema.example-claude-haiku-5-5
     sonnet: catalog.schema.example-claude-sonnet-5-5
     opus: catalog.schema.example-claude-opus-5-5
 

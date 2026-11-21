@@ -32,7 +32,7 @@ from matchminer_ai.apps.common.security import LOOPBACK_HOSTS
 from matchminer_ai.site import DATA_ROOT_ENV, SITE_CONFIG_ENV, data_root, load_site_config
 
 from .core.settings import RUN_DECISION_MODEL, Settings, complete_decision_model
-from .llm import DEFAULT_BACKEND, NEMOTRON, default_endpoint
+from .llm import NEMOTRON, default_backend, default_endpoint, default_model
 
 # The bundled trial-group rules: a small example. A site's own rules: the site config's dashboard.grouping.
 DEFAULT_GROUPING = Path(__file__).with_name("grouping.yaml")
@@ -97,12 +97,13 @@ class DashSettings(Settings):
     # Trials' drugs (public trial and drug information only, built from NCT IDs and drug names, read in place);
     # a missing catalog: no drugs.
     good_options_catalog: Path | None = None
-    # The LLM checks' endpoint (llm.py): by default the Vertex profile Gemini 4 Hydrogen (user, 2026-11-17); with
-    # llm_backend "openai", an OpenAI-compatible server (llm_endpoint, default the site config's
-    # endpoints.teacher.url; "none" turns the LLM checks off). Changeable on Data and Models for the server's session.
-    llm_backend: str = DEFAULT_BACKEND
+    # The default model connection of every LLM task (each browser session can change it per task on Data and Models):
+    # Claude Haiku 5.5 through the Databricks gateway when the site config names it (user, 2026-11-21), else the
+    # Vertex profile Gemini 4 Hydrogen; with llm_backend "openai", an OpenAI-compatible server (llm_endpoint, default
+    # the site config's endpoints.teacher.url).
+    llm_backend: str = field(default_factory=default_backend)
     llm_endpoint: str = field(default_factory=default_endpoint)
-    llm_model: str = NEMOTRON
+    llm_model: str = field(default_factory=default_model)
     llm_tokenizer: str = ""
     rebuild_poll_seconds: float = 30  # how often new extraction results are looked for; 0: never
     auto_score_n: int = 10  # pairs the result pages score with the decision model as they open
@@ -274,11 +275,14 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--good-options-catalog", type=Path, help="GoodOption catalog directory with the trials' drugs "
                         "(default: dashboard.good_options_catalog; missing: no drugs)")
     parser.add_argument("--rebuild-poll-seconds", type=float, help="how often to look for new extraction results (default 30)")
-    parser.add_argument("--llm-backend", help=f"LLM checks: a Vertex profile (default {DEFAULT_BACKEND}; also "
+    parser.add_argument("--llm-backend", help="the default model connection: claude_databricks (default when the site "
+                        "config names the Databricks gateway and a Haiku endpoint), a Vertex profile (gemini4_vertex, the "
+                        "default otherwise; also "
                         "gemini_vertex, gemma_vertex) or openai (an OpenAI-compatible URL, --llm-endpoint)")
     parser.add_argument("--llm-endpoint", help="with --llm-backend openai: the endpoint (default: the site config's "
                         "endpoints.teacher.url; none: the LLM checks are off)")
-    parser.add_argument("--llm-model", help=f"the endpoint's model (default {NEMOTRON})")
+    parser.add_argument("--llm-model", help=f"the model: a gateway endpoint name for Claude (default: the site's "
+                        f"databricks.endpoints.haiku), else the endpoint's model (default {NEMOTRON})")
     parser.add_argument("--llm-tokenizer", help="tokenizer for local prompt budgets (default: the model)")
     parser.add_argument("--synthetic-run", type=Path, help="synthetic run (patients, TrialSpace rounds, decision model; "
                         "default: dashboard.synthetic_run, else no_phi/synthetic_run under the data root)")

@@ -33,9 +33,16 @@ export interface ModelConfig extends TaskConnection {
     string,
     { endpoint: string; model: string; tokenizer: string; label: string; project: string }
   >;
+  /** Claude through the Databricks gateway: every task may use it; `models` are the site's endpoint names. */
   claude_profiles: Record<
     string,
-    { endpoint: string; model: string; label: string; databricks_profile: string; task: Task }
+    {
+      endpoint: string;
+      model: string;
+      models: Record<string, string>;
+      label: string;
+      databricks_profile: string;
+    }
   >;
   local_defaults: { endpoint: string; model: string; tokenizer: string };
   device: string;
@@ -53,7 +60,6 @@ export interface ModelCheck {
   error: string | null;
 }
 
-export const SQL_TASK: Task = "workup_sql";
 export const BACKUP_TASKS: Task[] = ["workup_full_backup", "workup_agent_backup"];
 
 export const modelsOptions = () =>
@@ -67,7 +73,14 @@ export const modelsOptions = () =>
 export function connectionLabel(config: ModelConfig, c: TaskConnection): string {
   const vertex = config.vertex_profiles[c.llm_backend];
   if (vertex) return vertex.label;
-  if (c.llm_backend === "claude_databricks")
-    return `Claude (${c.model.split(".").at(-1) ?? c.model})`;
+  if (c.llm_backend === "claude_databricks") return `${claudeName(c.model)} (Databricks gateway)`;
   return `${c.model} at ${c.endpoint}`;
+}
+
+/** "Claude Haiku 5.5" from a gateway endpoint name ending in claude-haiku-5-5 (else the name). */
+export function claudeName(endpoint: string): string {
+  const match = /claude-([a-z]+)-(\d+)-(\d+)$/.exec(endpoint);
+  if (!match?.[1]) return endpoint;
+  const model = match[1].charAt(0).toUpperCase() + match[1].slice(1);
+  return `Claude ${model} ${match[2] ?? ""}.${match[3] ?? ""}`;
 }

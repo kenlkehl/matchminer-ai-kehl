@@ -43,9 +43,10 @@ TrialSpace model and says so on Data and Models if they differ.
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line ([Evaluation](../evaluation/index.md)).
-- **Data and Models:** the data sources, the TrialSpace round, the decision model, background jobs and the **model
-  connections**, one per LLM task for this browser session: patient summarization, note compression, guideline
-  concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM check.
+- **Data and Models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
+  the **model connections**, one per LLM task for this browser session: patient summarization, note compression,
+  guideline concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM
+  check.
 
 ## Run
 
@@ -90,12 +91,14 @@ The decision model is the synthetic run's trained model (`--decision-model` over
 run is still training; Data and Models shows which one loaded). It scores in every tab and runs on `--device`, by
 default `cuda:0` when CUDA is available, else the CPU.
 
-The default model connection is a Vertex profile (`--llm-backend`, default Gemini 4 Hydrogen, in the site's
-`vertex.project`). The alternative is an OpenAI-compatible endpoint (`--llm-backend openai`, `--llm-endpoint`,
-default the site's `endpoints.teacher.url`). Each session can change it per task on Data and Models. Claude through a
-Databricks AI Gateway (`databricks.host`, `databricks.profile`, endpoint name `databricks.endpoints.sonnet`) is
-offered for the SQL agent only. Patient text and cohort criteria go to the selected endpoints, so use only endpoints
-authorized for the data.
+The default model connection (`--llm-backend`, `--llm-model`) is Claude Haiku 5.5 through a Databricks AI Gateway
+when the site config names the gateway (`databricks.host`, `databricks.profile`) and a Haiku endpoint
+(`databricks.endpoints.haiku`), else the Vertex profile Gemini 4 Hydrogen (in the site's `vertex.project`). Claude
+serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
+endpoints the site names (`sonnet`, `opus`) can be chosen per task. An OpenAI-compatible endpoint is also offered
+(`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`). Each session can change the
+connection per task on Data and Models. Patient text and cohort criteria go to the selected endpoints, so use only
+endpoints authorized for the data.
 
 ## Real patients
 

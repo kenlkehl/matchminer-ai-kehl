@@ -21,7 +21,7 @@ from .note_compressions import NoteCompressions
 from .population import PopulationSessions
 from .services import Catalogs, Inference, synthetic_note_sources
 from .settings import (
-    CLAUDE_LABELS, GEMINI_BACKENDS, LLM_TASKS, SQL_ONLY_BACKENDS, SQL_TASK, VERTEX_BACKENDS, VERTEX_LABELS,
+    CLAUDE_BACKENDS, CLAUDE_LABELS, GEMINI_BACKENDS, LLM_TASKS, VERTEX_BACKENDS, VERTEX_LABELS,
     Settings, claude_backends, databricks_profile, vertex_profiles, vertex_project,
 )
 
@@ -123,8 +123,8 @@ class GuidelineState:
             note_compression_available=True,
             vertex_profiles={key: {**profile, "label": VERTEX_LABELS[key], "project": project}
                              for key, profile in vertex_profiles().items()},
-            claude_profiles={key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile(),
-                                   "task": SQL_TASK} for key, profile in claude_backends().items()},
+            claude_profiles={key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile()}
+                             for key, profile in claude_backends().items()},
             local_defaults={"endpoint": settings.endpoint, "model": settings.model, "tokenizer": settings.tokenizer},
             device=settings.device,
             ttl_minutes=settings.ttl // 60,
@@ -139,11 +139,11 @@ def connection_view(selected: Settings) -> dict:
 
     if selected.llm_backend in VERTEX_BACKENDS:
         connection = vertex_profiles()[selected.llm_backend]
-    elif selected.llm_backend in SQL_ONLY_BACKENDS:
+    elif selected.llm_backend in CLAUDE_BACKENDS:
         connection = {**claude_backends()[selected.llm_backend], "model": selected.model}
     else:
         connection = {"endpoint": selected.endpoint, "model": selected.model, "tokenizer": selected.tokenizer}
-    managed = selected.llm_backend in GEMINI_BACKENDS or selected.llm_backend in SQL_ONLY_BACKENDS
+    managed = selected.llm_backend in GEMINI_BACKENDS or selected.llm_backend in CLAUDE_BACKENDS
     sampling, _ = (vendor_defaults(connection["model"], template={"enable_thinking": selected.reasoning})
                    if not managed else ({}, {}))
     return {"llm_backend": selected.llm_backend, **connection, "reasoning": selected.reasoning,

@@ -309,7 +309,7 @@ Messages route.
 - **Scope:** the provider also serves the remote path of other stages, such as patient summarization; see the
   [configuration reference](../reference/configuration.md#remote).
 
-The [dashboard](../apps/dashboard.md) offers this provider for its SQL-agent task, with the
+The [dashboard](../apps/dashboard.md) offers this provider for every LLM task (its default model is Claude Haiku 5.5), with the
 gateway taken from the site config's `databricks` keys ([Site configuration](../reference/site-config.md)).
 
 ## Budget, ending and caching

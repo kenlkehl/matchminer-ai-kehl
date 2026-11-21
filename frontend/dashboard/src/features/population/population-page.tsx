@@ -72,9 +72,11 @@ export function PopulationPage() {
         </Alert>
       ) : null}
       <div className="grid items-start gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        {/* The workflow steps are their own pane: on wide screens it stays in view and scrolls by itself, so the
+            results beside it stay visible. */}
         <aside
           aria-label="Population workflow"
-          className="rounded-xl bg-card shadow-xs ring-1 ring-foreground/10"
+          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto lg:overscroll-contain"
         >
           {mode ? (
             <fieldset disabled={!pop.ready || pop.busy} className="min-w-0">

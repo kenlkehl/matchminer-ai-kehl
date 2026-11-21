@@ -25,15 +25,37 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 
 from matchminer_ai.llm import connections
-from matchminer_ai.llm.connections import normalize_endpoint, vertex_credentials_error, vertex_project
+from matchminer_ai.llm.connections import normalize_endpoint, vertex_project
 
 NEMOTRON = "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
 OPENAI = "openai"  # an OpenAI-compatible server (vLLM)
+CLAUDE = "claude_databricks"  # Claude through the Databricks gateway (guidelines.settings.claude_backends)
 VERTEX_MODELS = connections.VERTEX_MODELS
 VERTEX_LABELS = {key: f"{label} (Vertex)" for key, label in connections.VERTEX_LABELS.items()}
 GEMINI_BACKENDS = connections.GEMINI_BACKENDS  # manage their own sampling and thinking
-BACKENDS = (OPENAI, *VERTEX_MODELS)
-DEFAULT_BACKEND = "gemini4_vertex"  # the dashboard's default LLM (user, 2026-11-17); the on-prem server stays selectable
+BACKENDS = (OPENAI, *VERTEX_MODELS, CLAUDE)
+
+
+def claude_name(endpoint: str) -> str:
+    """"Claude Haiku 5.5" from a gateway endpoint name ending in claude-haiku-5-5 (else the name)."""
+    import re
+
+    match = re.search(r"claude-([a-z]+)-(\d+)-(\d+)$", endpoint or "")
+    return f"Claude {match.group(1).title()} {match.group(2)}.{match.group(3)}" if match else endpoint
+
+
+def default_backend() -> str:
+    """Claude Haiku 5.5 through the gateway when the site config names it (user, 2026-11-21), else Gemini 4 Hydrogen."""
+    from .guidelines.settings import default_backend as guideline_default
+
+    return guideline_default()
+
+
+def default_model() -> str:
+    """The default backend's model: the gateway's Haiku endpoint, else the on-prem teacher's."""
+    from .guidelines.settings import claude_backends
+
+    return claude_backends()[CLAUDE]["model"] if default_backend() == CLAUDE else NEMOTRON
 
 
 def default_endpoint() -> str:
@@ -68,6 +90,11 @@ class Connection:
         if backend in VERTEX_MODELS:
             profile = connections.vertex_profile(backend)
             return cls(backend, profile["endpoint"], profile["model"], profile["tokenizer"])
+        if backend == CLAUDE:  # the server fixes the gateway; the model is one of its endpoint names
+            from .guidelines.settings import claude_backends
+
+            profile = claude_backends()[CLAUDE]
+            return cls(CLAUDE, profile["endpoint"], (model or "").strip() or profile["model"], profile["tokenizer"])
         endpoint = (endpoint or "").strip()
         if endpoint.lower() in ("", "none", "off"):
             return cls(OPENAI, "", (model or "").strip(), (tokenizer or "").strip())
@@ -80,7 +107,7 @@ class Connection:
     def for_task(cls, settings) -> "Connection":
         """A session's connection for a check: its task's ``guidelines.settings.Settings`` (backend ``local`` is an
         OpenAI-compatible server)."""
-        backend = OPENAI if settings.llm_backend == "local" else settings.llm_backend
+        backend = OPENAI if settings.llm_backend == "local" else settings.llm_backend  # Vertex and Claude keep theirs
         return cls.make(backend, settings.endpoint, settings.model, settings.tokenizer)
 
     @property
@@ -96,7 +123,13 @@ class Connection:
         return self.backend in GEMINI_BACKENDS
 
     @property
+    def claude(self) -> bool:
+        return self.backend == CLAUDE
+
+    @property
     def label(self) -> str:
+        if self.claude:
+            return f"{claude_name(self.model)} (Databricks gateway)"
         return VERTEX_LABELS[self.backend] if self.vertex else f"{self.model} at {self.endpoint}"
 
     def identity(self) -> dict:
@@ -121,6 +154,10 @@ class Connection:
         c.remote.setdefault("adaptive_concurrency", {}).update(enabled=False)
         if self.vertex:  # provider and project and, for Gemma MaaS, its pacing (the fetcher's)
             c.remote.update({k: v for k, v in connections.vertex_remote(self.backend).items() if k != "server_urls"})
+        if self.claude:
+            from .guidelines.settings import CLAUDE_EFFORT, databricks_profile
+
+            c.remote.update(provider="databricks_anthropic", databricks_profile=databricks_profile())
         for name in sections:
             section = getattr(c, name) if hasattr(c, name) else c.raw.get(name)
             if section is None:
@@ -131,7 +168,15 @@ class Connection:
             extra = {k: v for k, v in (remote.get("extra_body") or {}).items() if k not in SAMPLING_KEYS}
             local["generation"] = {k: v for k, v in (local.get("generation") or {}).items() if k not in SAMPLING_KEYS}
             remote.update(model_name=self.model, tokenizer_name=self.tokenizer or self.model)
-            if self.vertex:
+            if self.claude:
+                # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
+                params = {"max_tokens": min(65536, params.get("max_tokens", 32768)), "reasoning_effort": CLAUDE_EFFORT}
+                extra = {}
+                local["chat_template_kwargs"] = {}
+                local["engine"] = {**(local.get("engine") or {}), "max_model_len": connections.CLAUDE_CONTEXT_TOKENS}
+                section["sampling_profile"] = "none"
+                section["structured_outputs"] = True
+            elif self.vertex:
                 params.update(connections.vertex_request_params(self.backend, params.get("max_tokens", 32768)))
                 extra = connections.vertex_extra_body(self.backend, True)
                 if self.gemini:
@@ -147,31 +192,3 @@ class Connection:
             if name == "llm_criteria_check":
                 section.update(chunk_size=MAX_IN_FLIGHT, chunks_in_flight=1)
         return c
-
-
-async def discover_models(connection: Connection, endpoint: str | None = None, timeout: float = 10.0) -> dict:
-    """The models an OpenAI-compatible endpoint serves (``/v1/models``), with their context lengths; a Vertex profile
-    is checked with this server's Application Default Credentials."""
-    import asyncio
-
-    import httpx
-
-    if connection.vertex:
-        error = await asyncio.to_thread(vertex_credentials_error, 0.0)
-        if error:
-            return {"available": False, "endpoint": connection.endpoint, "models": [], "error": error}
-        available = await connections.vertex_available(connection.backend, timeout=30)
-        return {"available": available, "endpoint": connection.endpoint,
-                "models": [{"id": connection.model, "max_model_len": None}] if available else [],
-                "error": None if available else (f"Could not reach {connection.label}. Check this server's Google "
-                                                  f"Application Default Credentials and model access in project "
-                                                  f"{vertex_project()}.")}
-    target = normalize_endpoint(endpoint or connection.endpoint)
-    try:
-        models = await connections.served_models(target, timeout=timeout)
-        return {"available": bool(models), "endpoint": target, "models": models,
-                "error": None if models else "The endpoint returned no served models."}
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-        return {"available": False, "endpoint": target, "models": [],
-                "error": f"Could not read the endpoint's model list ({type(exc).__name__}). Check the address and "
-                         "server."}

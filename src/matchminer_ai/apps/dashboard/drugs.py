@@ -112,7 +112,8 @@ def read_catalog(directory: Path | None, ancestors_of=None) -> tuple[dict[str, l
     info = {"path": str(directory) if directory else None, "state": "missing", "message": None, "build_id": None,
             "created_at": None, "ncit": None, "counts": None, "most_specific": False, "hierarchy": None}
     if directory is None or not (Path(directory) / TABLES[0]).is_file():
-        info["message"] = f"No GoodOption catalog at {directory}: the trials are shown without drugs."
+        info["message"] = (f"No GoodOption catalog at {directory}" if directory else "No GoodOption catalog is configured"
+                           ) + ": the trials are shown without drugs."
         return {}, info
     directory = Path(directory)
     try:
