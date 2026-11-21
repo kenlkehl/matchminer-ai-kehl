@@ -2068,9 +2068,10 @@ TrialSpace model and says so on Data and Models if they differ.</p>
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line (<a href="../../evaluation/">Evaluation</a>).</li>
-<li><strong>Data and Models:</strong> the data sources, the TrialSpace round, the decision model, background jobs and the <strong>model
-  connections</strong>, one per LLM task for this browser session: patient summarization, note compression, guideline
-  concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM check.</li>
+<li><strong>Data and Models</strong> (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
+  the <strong>model connections</strong>, one per LLM task for this browser session: patient summarization, note compression,
+  guideline concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM
+  check.</li>
 </ul>
 <h2 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
 <p>From a source checkout:</p>
@@ -2155,12 +2156,14 @@ expire after an hour unused.</p>
 <p>The decision model is the synthetic run's trained model (<code>--decision-model</code> overrides it, with fallbacks while the
 run is still training; Data and Models shows which one loaded). It scores in every tab and runs on <code>--device</code>, by
 default <code>cuda:0</code> when CUDA is available, else the CPU.</p>
-<p>The default model connection is a Vertex profile (<code>--llm-backend</code>, default Gemini 4 Hydrogen, in the site's
-<code>vertex.project</code>). The alternative is an OpenAI-compatible endpoint (<code>--llm-backend openai</code>, <code>--llm-endpoint</code>,
-default the site's <code>endpoints.teacher.url</code>). Each session can change it per task on Data and Models. Claude through a
-Databricks AI Gateway (<code>databricks.host</code>, <code>databricks.profile</code>, endpoint name <code>databricks.endpoints.sonnet</code>) is
-offered for the SQL agent only. Patient text and cohort criteria go to the selected endpoints, so use only endpoints
-authorized for the data.</p>
+<p>The default model connection (<code>--llm-backend</code>, <code>--llm-model</code>) is Claude Haiku 5.5 through a Databricks AI Gateway
+when the site config names the gateway (<code>databricks.host</code>, <code>databricks.profile</code>) and a Haiku endpoint
+(<code>databricks.endpoints.haiku</code>), else the Vertex profile Gemini 4 Hydrogen (in the site's <code>vertex.project</code>). Claude
+serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
+endpoints the site names (<code>sonnet</code>, <code>opus</code>) can be chosen per task. An OpenAI-compatible endpoint is also offered
+(<code>--llm-backend openai</code>, <code>--llm-endpoint</code>, default the site's <code>endpoints.teacher.url</code>). Each session can change the
+connection per task on Data and Models. Patient text and cohort criteria go to the selected endpoints, so use only
+endpoints authorized for the data.</p>
 <h2 id="real-patients">Real patients<a class="headerlink" href="#real-patients" title="Permanent link">&para;</a></h2>
 <p>Real mode's patients are a preprocessed population cache: summaries with precomputed TrialSpace vectors, and the
 source notes, read on demand. It is built offline from a population DuckDB database (<code>dashboard.real.population_duckdb</code>)

@@ -2092,7 +2092,7 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>databricks.host</code></td>
-<td>the dashboard's SQL agent, <code>provider: databricks_anthropic</code>, <code>evaluation.dual_judge.judge_worker --judge databricks</code></td>
+<td>the dashboard's model connections, <code>provider: databricks_anthropic</code>, <code>evaluation.dual_judge.judge_worker --judge databricks</code></td>
 <td>Workspace URL whose AI Gateway serves Claude</td>
 </tr>
 <tr>
@@ -2102,7 +2102,7 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>databricks.endpoints.&lt;name&gt;</code></td>
-<td>the dashboard's SQL agent (<code>sonnet</code>), the Databricks judge (<code>opus</code>)</td>
+<td>the dashboard (<code>haiku</code>: its default model for every LLM task; the others selectable), the Databricks judge (<code>opus</code>)</td>
 <td>Full three-part gateway endpoint names of the Claude models (<code>haiku</code>, <code>sonnet</code>, <code>opus</code>)</td>
 </tr>
 </tbody>
@@ -2276,6 +2276,7 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://workspace.example.cloud.databricks.com</span>
 <span class="w">  </span><span class="nt">profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unity-gateway</span>
 <span class="w">  </span><span class="nt">endpoints</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-haiku-5-5</span>
 <span class="w">    </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-sonnet-5-5</span>
 <span class="w">    </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-opus-5-5</span>
 
