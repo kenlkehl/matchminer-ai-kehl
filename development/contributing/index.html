@@ -898,8 +898,6 @@
       
         
       
-        
-      
     
     
     
@@ -960,34 +958,6 @@
     
   
     Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../apps/guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
   
 
     
@@ -2100,7 +2070,7 @@ downloads. Run those on a GPU machine with <code>pytest -m resource_heavy</code>
 </tr>
 <tr>
 <td><code>tests/apps/</code></td>
-<td>The dashboard and the guideline fetcher; not collected without the <code>apps</code> extra</td>
+<td>The dashboard, including its guideline features; not collected without the <code>apps</code> extra</td>
 </tr>
 <tr>
 <td><code>tests/integration/</code></td>
@@ -2112,9 +2082,7 @@ downloads. Run those on a GPU machine with <code>pytest -m resource_heavy</code>
 </tr>
 </tbody>
 </table>
-<p>The guideline fetcher's browser modules have Node tests (Node 18 or later):</p>
-<div class="highlight"><pre><span></span><code>node<span class="w"> </span>--test<span class="w"> </span>tests/apps/guideline_fetcher/*.mjs
-</code></pre></div>
+<p>The dashboard's frontend is type-checked by its build (<code>cd frontend/dashboard &amp;&amp; pnpm build</code>).</p>
 <p>Tests use synthetic or fabricated records only.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[docs]"</span>

@@ -14,7 +14,7 @@
         <link rel="prev" href="../../evaluation/">
       
       
-        <link rel="next" href="../guideline-fetcher/">
+        <link rel="next" href="../../reference/configuration/">
       
       
         
@@ -900,8 +900,6 @@
       
         
       
-        
-      
     
     
     
@@ -1014,10 +1012,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-it-shows" class="md-nav__link">
+  <a href="#two-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it shows
+        Two modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tabs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tabs
       
     </span>
   </a>
@@ -1046,38 +1055,21 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#real-patients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Real patients
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1930,10 +1922,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-it-shows" class="md-nav__link">
+  <a href="#two-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it shows
+        Two modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tabs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tabs
       
     </span>
   </a>
@@ -1962,6 +1965,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#real-patients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Real patients
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1983,88 +1997,184 @@
 
 
 <h1 id="dashboard">Dashboard<a class="headerlink" href="#dashboard" title="Permanent link">&para;</a></h1>
-<p><code>matchminer_ai.apps.dashboard</code> is a per-disease-center trials dashboard over a site's extracted trial cohorts, with
-patient matching over a synthetic training run's patients. It is a FastAPI server with a React frontend (source in
-<code>frontend/dashboard/</code>, built into the package's <code>static/</code> folder). Research use: patients are synthetic, and scores
-are screening signals for review, not eligibility determinations.</p>
-<h2 id="what-it-shows">What it shows<a class="headerlink" href="#what-it-shows" title="Permanent link">&para;</a></h2>
+<p><code>matchminer_ai.apps.dashboard</code> is the MatchMiner-AI web app: trials, patient populations, single patients and
+benchmarks in one FastAPI server with a React frontend. The frontend's source is in <code>frontend/dashboard/</code>, and it is
+built into the package's <code>static/</code> folder. It is for research: scores and guideline considerations are screening
+signals for review, not eligibility determinations or treatment recommendations.</p>
+<h2 id="two-modes">Two modes<a class="headerlink" href="#two-modes" title="Permanent link">&para;</a></h2>
+<p>The mode is chosen only on the command line (<code>--mode</code>, required), never by the environment. It decides where the data
+come from and how the server is reached.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>real</code></th>
+<th><code>synthetic</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trials</td>
+<td>A site's extracted trial cohorts (an extraction run and its trial table)</td>
+<td>The synthetic training run's trials (ClinicalTrials.gov listings and synthetic protocols), grouped by cancer type</td>
+</tr>
+<tr>
+<td>Patients</td>
+<td>A preprocessed population cache of real patients</td>
+<td>The synthetic run's patients</td>
+</tr>
+<tr>
+<td>Populations</td>
+<td>The population cache, a sample from a population DuckDB database, uploaded tables, cohort archives</td>
+<td>A sample of the synthetic population, uploaded tables, cohort archives</td>
+</tr>
+<tr>
+<td>Benchmarks</td>
+<td>Evaluation runs under <code>dashboard.real.benchmark_roots</code></td>
+<td>Runs under <code>dashboard.synthetic.benchmark_roots</code> (the tab is hidden without any)</td>
+</tr>
+<tr>
+<td>Serving</td>
+<td>Loopback only (<code>127.0.0.1:8781</code>); a non-loopback <code>--host</code> is refused; the access token is always required</td>
+<td><code>0.0.0.0:8034</code> by default; any Host unless <code>--allowed-hosts</code> names them; a token only with <code>--require-token</code></td>
+</tr>
+<tr>
+<td>Data side</td>
+<td>Writes never go to a <code>no_phi</code> folder</td>
+<td>Never reads or writes a <code>phi</code> folder</td>
+</tr>
+</tbody>
+</table>
+<p>TrialSpace, its rounds and the decision model come from the synthetic run in both modes. Real mode compares the
+population cache's vectors with cohort vectors made by the round's encoder, so it requires both to be the same
+TrialSpace model and says so on Data and Models if they differ.</p>
+<h2 id="tabs">Tabs<a class="headerlink" href="#tabs" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Trials overview per disease center:</strong> an accordion of trial groups (rules in a grouping file), one row per
-  cohort with its PI, key inclusion and exclusion criteria, the trial's drugs and mechanisms (from a GoodOption
-  catalog), contacts and <strong>Find patients</strong>. Trial details show the summary, drugs, contacts, sites and both
-  versions' cohorts (protocol and ClinicalTrials.gov).</li>
-<li><strong>Find patients:</strong> the synthetic patients nearest a cohort's key criteria in TrialSpace, scored by the decision
-  model as the page opens; the per-criterion and GoodOption LLM checks run on demand.</li>
-<li><strong>Search for trials for a patient:</strong> trials for a synthetic patient or an entered summary, with the same scores.</li>
-<li><strong>Data and Models:</strong> the data sources, the TrialSpace round, the decision model, the background jobs and the LLM
-  checks' endpoint, which can be changed there for the server's session.</li>
+<li><strong>Trial-centric:</strong> per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+  per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
+  <strong>Find patients</strong>. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
+  the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
+  and GoodOption LLM checks run on demand.</li>
+<li><strong>Population management:</strong> load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
+  decision model's reasonableness, 0.75 by default), compress their notes, and check guideline concordance across the
+  cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
+  workup item or a patient, and export the cohort and its results.</li>
+<li><strong>Patient-centric:</strong> one patient for two views. The patient is a corpus patient, an entered summary, or clinical notes
+  (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are compressed and summarized.</li>
+<li><em>Trials:</em> the ranked trial cohorts with decision-model scores and the GoodOption check.</li>
+<li><em>Guidelines:</em> guideline spaces for the patient's summary, their workup and treatment menus with sources, a
+    workup review, and a Markdown report.</li>
+<li><strong>Benchmarking:</strong> distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
+  model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
+  adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
+  themselves start from the command line (<a href="../../evaluation/">Evaluation</a>).</li>
+<li><strong>Data and Models:</strong> the data sources, the TrialSpace round, the decision model, background jobs and the <strong>model
+  connections</strong>, one per LLM task for this browser session: patient summarization, note compression, guideline
+  concordance checks, the SQL agent, the two backup reviews, the GoodOption check and the per-criterion LLM check.</li>
 </ul>
 <h2 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
 <p>From a source checkout:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[apps]"</span>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[apps]"</span><span class="w">          </span><span class="c1"># add databricks for Claude in the SQL agent</span>
 <span class="nb">cd</span><span class="w"> </span>frontend/dashboard<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>pnpm<span class="w"> </span>install<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>pnpm<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>-<span class="w">   </span><span class="c1"># once, and after frontend changes</span>
-mmai-dashboard<span class="w"> </span>--site-config<span class="w"> </span>site.yaml<span class="w"> </span>--device<span class="w"> </span>cuda:0
+mmai-dashboard<span class="w"> </span>--mode<span class="w"> </span>synthetic<span class="w"> </span>--site-config<span class="w"> </span>site.yaml<span class="w"> </span>--device<span class="w"> </span>cuda:0
 </code></pre></div>
-<p><code>python -m matchminer_ai.apps.dashboard</code> is the same command; <code>mmai-dashboard build</code> builds the store once and exits.
-<code>pnpm dev</code> serves the frontend on :5173 and proxies <code>/api</code> to a running server.</p>
-<p><strong>Access.</strong> The server binds <code>127.0.0.1:8781</code> and refuses a non-loopback <code>--host</code>, because it shows confidential
-protocol content; forward the port with <code>ssh -L</code> to reach it from another machine. It accepts only loopback Host
-headers (<code>--allowed-hosts</code> adds names) and refuses cross-origin writes. <code>--require-token</code> also requires an access
-token (<code>MMAI_DASH_ACCESS_TOKEN</code>, else a private <code>~/.config/mmai-dashboard/access_token</code> created on first use), which
-keeps out other accounts on the same machine. On an interactive terminal the server prints a one-click sign-in link;
-with redirected output it prints only where the token is.</p>
+<p><code>python -m matchminer_ai.apps.dashboard</code> is the same command. <code>mmai-dashboard --mode ... build</code> builds the trial
+store once and exits. <code>pnpm dev</code> serves the frontend on :5173 and proxies <code>/api</code> to a running server
+(<code>MMAI_DASH_API_URL</code>, default <code>http://127.0.0.1:8781</code>).</p>
+<p><strong>Access.</strong> Real mode serves on loopback only, because it shows patient records and confidential protocol content;
+forward the port with <code>ssh -L</code> to reach it from another machine. It accepts only loopback Host headers, refuses
+cross-origin writes and requires the access token: <code>MMAI_DASH_ACCESS_TOKEN</code>, else a private
+<code>~/.config/mmai-dashboard/access_token</code> created on first use. That keeps out other accounts on the same machine. On an
+interactive terminal the server prints a one-click sign-in link; with redirected output it prints only where the token
+is. Each browser gets a session: its jobs, model connections, patient workspace and population are its own and
+expire after an hour unused.</p>
 <h2 id="inputs">Inputs<a class="headerlink" href="#inputs" title="Permanent link">&para;</a></h2>
-<p>Paths come from the command line, <code>MMAI_DASH_*</code> variables (for example <code>MMAI_DASH_TRIAL_DATA</code>), the site config's
-<code>dashboard</code> section, or folders under the data root (<code>--data-root</code>, <code>MMAI_DATA_ROOT</code> or <code>paths.data_root</code>):</p>
+<p>Paths come from the command line, <code>MMAI_DASH_*</code> variables (for example <code>MMAI_DASH_STORE_DIR</code>), the site config
+(<code>dashboard.&lt;mode&gt;.&lt;key&gt;</code> for a mode's own data, <code>dashboard.&lt;key&gt;</code> for shared values), or folders under the data root
+(<code>--data-root</code>, <code>MMAI_DATA_ROOT</code> or <code>paths.data_root</code>):</p>
 <table>
 <thead>
 <tr>
 <th>Setting</th>
+<th>Mode</th>
 <th>Default under the data root</th>
 <th>Contents</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>--trial-data</code> (<code>dashboard.trial_data</code>)</td>
+<td><code>--trial-data</code> (<code>dashboard.real.trial_data</code>)</td>
+<td>real</td>
 <td><code>phi/real_time/trial_data</code></td>
-<td>The trial extraction run (<code>inputs.csv</code>, <code>protocol/</code> and <code>ctgov/</code> with per-trial results and <code>cohorts.parquet</code>); new results appear within a poll (<code>--rebuild-poll-seconds</code>, 30)</td>
+<td>The trial extraction run (<code>inputs.csv</code>, <code>protocol/</code> and <code>ctgov/</code> with per-trial results); new results appear within a poll (<code>--rebuild-poll-seconds</code>, 30)</td>
 </tr>
 <tr>
-<td><code>--oa-db</code> (<code>dashboard.oa_db</code>)</td>
+<td><code>--oa-db</code> (<code>dashboard.real.oa_db</code>)</td>
+<td>real</td>
 <td><code>phi/real_time/oa_db_*.duckdb</code></td>
 <td>The DuckDB copy holding the trial table (the newest file of a glob)</td>
 </tr>
 <tr>
-<td><code>--store-dir</code> (<code>dashboard.store_dir</code>)</td>
-<td><code>phi/real_time/dashboard</code></td>
-<td>The store, vectors and caches (owner-only)</td>
+<td><code>--store-dir</code> (<code>dashboard.&lt;mode&gt;.store_dir</code>)</td>
+<td>both</td>
+<td><code>phi/real_time/dashboard</code>, <code>no_phi/dashboard_synthetic</code></td>
+<td>The trial store, cohort vectors and caches (owner only)</td>
 </tr>
 <tr>
-<td><code>--good-options-catalog</code> (<code>dashboard.good_options_catalog</code>)</td>
-<td><code>phi/real_time/good_options_catalog/catalog</code></td>
+<td><code>--good-options-catalog</code> (<code>dashboard.&lt;mode&gt;.good_options_catalog</code>)</td>
+<td>both</td>
+<td>real: <code>phi/real_time/good_options_catalog/catalog</code>; synthetic: none</td>
 <td>Trials' drugs and mechanism classes; missing: no drugs</td>
 </tr>
 <tr>
 <td><code>--grouping</code> (<code>dashboard.grouping</code>)</td>
+<td>both</td>
 <td>the bundled example rules</td>
 <td>Trial-group rules per center</td>
 </tr>
 <tr>
 <td><code>--synthetic-run</code> (<code>dashboard.synthetic_run</code>)</td>
+<td>both</td>
 <td><code>no_phi/synthetic_run</code></td>
-<td>Patients, TrialSpace rounds and the decision model</td>
+<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients</td>
+</tr>
+<tr>
+<td><code>dashboard.real.population_cache</code></td>
+<td>real</td>
+<td>beside the population database</td>
+<td>The real patients (see below)</td>
+</tr>
+<tr>
+<td><code>dashboard.guideline_catalogs</code></td>
+<td>both</td>
+<td><code>no_phi/space_paradigms_nccn</code></td>
+<td>Finalized guideline catalogs</td>
 </tr>
 </tbody>
 </table>
 <p>The decision model is the synthetic run's trained model (<code>--decision-model</code> overrides it, with fallbacks while the
-run is still training; the Data and Models page shows which loaded). It runs on <code>--device</code>, by default <code>cuda:0</code> when
-CUDA is available, else the CPU.</p>
-<p>The trial table's name and columns, the site names shown, the home institution's center prefix, branding and protocol
-links are site-config keys (see <a href="../../reference/site-config/">Site configuration</a>). The LLM checks use a Vertex
-profile (<code>--llm-backend</code>, default Gemini 4 Hydrogen, in the site's <code>vertex.project</code>) or an OpenAI-compatible endpoint
-(<code>--llm-backend openai</code>, <code>--llm-endpoint</code>, default the site's <code>endpoints.teacher.url</code>; <code>none</code> turns the checks off).
-They send the patient summary and the cohort's criteria to that endpoint, so use one authorized for the data.</p>
+run is still training; Data and Models shows which one loaded). It scores in every tab and runs on <code>--device</code>, by
+default <code>cuda:0</code> when CUDA is available, else the CPU.</p>
+<p>The default model connection is a Vertex profile (<code>--llm-backend</code>, default Gemini 4 Hydrogen, in the site's
+<code>vertex.project</code>). The alternative is an OpenAI-compatible endpoint (<code>--llm-backend openai</code>, <code>--llm-endpoint</code>,
+default the site's <code>endpoints.teacher.url</code>). Each session can change it per task on Data and Models. Claude through a
+Databricks AI Gateway (<code>databricks.host</code>, <code>databricks.profile</code>, endpoint name <code>databricks.endpoints.sonnet</code>) is
+offered for the SQL agent only. Patient text and cohort criteria go to the selected endpoints, so use only endpoints
+authorized for the data.</p>
+<h2 id="real-patients">Real patients<a class="headerlink" href="#real-patients" title="Permanent link">&para;</a></h2>
+<p>Real mode's patients are a preprocessed population cache: summaries with precomputed TrialSpace vectors, and the
+source notes, read on demand. It is built offline from a population DuckDB database (<code>dashboard.real.population_duckdb</code>)
+with <code>patient_summary</code> (<code>mrn</code>, <code>patient_summary</code>, <code>patient_boilerplate</code>, <code>is_current</code>) and <code>patient_notes</code> (<code>id</code>,
+<code>mrn</code>, <code>rpt_text</code>, <code>narrative_text</code>, <code>event_date</code>, <code>note_source</code>) tables:</p>
+<ul>
+<li><code>python -m matchminer_ai.apps.dashboard.guidelines.preprocess_population</code> builds the cache (0700, with 0600 files)
+  beside the database.</li>
+<li><code>python -m matchminer_ai.apps.dashboard.guidelines.preprocess_extractions</code> builds structured extraction records for
+  the extraction-based workup checks (<code>--phi</code> for a population cache). Every note goes to the LLM endpoint given, so
+  use one authorized for the notes.</li>
+</ul>
+<p>Both read <code>MMAI_SITE_CONFIG</code> and <code>MMAI_DATA_ROOT</code>. <code>examples/guidelines/</code> has workup spot checks and benchmarks on
+synthetic notes.</p>
 
 
 

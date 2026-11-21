@@ -1096,8 +1096,6 @@
       
         
       
-        
-      
     
     
     
@@ -1158,34 +1156,6 @@
     
   
     Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../apps/guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
   
 
     
@@ -2680,7 +2650,7 @@ The participant has received a prior fictional inhibitor.
 </code></pre></div>
 <p><code>load_guideline_catalog</code> returns this text as <code>cohort_key_criteria</code>, the column a trial cohort's key criteria use.
 TrialSpace retrieval and the decision model's match questions read it, as they do for trial cohorts; guideline
-spaces have no boilerplate criteria. The population workup review and the guideline fetcher also pass it to workup
+spaces have no boilerplate criteria. The population workup review and the dashboard also pass it to workup
 review as the population context. <code>clinical_space_summary</code> is unchanged and remains the key for exact lookup.</p>
 <p><strong>Catalogs without stored key criteria.</strong> For a record without <code>key_criteria</code>, the loader lays out the nine fields
 as key criteria instead: the seven required fields under "Inclusion criteria:", then <code>prior_treatment_excluded</code> and
@@ -2871,7 +2841,7 @@ cited pages kept and other pages filling the remaining context.</p>
 </ul>
 <p>Each population and menu item gains <code>citation_review</code>: <code>version</code>, <code>status</code> (<code>supported_by_model_review</code> or
 <code>unresolved</code>) and <code>issues</code>. An unresolved item can have partial or empty evidence. <strong>Show these issues beside the
-affected assertion</strong>, as the guideline fetcher and the Markdown reports do, rather than presenting partial support as
+affected assertion</strong>, as the dashboard and the Markdown reports do, rather than presenting partial support as
 validation of the whole recommendation. A completed review can contain unresolved items; the audit counts them.</p>
 <p>For several diseases, write a JSON object that maps disease folder names to completed catalog directories:</p>
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>examples/review_guideline_collection.py<span class="w"> </span><span class="se">\</span>

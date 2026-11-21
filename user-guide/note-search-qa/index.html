@@ -1091,8 +1091,6 @@
       
         
       
-        
-      
     
     
     
@@ -1153,34 +1151,6 @@
     
   
     Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../apps/guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
   
 
     
@@ -2209,7 +2179,7 @@
 isolated Python REPL, instead of reading every note chunk for every question. The notes can be a DataFrame,
 concatenated text, or both, with an optional existing summary as navigation context.
 <code>answer_patient_question_batch</code> runs the same loop across patients and questions concurrently, and
-<code>review_patient_workup_with_note_search</code> applies it to guideline workup items; the guideline fetcher offers it as its
+<code>review_patient_workup_with_note_search</code> applies it to guideline workup items; the dashboard offers it as its
 agentic workup method, beside the default full-note review.</p>
 <p>The feature is experimental. Answers are research documentation-review results for human review, not guideline
 concordance or eligibility determinations. All three functions are in <code>matchminer_ai.patients</code>; their docstrings are
@@ -2676,7 +2646,7 @@ unclear documentation is an <code>unknown</code> answer, and a documented status
 <code>evidence_selection="automatic_reviewed_excerpts"</code>, the follow-up settings, <code>incomplete_review_items</code>,
 <code>failed_items</code>, <code>requests</code>, note and undated-note counts, and which input supplied the notes. Endpoint or worker
 failures are <code>status="error"</code> and never imply missing documentation. "Not documented" means nothing was located in
-the searched excerpts, not that every note was clinically reviewed. The guideline fetcher runs every item at once (it
+the searched excerpts, not that every note was clinically reviewed. The dashboard runs every item at once (it
 raises the endpoint's request cap to the item count) and labels the attached text "Reviewed patient-note excerpts".</p>
 <h3 id="follow-up-review">Follow-up review<a class="headerlink" href="#follow-up-review" title="Permanent link">&para;</a></h3>
 <p>By default each provisional assessment gets a coverage check and up to two focused reviews; the generic

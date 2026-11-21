@@ -1041,8 +1041,6 @@
       
         
       
-        
-      
     
     
     
@@ -1103,34 +1101,6 @@
     
   
     Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../apps/guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
   
 
     
@@ -2130,7 +2100,7 @@ population:</p>
 <li><strong>Export and archive</strong> the results.</li>
 </ol>
 <p>Nothing here samples patients, chooses data paths or writes files except an explicit <code>save_patient_cohort</code>. The
-<a href="../../apps/guideline-fetcher/">guideline fetcher</a>'s population view runs the same steps, and leaves workup items
+<a href="../../apps/dashboard/">dashboard</a>'s Population tab runs the same steps, and leaves workup items
 that ask only for a history and physical out of every check.</p>
 <h2 id="retrieve-a-cohort">Retrieve a cohort<a class="headerlink" href="#retrieve-a-cohort" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">matchminer_ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_default_preset</span>
@@ -2177,7 +2147,7 @@ that ask only for a history and physical out of every check.</p>
 <li>The <code>candidate_k</code> most similar patients (capped at the population size) get the decision model's match
   questions. A patient is selected when its reasonableness answer, the model's P(yes) that the patient is
   potentially eligible (<code>match_quality_reasonableness</code>), is at least <code>min_reasonableness</code> (default 0.75); <code>None</code>
-  keeps every candidate. Selected patients are ranked by <code>match_quality_score</code>. The guideline fetcher's
+  keeps every candidate. Selected patients are ranked by <code>match_quality_score</code>. The dashboard's
   <strong>Minimum reasonableness</strong> field sets the same threshold.</li>
 <li>Embedding and scoring run in batches of 32, with progress and cancellation checks between batches. Both sides
   must use the same embedding model. Raw notes never enter retrieval.</li>

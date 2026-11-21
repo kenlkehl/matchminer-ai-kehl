@@ -898,8 +898,6 @@
       
         
       
-        
-      
     
     
     
@@ -960,34 +958,6 @@
     
   
     Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../apps/guideline-fetcher/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Guideline fetcher
   
 
     
@@ -1205,17 +1175,6 @@
     <span class="md-ellipsis">
       
         dashboard
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#guideline_fetcher" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        guideline_fetcher
       
     </span>
   </a>
@@ -2013,17 +1972,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#guideline_fetcher" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        guideline_fetcher
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2109,7 +2057,7 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>paths.trialspace_model</code></td>
-<td><code>embed_for_matching</code> and everything that embeds with TrialSpace, including the guideline fetcher</td>
+<td><code>embed_for_matching</code> and everything that embeds with TrialSpace, including the dashboard's guideline features</td>
 <td>The TrialSpace checkpoint, when the configuration's <code>embedding.model_path</code> is unset</td>
 </tr>
 <tr>
@@ -2144,25 +2092,27 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>databricks.host</code></td>
-<td>the guideline fetcher's SQL agent</td>
-<td>Workspace URL whose AI Gateway serves Claude (<code>GUIDELINE_DATABRICKS_HOST</code> overrides it)</td>
+<td>the dashboard's SQL agent, <code>provider: databricks_anthropic</code>, <code>evaluation.dual_judge.judge_worker --judge databricks</code></td>
+<td>Workspace URL whose AI Gateway serves Claude</td>
 </tr>
 <tr>
 <td><code>databricks.profile</code></td>
-<td>the guideline fetcher's SQL agent</td>
-<td>Databricks CLI login profile (default <code>unity-gateway</code>; <code>GUIDELINE_DATABRICKS_PROFILE</code> overrides it)</td>
+<td>the same</td>
+<td>Databricks CLI login profile (default <code>unity-gateway</code>)</td>
 </tr>
 <tr>
-<td><code>databricks.sonnet_endpoint</code></td>
-<td>the guideline fetcher's SQL agent</td>
-<td>Full three-part gateway endpoint name of the Claude model (<code>GUIDELINE_DATABRICKS_SONNET_ENDPOINT</code> overrides it)</td>
+<td><code>databricks.endpoints.&lt;name&gt;</code></td>
+<td>the dashboard's SQL agent (<code>sonnet</code>), the Databricks judge (<code>opus</code>)</td>
+<td>Full three-part gateway endpoint names of the Claude models (<code>haiku</code>, <code>sonnet</code>, <code>opus</code>)</td>
 </tr>
 </tbody>
 </table>
 <p>Without <code>vertex.project</code> the Vertex profiles have no project, and without <code>databricks.host</code> the Claude option has no
 gateway.</p>
 <h3 id="dashboard"><code>dashboard</code><a class="headerlink" href="#dashboard" title="Permanent link">&para;</a></h3>
-<p>Read by the <a href="../../apps/dashboard/">dashboard</a>. The command line and <code>MMAI_DASH_*</code> variables override the paths.</p>
+<p>Read by the <a href="../../apps/dashboard/">dashboard</a>. The command line and <code>MMAI_DASH_*</code> variables override the paths. A
+mode's own data sit under <code>dashboard.real</code> and <code>dashboard.synthetic</code> (no shared fallback, so one mode never reads the
+other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2173,34 +2123,69 @@ gateway.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>trial_data</code></td>
+<td><code>real.trial_data</code></td>
 <td><code>&lt;data root&gt;/phi/real_time/trial_data</code></td>
-<td>The trial extraction run the dashboard ingests</td>
+<td>The trial extraction run real mode ingests</td>
 </tr>
 <tr>
-<td><code>oa_db</code></td>
+<td><code>real.oa_db</code></td>
 <td><code>&lt;data root&gt;/phi/real_time/oa_db_*.duckdb</code></td>
 <td>The DuckDB copy holding the trial table (a glob; the newest file is used)</td>
 </tr>
 <tr>
-<td><code>store_dir</code></td>
-<td><code>&lt;data root&gt;/phi/real_time/dashboard</code></td>
-<td>The dashboard's store, vectors and caches</td>
+<td><code>real.store_dir</code>, <code>synthetic.store_dir</code></td>
+<td><code>&lt;data root&gt;/phi/real_time/dashboard</code>, <code>&lt;data root&gt;/no_phi/dashboard_synthetic</code></td>
+<td>Each mode's store, vectors and caches</td>
 </tr>
 <tr>
-<td><code>good_options_catalog</code></td>
-<td><code>&lt;data root&gt;/phi/real_time/good_options_catalog/catalog</code></td>
+<td><code>real.good_options_catalog</code>, <code>synthetic.good_options_catalog</code></td>
+<td>real: <code>&lt;data root&gt;/phi/real_time/good_options_catalog/catalog</code>; synthetic: none</td>
 <td>The GoodOption catalog of the trials' drugs</td>
+</tr>
+<tr>
+<td><code>real.population_duckdb</code></td>
+<td><code>&lt;data root&gt;/phi/guideline_fetcher_population.duckdb</code></td>
+<td>Real mode's population database</td>
+</tr>
+<tr>
+<td><code>real.population_cache</code></td>
+<td>beside the population database</td>
+<td>The preprocessed real population (the patients of real mode)</td>
+</tr>
+<tr>
+<td><code>real.duckdb_roots</code></td>
+<td>the data root</td>
+<td>Folders real mode may browse for DuckDB files</td>
+</tr>
+<tr>
+<td><code>real.extraction_records</code>, <code>synthetic.extraction_records</code></td>
+<td>beside the population database; <code>&lt;data root&gt;/no_phi/guideline_fetcher_extractions/synthetic</code></td>
+<td>Extraction records for the extraction-based workup checks</td>
+</tr>
+<tr>
+<td><code>synthetic.population_summaries</code>, <code>synthetic.population_notes</code></td>
+<td><code>&lt;data root&gt;/no_phi/patient_summaries.parquet</code>, <code>&lt;data root&gt;/no_phi/all_synthetic_notes.parquet</code></td>
+<td>Synthetic mode's population sample</td>
+</tr>
+<tr>
+<td><code>real.benchmark_roots</code>, <code>synthetic.benchmark_roots</code></td>
+<td>none</td>
+<td>Folders searched for evaluation runs (Benchmarking tab)</td>
+</tr>
+<tr>
+<td><code>synthetic_run</code></td>
+<td><code>&lt;data root&gt;/no_phi/synthetic_run</code></td>
+<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients</td>
+</tr>
+<tr>
+<td><code>guideline_catalogs</code></td>
+<td><code>&lt;data root&gt;/no_phi/space_paradigms_nccn</code></td>
+<td>Finalized guideline catalogs</td>
 </tr>
 <tr>
 <td><code>grouping</code></td>
 <td>the bundled example rules</td>
 <td>Trial-group rules per center</td>
-</tr>
-<tr>
-<td><code>synthetic_run</code></td>
-<td><code>&lt;data root&gt;/no_phi/synthetic_run</code></td>
-<td>Patients, TrialSpace rounds and the decision model</td>
 </tr>
 <tr>
 <td><code>embedding_python</code></td>
@@ -2235,7 +2220,7 @@ gateway.</p>
 <tr>
 <td><code>higher_threshold_groups</code></td>
 <td>none</td>
-<td>Coordinating centers left out of the AI tab unless included</td>
+<td>Coordinating centers left out of the Patient tab's trials unless included</td>
 </tr>
 <tr>
 <td><code>branding.institution</code></td>
@@ -2269,40 +2254,6 @@ gateway.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="guideline_fetcher"><code>guideline_fetcher</code><a class="headerlink" href="#guideline_fetcher" title="Permanent link">&para;</a></h3>
-<p>Read by the <a href="../../apps/guideline-fetcher/">guideline fetcher</a>. <code>GUIDELINE_POPULATION_*</code> variables override the
-population paths.</p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Default</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>population_duckdb</code></td>
-<td><code>&lt;data root&gt;/phi/guideline_fetcher_population.duckdb</code></td>
-<td>PHI mode's population database</td>
-</tr>
-<tr>
-<td><code>population_summaries</code></td>
-<td><code>&lt;data root&gt;/no_phi/patient_summaries.parquet</code></td>
-<td>The non-PHI app's synthetic population summaries</td>
-</tr>
-<tr>
-<td><code>population_notes</code></td>
-<td><code>&lt;data root&gt;/no_phi/all_synthetic_notes.parquet</code></td>
-<td>The non-PHI app's synthetic population notes</td>
-</tr>
-<tr>
-<td><code>duckdb_roots</code></td>
-<td>the data root</td>
-<td>Folders PHI mode may browse for DuckDB files</td>
-</tr>
-</tbody>
-</table>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p>Placeholder values only:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">paths</span><span class="p">:</span>
@@ -2324,15 +2275,24 @@ population paths.</p>
 <span class="nt">databricks</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://workspace.example.cloud.databricks.com</span>
 <span class="w">  </span><span class="nt">profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unity-gateway</span>
-<span class="w">  </span><span class="nt">sonnet_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-sonnet-5-5</span>
+<span class="w">  </span><span class="nt">endpoints</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-sonnet-5-5</span>
+<span class="w">    </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">catalog.schema.example-claude-opus-5-5</span>
 
 <span class="nt">dashboard</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">trial_data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/trial_data</span>
-<span class="w">  </span><span class="nt">oa_db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/trials_*.duckdb</span>
-<span class="w">  </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/dashboard</span>
-<span class="w">  </span><span class="nt">good_options_catalog</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/good_options_catalog/catalog</span>
-<span class="w">  </span><span class="nt">grouping</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/site/grouping.yaml</span>
+<span class="w">  </span><span class="nt">real</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">trial_data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/trial_data</span>
+<span class="w">    </span><span class="nt">oa_db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/trials_*.duckdb</span>
+<span class="w">    </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/dashboard</span>
+<span class="w">    </span><span class="nt">good_options_catalog</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/real_time/good_options_catalog/catalog</span>
+<span class="w">    </span><span class="nt">population_duckdb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/population.duckdb</span>
+<span class="w">    </span><span class="nt">duckdb_roots</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">/srv/mmai/data</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">benchmark_roots</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">/srv/mmai/data/phi</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">synthetic</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/no_phi/dashboard_synthetic</span>
 <span class="w">  </span><span class="nt">synthetic_run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/no_phi/synthetic_run</span>
+<span class="w">  </span><span class="nt">guideline_catalogs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/no_phi/space_paradigms_nccn</span>
+<span class="w">  </span><span class="nt">grouping</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/site/grouping.yaml</span>
 <span class="w">  </span><span class="nt">trial_table</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">trials</span>
 <span class="w">    </span><span class="nt">columns</span><span class="p">:</span>
@@ -2350,10 +2310,6 @@ population paths.</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">ECC</span><span class="p p-Indicator">,</span><span class="nt"> prefixes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ECC/</span><span class="p p-Indicator">]}</span>
 <span class="w">    </span><span class="nt">trial_links</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Portal</span><span class="p p-Indicator">,</span><span class="nt"> url</span><span class="p">:</span><span class="w"> </span><span class="s">'https://portal.example.org/protocols/{protocol_no}'</span><span class="p p-Indicator">}</span>
-
-<span class="nt">guideline_fetcher</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">population_duckdb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/mmai/data/phi/population.duckdb</span>
-<span class="w">  </span><span class="nt">duckdb_roots</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">/srv/mmai/data</span><span class="p p-Indicator">]</span>
 </code></pre></div>
 
 
