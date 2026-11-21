@@ -1401,6 +1401,8 @@
       
         
       
+        
+      
     
     
     
@@ -1629,6 +1631,34 @@
     
   
     SQL-Agent Workup Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/structured-criteria/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured-Record Criteria Screening
   
 
     
@@ -2160,12 +2190,22 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <tr>
 <td><code>real.extraction_records</code>, <code>synthetic.extraction_records</code></td>
 <td>beside the population database; <code>&lt;data root&gt;/no_phi/guideline_fetcher_extractions/synthetic</code></td>
-<td>Extraction records for the extraction-based workup checks</td>
+<td>Extraction records: the Patient tab's Structured data, extraction-based workup checks, and criteria screening</td>
 </tr>
 <tr>
 <td><code>synthetic.population_summaries</code>, <code>synthetic.population_notes</code></td>
 <td><code>&lt;data root&gt;/no_phi/patient_summaries.parquet</code>, <code>&lt;data root&gt;/no_phi/all_synthetic_notes.parquet</code></td>
-<td>Synthetic mode's population sample</td>
+<td>Synthetic mode's population (Population management samples it)</td>
+</tr>
+<tr>
+<td><code>synthetic.population_split</code></td>
+<td>none (every patient)</td>
+<td>The split the synthetic sample is drawn from, when the summaries have a <code>split</code> column</td>
+</tr>
+<tr>
+<td><code>synthetic.population_key</code></td>
+<td><code>pseudo_mrn</code></td>
+<td>The synthetic tables' patient key; <code>patient_id</code> when it is the patient's own ID (the patient corpus's), not a generation-prompt ID</td>
 </tr>
 <tr>
 <td><code>real.benchmark_roots</code>, <code>synthetic.benchmark_roots</code></td>

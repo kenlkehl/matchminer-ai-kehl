@@ -1293,6 +1293,8 @@
       
         
       
+        
+      
     
     
     
@@ -1828,6 +1830,34 @@
     
   
     SQL-Agent Workup Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../structured-criteria/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured-Record Criteria Screening
   
 
     
@@ -3506,8 +3536,7 @@ row per item.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/documents.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">205</span>
-<span class="normal">206</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">206</span>
 <span class="normal">207</span>
 <span class="normal">208</span>
 <span class="normal">209</span>
@@ -3796,7 +3825,11 @@ row per item.</p>
 <span class="normal">492</span>
 <span class="normal">493</span>
 <span class="normal">494</span>
-<span class="normal">495</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_document_records</span><span class="p">(</span>
+<span class="normal">495</span>
+<span class="normal">496</span>
+<span class="normal">497</span>
+<span class="normal">498</span>
+<span class="normal">499</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_document_records</span><span class="p">(</span>
     <span class="n">notes</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MMAIConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3866,6 +3899,9 @@ row per item.</p>
     <span class="n">template</span> <span class="o">=</span> <span class="n">load_prompt_text</span><span class="p">(</span><span class="n">PROMPT_FILE</span><span class="p">)</span>
     <span class="n">guide</span> <span class="o">=</span> <span class="n">render_field_guide</span><span class="p">(</span><span class="s2">"document"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">,</span> <span class="n">linking</span><span class="o">=</span><span class="n">linking</span><span class="p">)</span>
     <span class="n">guidance</span> <span class="o">=</span> <span class="n">extension_guidance</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
+    <span class="c1"># The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).</span>
+    <span class="n">head</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="si">{linking}</span><span class="s2">"</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="p">{</span>
+        <span class="s2">"field_guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span> <span class="s2">"extension_guidance"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">guidance</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="k">if</span> <span class="n">guidance</span> <span class="k">else</span> <span class="s2">""</span><span class="p">})</span>
     <span class="n">limit</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"max_document_characters"</span><span class="p">,</span> <span class="mi">200000</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">limit</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">limit</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.max_document_characters must be a positive integer"</span><span class="p">)</span>
@@ -3931,7 +3967,7 @@ row per item.</p>
             <span class="s2">"note_type"</span><span class="p">:</span> <span class="n">note</span><span class="p">[</span><span class="s2">"note_type"</span><span class="p">]</span> <span class="ow">or</span> <span class="s2">"none"</span><span class="p">,</span>
             <span class="s2">"note_text"</span><span class="p">:</span> <span class="n">note</span><span class="p">[</span><span class="s2">"text"</span><span class="p">],</span>
         <span class="p">})</span>
-        <span class="k">return</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">content</span><span class="p">}]</span>
+        <span class="k">return</span> <span class="n">prompt_messages</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">head</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span>
 
     <span class="n">finished</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 
@@ -4251,9 +4287,7 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/patient_records.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">227</span>
-<span class="normal">228</span>
-<span class="normal">229</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">229</span>
 <span class="normal">230</span>
 <span class="normal">231</span>
 <span class="normal">232</span>
@@ -4553,7 +4587,67 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
 <span class="normal">526</span>
 <span class="normal">527</span>
 <span class="normal">528</span>
-<span class="normal">529</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_patient_records</span><span class="p">(</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span>
+<span class="normal">533</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span>
+<span class="normal">546</span>
+<span class="normal">547</span>
+<span class="normal">548</span>
+<span class="normal">549</span>
+<span class="normal">550</span>
+<span class="normal">551</span>
+<span class="normal">552</span>
+<span class="normal">553</span>
+<span class="normal">554</span>
+<span class="normal">555</span>
+<span class="normal">556</span>
+<span class="normal">557</span>
+<span class="normal">558</span>
+<span class="normal">559</span>
+<span class="normal">560</span>
+<span class="normal">561</span>
+<span class="normal">562</span>
+<span class="normal">563</span>
+<span class="normal">564</span>
+<span class="normal">565</span>
+<span class="normal">566</span>
+<span class="normal">567</span>
+<span class="normal">568</span>
+<span class="normal">569</span>
+<span class="normal">570</span>
+<span class="normal">571</span>
+<span class="normal">572</span>
+<span class="normal">573</span>
+<span class="normal">574</span>
+<span class="normal">575</span>
+<span class="normal">576</span>
+<span class="normal">577</span>
+<span class="normal">578</span>
+<span class="normal">579</span>
+<span class="normal">580</span>
+<span class="normal">581</span>
+<span class="normal">582</span>
+<span class="normal">583</span>
+<span class="normal">584</span>
+<span class="normal">585</span>
+<span class="normal">586</span>
+<span class="normal">587</span>
+<span class="normal">588</span>
+<span class="normal">589</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_patient_records</span><span class="p">(</span>
     <span class="n">notes</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MMAIConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -4619,6 +4713,20 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.chunk_tokens must be an integer of at least 256"</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">overlap</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">overlap</span> <span class="o">&lt;</span> <span class="n">chunk_tokens</span> <span class="o">//</span> <span class="mi">2</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.chunk_overlap_tokens must be from 0 to half of chunk_tokens"</span><span class="p">)</span>
+    <span class="c1"># A prompt budget (prompt_tokens, in the model's tokens; prompt_token_ratio of them per chunk-tokenizer token):</span>
+    <span class="c1"># each request then takes only the next note fragments that fit beside the record so far, so a growing record</span>
+    <span class="c1"># does not push prompts past it (Claude Haiku 5.5 costs five times as much above 100,000 prompt tokens).</span>
+    <span class="n">prompt_tokens</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prompt_tokens"</span><span class="p">)</span>
+    <span class="n">ratio</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prompt_token_ratio"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+    <span class="n">fragment_tokens</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"fragment_tokens"</span><span class="p">,</span> <span class="mi">8000</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">prompt_tokens</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">prompt_tokens</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">prompt_tokens</span> <span class="o">&lt;</span> <span class="mi">1024</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.prompt_tokens must be null or an integer of at least 1024"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ratio</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ratio</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mf">0.1</span> <span class="o">&lt;=</span> <span class="n">ratio</span> <span class="o">&lt;=</span> <span class="mi">10</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.prompt_token_ratio must be a number from 0.1 to 10"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">fragment_tokens</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">fragment_tokens</span> <span class="o">&lt;=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">overlap</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.fragment_tokens must be an integer above twice chunk_overlap_tokens"</span><span class="p">)</span>
+    <span class="n">budget</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">prompt_tokens</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="n">prompt_tokens</span> <span class="o">/</span> <span class="n">ratio</span><span class="p">)</span>
+    <span class="n">fragment_size</span> <span class="o">=</span> <span class="n">chunk_tokens</span> <span class="o">-</span> <span class="mi">64</span> <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">min</span><span class="p">(</span><span class="n">chunk_tokens</span> <span class="o">-</span> <span class="mi">64</span><span class="p">,</span> <span class="n">fragment_tokens</span><span class="p">)</span>
     <span class="n">context</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"context_tokens"</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">context</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"local"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"engine"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"max_model_len"</span><span class="p">)</span>
@@ -4627,6 +4735,9 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
     <span class="n">template</span> <span class="o">=</span> <span class="n">load_prompt_text</span><span class="p">(</span><span class="n">PROMPT_FILE</span><span class="p">)</span>
     <span class="n">guide</span> <span class="o">=</span> <span class="n">render_field_guide</span><span class="p">(</span><span class="s2">"patient"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">)</span>
     <span class="n">guidance</span> <span class="o">=</span> <span class="n">extension_guidance</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
+    <span class="c1"># The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).</span>
+    <span class="n">head</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="si">{record}</span><span class="s2">"</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="p">{</span>
+        <span class="s2">"field_guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span> <span class="s2">"extension_guidance"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">guidance</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="k">if</span> <span class="n">guidance</span> <span class="k">else</span> <span class="s2">""</span><span class="p">})</span>
     <span class="n">ncit_resource</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
         <span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="n">resolved</span><span class="o">.</span><span class="n">good_option_catalog</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="s2">"Thesaurus_26.07d.FLAT.zip"</span><span class="p">)</span>
     <span class="p">)</span>
@@ -4645,6 +4756,7 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
         <span class="n">pid</span><span class="p">:</span> <span class="n">digest</span><span class="p">({</span>
             <span class="s2">"notes"</span><span class="p">:</span> <span class="p">[[</span><span class="n">n</span><span class="p">[</span><span class="s2">"note_id"</span><span class="p">],</span> <span class="n">n</span><span class="p">[</span><span class="s2">"note_date"</span><span class="p">],</span> <span class="n">n</span><span class="p">[</span><span class="s2">"note_type"</span><span class="p">],</span> <span class="n">digest</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="s2">"text"</span><span class="p">])]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">ns</span><span class="p">],</span>
             <span class="s2">"chunk_tokens"</span><span class="p">:</span> <span class="n">chunk_tokens</span><span class="p">,</span> <span class="s2">"overlap"</span><span class="p">:</span> <span class="n">overlap</span><span class="p">,</span> <span class="s2">"tokenizer"</span><span class="p">:</span> <span class="n">tokenizer_name</span><span class="p">,</span>
+            <span class="o">**</span><span class="p">({</span><span class="s2">"prompt_budget"</span><span class="p">:</span> <span class="n">budget</span><span class="p">,</span> <span class="s2">"fragment_tokens"</span><span class="p">:</span> <span class="n">fragment_size</span><span class="p">}</span> <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{}),</span>
         <span class="p">})</span>
         <span class="k">for</span> <span class="n">pid</span><span class="p">,</span> <span class="n">ns</span> <span class="ow">in</span> <span class="n">patients</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
     <span class="p">}</span>
@@ -4667,7 +4779,8 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
                 <span class="s2">"state"</span><span class="p">:</span> <span class="n">PatientState</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="n">item_types</span><span class="p">,</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]),</span>
                 <span class="s2">"next_chunk"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">],</span> <span class="s2">"chunk_count"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">],</span>
                 <span class="s2">"failed_chunks"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"failed_chunks"</span><span class="p">],</span> <span class="s2">"dropped"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"dropped"</span><span class="p">],</span>
-                <span class="s2">"attempts"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"attempts"</span><span class="p">],</span>
+                <span class="s2">"attempts"</span><span class="p">:</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"attempts"</span><span class="p">],</span> <span class="s2">"next_fragment"</span><span class="p">:</span> <span class="n">saved</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"next_fragment"</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                <span class="s2">"over_budget"</span><span class="p">:</span> <span class="n">saved</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"over_budget"</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
                 <span class="s2">"status"</span><span class="p">:</span> <span class="s2">"running"</span> <span class="k">if</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"failed"</span> <span class="k">else</span> <span class="n">saved</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span>
                 <span class="s2">"error"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">"path"</span><span class="p">:</span> <span class="n">path</span><span class="p">,</span>
             <span class="p">}</span>
@@ -4675,17 +4788,31 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
             <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
                 <span class="s2">"state"</span><span class="p">:</span> <span class="n">PatientState</span><span class="p">(</span><span class="n">item_types</span><span class="p">),</span> <span class="s2">"next_chunk"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"chunk_count"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
                 <span class="s2">"failed_chunks"</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">"dropped"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"attempts"</span><span class="p">:</span> <span class="p">{},</span> <span class="s2">"status"</span><span class="p">:</span> <span class="s2">"running"</span><span class="p">,</span>
-                <span class="s2">"error"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">"path"</span><span class="p">:</span> <span class="n">path</span><span class="p">,</span>
+                <span class="s2">"error"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">"path"</span><span class="p">:</span> <span class="n">path</span><span class="p">,</span> <span class="s2">"next_fragment"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"over_budget"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
             <span class="p">}</span>
     <span class="n">pending</span> <span class="o">=</span> <span class="p">[</span><span class="n">pid</span> <span class="k">for</span> <span class="n">pid</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">states</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">s</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"running"</span><span class="p">]</span>
     <span class="n">chunks</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="c1"># With a prompt budget: each patient's fragments, and the chunk of the request in flight.</span>
+    <span class="n">fragments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">current</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="n">pending</span><span class="p">:</span>
         <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load_tokenizer</span><span class="p">(</span><span class="n">tokenizer_name</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">pid</span> <span class="ow">in</span> <span class="n">pending</span><span class="p">:</span>
-            <span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span> <span class="o">=</span> <span class="n">pack_fragments</span><span class="p">(</span>
-                <span class="n">note_fragments</span><span class="p">(</span><span class="n">patients</span><span class="p">[</span><span class="n">pid</span><span class="p">],</span> <span class="n">tokenizer</span><span class="p">,</span> <span class="n">chunk_tokens</span> <span class="o">-</span> <span class="mi">64</span><span class="p">,</span> <span class="n">overlap</span><span class="p">),</span> <span class="n">chunk_tokens</span>
-            <span class="p">)</span>
-            <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">])</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="n">note_fragments</span><span class="p">(</span><span class="n">patients</span><span class="p">[</span><span class="n">pid</span><span class="p">],</span> <span class="n">tokenizer</span><span class="p">,</span> <span class="n">fragment_size</span><span class="p">,</span> <span class="n">overlap</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span> <span class="o">=</span> <span class="n">pack_fragments</span><span class="p">(</span><span class="n">pieces</span><span class="p">,</span> <span class="n">chunk_tokens</span><span class="p">)</span>
+                <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">fragments</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span> <span class="o">=</span> <span class="n">pieces</span>
+                <span class="n">left</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">f</span><span class="p">[</span><span class="s2">"tokens"</span><span class="p">]</span> <span class="o">+</span> <span class="n">HEADER_TOKENS</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">pieces</span><span class="p">[</span><span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="s2">"next_fragment"</span><span class="p">]:])</span>
+                <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="s2">"next_chunk"</span><span class="p">]</span> <span class="o">+</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span>
+                    <span class="n">left</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">chunk_tokens</span><span class="p">,</span> <span class="n">budget</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">tokenizer</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">add_special_tokens</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="s2">"input_ids"</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">chunk_of</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">index</span><span class="p">]</span> <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">current</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">save</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
         <span class="n">s</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span>
@@ -4697,24 +4824,43 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
             <span class="s2">"next_chunk"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">],</span> <span class="s2">"failed_chunks"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"failed_chunks"</span><span class="p">],</span>
             <span class="s2">"dropped"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"dropped"</span><span class="p">],</span> <span class="s2">"status"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span> <span class="s2">"error"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"error"</span><span class="p">],</span>
             <span class="s2">"attempts"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"attempts"</span><span class="p">],</span> <span class="s2">"state"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]</span><span class="o">.</span><span class="n">to_json</span><span class="p">(),</span>
+            <span class="s2">"next_fragment"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_fragment"</span><span class="p">],</span> <span class="s2">"over_budget"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"over_budget"</span><span class="p">],</span>
         <span class="p">})</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">messages</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
         <span class="n">s</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span>
         <span class="n">index</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">]</span>
-        <span class="n">content</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="p">,</span> <span class="p">{</span>
+        <span class="n">record</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]</span><span class="o">.</span><span class="n">render</span><span class="p">()</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s2">"field_guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span>
             <span class="s2">"extension_guidance"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">guidance</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="k">if</span> <span class="n">guidance</span> <span class="k">else</span> <span class="s2">""</span><span class="p">,</span>
-            <span class="s2">"record"</span><span class="p">:</span> <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]</span><span class="o">.</span><span class="n">render</span><span class="p">(),</span>
+            <span class="s2">"record"</span><span class="p">:</span> <span class="n">record</span><span class="p">,</span>
             <span class="s2">"part"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">),</span>
-            <span class="s2">"parts"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]),</span>
-            <span class="s2">"notes"</span><span class="p">:</span> <span class="n">render_chunk</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">index</span><span class="p">]),</span>
-        <span class="p">})</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">chunk</span> <span class="o">=</span> <span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">index</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># The next fragments that fit the budget beside the record so far (at least one).</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="n">count</span><span class="p">(</span><span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="p">,</span> <span class="p">{</span><span class="o">**</span><span class="n">values</span><span class="p">,</span> <span class="s2">"parts"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]),</span> <span class="s2">"notes"</span><span class="p">:</span> <span class="s2">""</span><span class="p">}))</span>
+            <span class="n">room</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">chunk_tokens</span><span class="p">,</span> <span class="n">budget</span> <span class="o">-</span> <span class="n">base</span><span class="p">)</span>
+            <span class="n">chunk</span><span class="p">,</span> <span class="n">used</span> <span class="o">=</span> <span class="p">[],</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">fragment</span> <span class="ow">in</span> <span class="n">fragments</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">s</span><span class="p">[</span><span class="s2">"next_fragment"</span><span class="p">]:]:</span>
+                <span class="n">need</span> <span class="o">=</span> <span class="n">fragment</span><span class="p">[</span><span class="s2">"tokens"</span><span class="p">]</span> <span class="o">+</span> <span class="n">HEADER_TOKENS</span>
+                <span class="k">if</span> <span class="n">chunk</span> <span class="ow">and</span> <span class="n">used</span> <span class="o">+</span> <span class="n">need</span> <span class="o">&gt;</span> <span class="n">room</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">chunk</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fragment</span><span class="p">)</span>
+                <span class="n">used</span> <span class="o">+=</span> <span class="n">need</span>
+            <span class="k">if</span> <span class="n">base</span> <span class="o">+</span> <span class="n">used</span> <span class="o">&gt;</span> <span class="n">budget</span><span class="p">:</span>
+                <span class="n">s</span><span class="p">[</span><span class="s2">"over_budget"</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">current</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunk</span>
+            <span class="n">left</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">f</span><span class="p">[</span><span class="s2">"tokens"</span><span class="p">]</span> <span class="o">+</span> <span class="n">HEADER_TOKENS</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fragments</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">s</span><span class="p">[</span><span class="s2">"next_fragment"</span><span class="p">]</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">):])</span>
+            <span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="o">=</span> <span class="n">index</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">left</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">room</span><span class="p">))</span> <span class="k">if</span> <span class="n">left</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">content</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="p">,</span> <span class="p">{</span><span class="o">**</span><span class="n">values</span><span class="p">,</span> <span class="s2">"parts"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]),</span> <span class="s2">"notes"</span><span class="p">:</span> <span class="n">render_chunk</span><span class="p">(</span><span class="n">chunk</span><span class="p">)})</span>
         <span class="k">if</span> <span class="n">context</span> <span class="ow">and</span> <span class="n">max_tokens</span><span class="p">:</span>
             <span class="n">prompt_tokens</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">tokenizer</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">add_special_tokens</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="s2">"input_ids"</span><span class="p">])</span>
             <span class="k">if</span> <span class="n">prompt_tokens</span> <span class="o">+</span> <span class="n">max_tokens</span> <span class="o">+</span> <span class="mi">1024</span> <span class="o">&gt;</span> <span class="n">context</span><span class="p">:</span>
                 <span class="k">return</span> <span class="kc">None</span>
-        <span class="k">return</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">content</span><span class="p">}]</span>
+        <span class="k">return</span> <span class="n">prompt_messages</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">head</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
         <span class="n">s</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span>
@@ -4733,6 +4879,8 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
         <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
 <span class="w">            </span><span class="sd">"""Queue the patient's next chunk, or finish the patient."""</span>
             <span class="n">s</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_fragment"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">fragments</span><span class="p">[</span><span class="n">pid</span><span class="p">]):</span>
+                <span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">s</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]:</span>
                 <span class="n">finish</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
                 <span class="k">return</span>
@@ -4765,7 +4913,7 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
             <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="n">check</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="n">check</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="n">check_patient_answer</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">chunks</span><span class="p">[</span><span class="n">pid</span><span class="p">][</span><span class="n">index</span><span class="p">],</span> <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]),</span> <span class="kc">None</span>
+                <span class="n">check</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="n">check_patient_answer</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">chunk_of</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">index</span><span class="p">),</span> <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]),</span> <span class="kc">None</span>
             <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span> <span class="k">if</span> <span class="n">check</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">check</span><span class="o">.</span><span class="n">problems</span>
             <span class="n">accept</span> <span class="o">=</span> <span class="n">error</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">problems</span> <span class="ow">or</span> <span class="p">(</span><span class="n">final</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">check</span><span class="o">.</span><span class="n">structural</span><span class="p">))</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">accept</span><span class="p">:</span>
@@ -4782,6 +4930,8 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
                     <span class="n">s</span><span class="p">[</span><span class="s2">"dropped"</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">check</span><span class="o">.</span><span class="n">dropped</span><span class="p">)</span>
                 <span class="n">s</span><span class="p">[</span><span class="s2">"state"</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">check</span><span class="p">)</span>
             <span class="n">s</span><span class="p">[</span><span class="s2">"next_chunk"</span><span class="p">]</span> <span class="o">=</span> <span class="n">index</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">s</span><span class="p">[</span><span class="s2">"next_fragment"</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">current</span><span class="p">[</span><span class="n">pid</span><span class="p">])</span>
             <span class="n">save</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
             <span class="n">start</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
 
@@ -4833,6 +4983,8 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
         <span class="s2">"counts"</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">"patients"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">states</span><span class="p">),</span> <span class="s2">"notes"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">frame</span><span class="p">)),</span> <span class="s2">"reused"</span><span class="p">:</span> <span class="n">reused</span><span class="p">,</span>
             <span class="s2">"chunks"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="s2">"chunk_count"</span><span class="p">]</span> <span class="ow">or</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">states</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span>
+            <span class="s2">"prompt_budget"</span><span class="p">:</span> <span class="n">prompt_tokens</span><span class="p">,</span>
+            <span class="s2">"over_budget_requests"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="s2">"over_budget"</span><span class="p">]</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">states</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span>
             <span class="o">**</span><span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">v</span> <span class="o">==</span> <span class="n">k</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">statuses</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"complete"</span><span class="p">,</span> <span class="s2">"partial"</span><span class="p">,</span> <span class="s2">"failed"</span><span class="p">)},</span>
             <span class="o">**</span><span class="n">counts</span><span class="p">,</span>
         <span class="p">},</span>

@@ -14,7 +14,7 @@
         <link rel="prev" href="../workup-queries/">
       
       
-        <link rel="next" href="../embedding/">
+        <link rel="next" href="../structured-criteria/">
       
       
         
@@ -1293,6 +1293,8 @@
       
         
       
+        
+      
     
     
     
@@ -1825,6 +1827,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../structured-criteria/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured-Record Criteria Screening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3258,35 +3288,7 @@ source notes. Requires the optional <code>duckdb</code> dependency
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/matchminer_ai/patients/workup_sql/agent.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 91</span>
-<span class="normal"> 92</span>
-<span class="normal"> 93</span>
-<span class="normal"> 94</span>
-<span class="normal"> 95</span>
-<span class="normal"> 96</span>
-<span class="normal"> 97</span>
-<span class="normal"> 98</span>
-<span class="normal"> 99</span>
-<span class="normal">100</span>
-<span class="normal">101</span>
-<span class="normal">102</span>
-<span class="normal">103</span>
-<span class="normal">104</span>
-<span class="normal">105</span>
-<span class="normal">106</span>
-<span class="normal">107</span>
-<span class="normal">108</span>
-<span class="normal">109</span>
-<span class="normal">110</span>
-<span class="normal">111</span>
-<span class="normal">112</span>
-<span class="normal">113</span>
-<span class="normal">114</span>
-<span class="normal">115</span>
-<span class="normal">116</span>
-<span class="normal">117</span>
-<span class="normal">118</span>
-<span class="normal">119</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">119</span>
 <span class="normal">120</span>
 <span class="normal">121</span>
 <span class="normal">122</span>
@@ -3313,7 +3315,35 @@ source notes. Requires the optional <code>duckdb</code> dependency
 <span class="normal">143</span>
 <span class="normal">144</span>
 <span class="normal">145</span>
-<span class="normal">146</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="normal">146</span>
+<span class="normal">147</span>
+<span class="normal">148</span>
+<span class="normal">149</span>
+<span class="normal">150</span>
+<span class="normal">151</span>
+<span class="normal">152</span>
+<span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
+<span class="normal">156</span>
+<span class="normal">157</span>
+<span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span>
+<span class="normal">161</span>
+<span class="normal">162</span>
+<span class="normal">163</span>
+<span class="normal">164</span>
+<span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">WorkupSQLLimits</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Bounds of one requirement's agent run (preset ``workup_sql_agent.limits``)."""</span>
 
@@ -3784,167 +3814,52 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_sql/agent.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 852</span>
-<span class="normal"> 853</span>
-<span class="normal"> 854</span>
-<span class="normal"> 855</span>
-<span class="normal"> 856</span>
-<span class="normal"> 857</span>
-<span class="normal"> 858</span>
-<span class="normal"> 859</span>
-<span class="normal"> 860</span>
-<span class="normal"> 861</span>
-<span class="normal"> 862</span>
-<span class="normal"> 863</span>
-<span class="normal"> 864</span>
-<span class="normal"> 865</span>
-<span class="normal"> 866</span>
-<span class="normal"> 867</span>
-<span class="normal"> 868</span>
-<span class="normal"> 869</span>
-<span class="normal"> 870</span>
-<span class="normal"> 871</span>
-<span class="normal"> 872</span>
-<span class="normal"> 873</span>
-<span class="normal"> 874</span>
-<span class="normal"> 875</span>
-<span class="normal"> 876</span>
-<span class="normal"> 877</span>
-<span class="normal"> 878</span>
-<span class="normal"> 879</span>
-<span class="normal"> 880</span>
-<span class="normal"> 881</span>
-<span class="normal"> 882</span>
-<span class="normal"> 883</span>
-<span class="normal"> 884</span>
-<span class="normal"> 885</span>
-<span class="normal"> 886</span>
-<span class="normal"> 887</span>
-<span class="normal"> 888</span>
-<span class="normal"> 889</span>
-<span class="normal"> 890</span>
-<span class="normal"> 891</span>
-<span class="normal"> 892</span>
-<span class="normal"> 893</span>
-<span class="normal"> 894</span>
-<span class="normal"> 895</span>
-<span class="normal"> 896</span>
-<span class="normal"> 897</span>
-<span class="normal"> 898</span>
-<span class="normal"> 899</span>
-<span class="normal"> 900</span>
-<span class="normal"> 901</span>
-<span class="normal"> 902</span>
-<span class="normal"> 903</span>
-<span class="normal"> 904</span>
-<span class="normal"> 905</span>
-<span class="normal"> 906</span>
-<span class="normal"> 907</span>
-<span class="normal"> 908</span>
-<span class="normal"> 909</span>
-<span class="normal"> 910</span>
-<span class="normal"> 911</span>
-<span class="normal"> 912</span>
-<span class="normal"> 913</span>
-<span class="normal"> 914</span>
-<span class="normal"> 915</span>
-<span class="normal"> 916</span>
-<span class="normal"> 917</span>
-<span class="normal"> 918</span>
-<span class="normal"> 919</span>
-<span class="normal"> 920</span>
-<span class="normal"> 921</span>
-<span class="normal"> 922</span>
-<span class="normal"> 923</span>
-<span class="normal"> 924</span>
-<span class="normal"> 925</span>
-<span class="normal"> 926</span>
-<span class="normal"> 927</span>
-<span class="normal"> 928</span>
-<span class="normal"> 929</span>
-<span class="normal"> 930</span>
-<span class="normal"> 931</span>
-<span class="normal"> 932</span>
-<span class="normal"> 933</span>
-<span class="normal"> 934</span>
-<span class="normal"> 935</span>
-<span class="normal"> 936</span>
-<span class="normal"> 937</span>
-<span class="normal"> 938</span>
-<span class="normal"> 939</span>
-<span class="normal"> 940</span>
-<span class="normal"> 941</span>
-<span class="normal"> 942</span>
-<span class="normal"> 943</span>
-<span class="normal"> 944</span>
-<span class="normal"> 945</span>
-<span class="normal"> 946</span>
-<span class="normal"> 947</span>
-<span class="normal"> 948</span>
-<span class="normal"> 949</span>
-<span class="normal"> 950</span>
-<span class="normal"> 951</span>
-<span class="normal"> 952</span>
-<span class="normal"> 953</span>
-<span class="normal"> 954</span>
-<span class="normal"> 955</span>
-<span class="normal"> 956</span>
-<span class="normal"> 957</span>
-<span class="normal"> 958</span>
-<span class="normal"> 959</span>
-<span class="normal"> 960</span>
-<span class="normal"> 961</span>
-<span class="normal"> 962</span>
-<span class="normal"> 963</span>
-<span class="normal"> 964</span>
-<span class="normal"> 965</span>
-<span class="normal"> 966</span>
-<span class="normal"> 967</span>
-<span class="normal"> 968</span>
-<span class="normal"> 969</span>
-<span class="normal"> 970</span>
-<span class="normal"> 971</span>
-<span class="normal"> 972</span>
-<span class="normal"> 973</span>
-<span class="normal"> 974</span>
-<span class="normal"> 975</span>
-<span class="normal"> 976</span>
-<span class="normal"> 977</span>
-<span class="normal"> 978</span>
-<span class="normal"> 979</span>
-<span class="normal"> 980</span>
-<span class="normal"> 981</span>
-<span class="normal"> 982</span>
-<span class="normal"> 983</span>
-<span class="normal"> 984</span>
-<span class="normal"> 985</span>
-<span class="normal"> 986</span>
-<span class="normal"> 987</span>
-<span class="normal"> 988</span>
-<span class="normal"> 989</span>
-<span class="normal"> 990</span>
-<span class="normal"> 991</span>
-<span class="normal"> 992</span>
-<span class="normal"> 993</span>
-<span class="normal"> 994</span>
-<span class="normal"> 995</span>
-<span class="normal"> 996</span>
-<span class="normal"> 997</span>
-<span class="normal"> 998</span>
-<span class="normal"> 999</span>
-<span class="normal">1000</span>
-<span class="normal">1001</span>
-<span class="normal">1002</span>
-<span class="normal">1003</span>
-<span class="normal">1004</span>
-<span class="normal">1005</span>
-<span class="normal">1006</span>
-<span class="normal">1007</span>
-<span class="normal">1008</span>
-<span class="normal">1009</span>
-<span class="normal">1010</span>
-<span class="normal">1011</span>
-<span class="normal">1012</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compile_workup_sql</span><span class="p">(</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">902</span>
+<span class="normal">903</span>
+<span class="normal">904</span>
+<span class="normal">905</span>
+<span class="normal">906</span>
+<span class="normal">907</span>
+<span class="normal">908</span>
+<span class="normal">909</span>
+<span class="normal">910</span>
+<span class="normal">911</span>
+<span class="normal">912</span>
+<span class="normal">913</span>
+<span class="normal">914</span>
+<span class="normal">915</span>
+<span class="normal">916</span>
+<span class="normal">917</span>
+<span class="normal">918</span>
+<span class="normal">919</span>
+<span class="normal">920</span>
+<span class="normal">921</span>
+<span class="normal">922</span>
+<span class="normal">923</span>
+<span class="normal">924</span>
+<span class="normal">925</span>
+<span class="normal">926</span>
+<span class="normal">927</span>
+<span class="normal">928</span>
+<span class="normal">929</span>
+<span class="normal">930</span>
+<span class="normal">931</span>
+<span class="normal">932</span>
+<span class="normal">933</span>
+<span class="normal">934</span>
+<span class="normal">935</span>
+<span class="normal">936</span>
+<span class="normal">937</span>
+<span class="normal">938</span>
+<span class="normal">939</span>
+<span class="normal">940</span>
+<span class="normal">941</span>
+<span class="normal">942</span>
+<span class="normal">943</span>
+<span class="normal">944</span>
+<span class="normal">945</span>
+<span class="normal">946</span>
+<span class="normal">947</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compile_workup_sql</span><span class="p">(</span>
     <span class="n">requirements</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">ExtractionDatabase</span><span class="p">,</span>
@@ -3980,131 +3895,16 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 <span class="sd">    transport failures), ``model``, ``contract`` and ``cached``. With ``return_metadata``, also returns metadata.</span>
 <span class="sd">    """</span>
     <span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="n">load_default_preset</span><span class="p">()</span>
-    <span class="n">limits</span> <span class="o">=</span> <span class="n">agent_limits</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">database</span><span class="p">,</span> <span class="n">ExtractionDatabase</span><span class="p">):</span>
-        <span class="n">fingerprint</span><span class="p">,</span> <span class="n">extensions</span> <span class="o">=</span> <span class="n">database</span><span class="o">.</span><span class="n">fingerprint</span><span class="p">,</span> <span class="n">database</span><span class="o">.</span><span class="n">extensions</span>
-        <span class="n">patient_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">database</span><span class="o">.</span><span class="n">patient_ids</span><span class="p">)</span>
-        <span class="n">items</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">database</span><span class="o">.</span><span class="n">views</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">read_database_info</span><span class="p">(</span><span class="n">database</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"database_version"</span><span class="p">)</span> <span class="o">!=</span> <span class="n">DATABASE_VERSION</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"The extraction database is from another version; rebuild it."</span><span class="p">)</span>
-        <span class="n">fingerprint</span> <span class="o">=</span> <span class="n">info</span><span class="p">[</span><span class="s2">"fingerprint"</span><span class="p">]</span>
-        <span class="n">extensions</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"extensions"</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"[]"</span><span class="p">)</span>
-        <span class="n">patient_count</span><span class="p">,</span> <span class="n">items</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s2">"patients"</span><span class="p">]),</span> <span class="nb">int</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s2">"items"</span><span class="p">])</span>
-    <span class="k">if</span> <span class="n">patient_count</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"The exploration database has no patients."</span><span class="p">)</span>
-    <span class="n">contract</span> <span class="o">=</span> <span class="n">agent_contract</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">extensions</span><span class="p">)</span>
+    <span class="n">contract_extensions</span> <span class="o">=</span> <span class="n">_database_facts</span><span class="p">(</span><span class="n">database</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">contract</span> <span class="o">=</span> <span class="n">agent_contract</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">contract_extensions</span><span class="p">)</span>
     <span class="n">texts</span> <span class="o">=</span> <span class="p">[</span><span class="n">requirement_text</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">requirements</span><span class="p">]</span>
+    <span class="n">fingerprint</span> <span class="o">=</span> <span class="n">_database_facts</span><span class="p">(</span><span class="n">database</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
     <span class="n">keys</span> <span class="o">=</span> <span class="p">[</span><span class="n">workup_sql_cache_key</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">population_context</span><span class="p">,</span> <span class="n">database_fingerprint</span><span class="o">=</span><span class="n">fingerprint</span><span class="p">,</span>
                                  <span class="n">contract</span><span class="o">=</span><span class="n">contract</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">requirements</span><span class="p">]</span>
-    <span class="n">distinct</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">keys</span><span class="p">))</span>
-    <span class="n">progress</span> <span class="o">=</span> <span class="n">progress_callback</span> <span class="ow">or</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">done</span><span class="p">,</span> <span class="n">total</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span>
-    <span class="n">results</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">distinct</span><span class="p">:</span>
-        <span class="n">saved</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="k">if</span> <span class="n">cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-        <span class="k">if</span> <span class="n">reusable_sql_entry</span><span class="p">(</span><span class="n">saved</span><span class="p">,</span> <span class="n">contract</span><span class="p">):</span>
-            <span class="n">results</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">saved</span><span class="p">),</span> <span class="s2">"cached"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
-    <span class="n">todo</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">distinct</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
-    <span class="n">progress</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">distinct</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">todo</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">distinct</span><span class="p">))</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">todo</span><span class="p">:</span>
-        <span class="n">llm</span> <span class="o">=</span> <span class="n">llm</span> <span class="ow">or</span> <span class="n">resolve_agent_llm</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">model</span>
-        <span class="n">population_sha</span> <span class="o">=</span> <span class="n">digest</span><span class="p">((</span><span class="n">population_context</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
-        <span class="n">first</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">texts</span><span class="p">[</span><span class="n">keys</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">key</span><span class="p">)]</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">todo</span><span class="p">}</span>
-        <span class="n">box</span> <span class="o">=</span> <span class="p">(</span><span class="n">SQLSandbox</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="n">database</span><span class="p">,</span> <span class="n">limits</span><span class="o">=</span><span class="n">limits</span><span class="o">.</span><span class="n">sandbox</span><span class="p">())</span>
-               <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">database</span><span class="p">,</span> <span class="n">ExtractionDatabase</span><span class="p">)</span>
-               <span class="k">else</span> <span class="n">SQLSandbox</span><span class="p">(</span><span class="n">database_path</span><span class="o">=</span><span class="n">database</span><span class="p">,</span> <span class="n">limits</span><span class="o">=</span><span class="n">limits</span><span class="o">.</span><span class="n">sandbox</span><span class="p">()))</span>
-        <span class="n">active</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="n">lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
-        <span class="n">shown</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-
-        <span class="k">def</span><span class="w"> </span><span class="nf">on_turn</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
-            <span class="k">def</span><span class="w"> </span><span class="nf">record</span><span class="p">(</span><span class="n">action</span><span class="p">):</span>
-                <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-                    <span class="n">active</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">action</span>
-            <span class="k">return</span> <span class="n">record</span>
-
-        <span class="k">def</span><span class="w"> </span><span class="nf">report</span><span class="p">():</span>
-            <span class="k">nonlocal</span> <span class="n">shown</span>
-            <span class="k">if</span> <span class="n">activity_callback</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="k">return</span>
-            <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-                <span class="n">items</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">"name"</span><span class="p">:</span> <span class="n">first</span><span class="p">[</span><span class="n">key</span><span class="p">][</span><span class="s2">"name"</span><span class="p">],</span> <span class="s2">"action"</span><span class="p">:</span> <span class="n">action</span><span class="p">,</span>
-                          <span class="s2">"max_actions"</span><span class="p">:</span> <span class="n">limits</span><span class="o">.</span><span class="n">max_actions</span><span class="p">}</span>
-                         <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">action</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">active</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span>
-                                                   <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">kv</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="n">kv</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">kv</span><span class="p">[</span><span class="mi">0</span><span class="p">]))]</span>
-            <span class="k">if</span> <span class="n">items</span> <span class="o">!=</span> <span class="n">shown</span><span class="p">:</span>
-                <span class="n">shown</span> <span class="o">=</span> <span class="n">items</span>
-                <span class="n">activity_callback</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">items</span><span class="p">))</span>
-
-        <span class="k">with</span> <span class="n">box</span><span class="p">,</span> <span class="n">ThreadPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="nb">min</span><span class="p">(</span><span class="n">limits</span><span class="o">.</span><span class="n">max_concurrent_items</span><span class="p">,</span>
-                                                     <span class="nb">len</span><span class="p">(</span><span class="n">todo</span><span class="p">)))</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">profile</span> <span class="o">=</span> <span class="n">_profile</span><span class="p">(</span><span class="n">box</span><span class="p">,</span> <span class="n">fingerprint</span><span class="p">,</span> <span class="n">extensions</span><span class="p">)</span>
-            <span class="k">except</span> <span class="n">SQLSandboxError</span><span class="p">:</span>
-                <span class="c1"># The agent still works without it: no profile and no search.</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"The exploration database's profile could not be computed."</span><span class="p">)</span>
-                <span class="n">profile</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="n">system</span> <span class="o">=</span> <span class="n">render_system_prompt</span><span class="p">(</span>
-                <span class="n">limits</span><span class="p">,</span> <span class="n">extensions</span><span class="p">,</span>
-                <span class="n">render_profile</span><span class="p">(</span><span class="n">profile</span><span class="p">)</span> <span class="k">if</span> <span class="n">profile</span> <span class="k">else</span> <span class="s2">"(not available for this database)"</span><span class="p">)</span>
-            <span class="n">futures</span> <span class="o">=</span> <span class="p">{</span><span class="n">submit_cancellable</span><span class="p">(</span><span class="n">pool</span><span class="p">,</span> <span class="n">_compile_one</span><span class="p">,</span> <span class="n">first</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="n">population_context</span><span class="p">,</span>
-                                          <span class="n">box</span><span class="p">,</span> <span class="n">patient_count</span><span class="p">,</span> <span class="n">llm</span><span class="p">,</span> <span class="n">limits</span><span class="p">,</span> <span class="n">system</span><span class="p">,</span>
-                                          <span class="n">on_turn</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="n">profile</span><span class="p">,</span> <span class="n">extensions</span><span class="p">):</span> <span class="n">key</span>
-                       <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">todo</span><span class="p">}</span>
-            <span class="n">pending</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">futures</span><span class="p">)</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">while</span> <span class="n">pending</span><span class="p">:</span>
-                    <span class="n">done</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">wait</span><span class="p">(</span><span class="n">pending</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">return_when</span><span class="o">=</span><span class="n">FIRST_COMPLETED</span><span class="p">)</span>
-                    <span class="n">check_cancelled</span><span class="p">()</span>
-                    <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">done</span><span class="p">:</span>
-                        <span class="n">key</span> <span class="o">=</span> <span class="n">futures</span><span class="p">[</span><span class="n">future</span><span class="p">]</span>
-                        <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-                            <span class="n">active</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-                        <span class="n">outcome</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
-                        <span class="n">entry</span> <span class="o">=</span> <span class="p">{</span>
-                            <span class="s2">"cache_key"</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span>
-                            <span class="s2">"requirement"</span><span class="p">:</span> <span class="n">first</span><span class="p">[</span><span class="n">key</span><span class="p">],</span>
-                            <span class="s2">"population_context_sha256"</span><span class="p">:</span> <span class="n">population_sha</span><span class="p">,</span>
-                            <span class="o">**</span><span class="n">outcome</span><span class="p">,</span>
-                            <span class="s2">"exploration"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"fingerprint"</span><span class="p">:</span> <span class="n">fingerprint</span><span class="p">,</span>
-                                            <span class="s2">"patients"</span><span class="p">:</span> <span class="n">patient_count</span><span class="p">,</span> <span class="s2">"items"</span><span class="p">:</span> <span class="n">items</span><span class="p">},</span>
-                            <span class="s2">"contract"</span><span class="p">:</span> <span class="n">contract</span><span class="p">,</span>
-                            <span class="s2">"compiled_at"</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(</span>
-                                <span class="n">timespec</span><span class="o">=</span><span class="s2">"seconds"</span><span class="p">),</span>
-                        <span class="p">}</span>
-                        <span class="k">if</span> <span class="n">cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                            <span class="n">cache</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
-                        <span class="n">_log</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
-                        <span class="n">results</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">entry</span><span class="p">,</span> <span class="s2">"cached"</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
-                        <span class="n">progress</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">distinct</span><span class="p">))</span>
-                    <span class="n">report</span><span class="p">()</span>
-            <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
-                <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">pending</span><span class="p">:</span>
-                    <span class="n">future</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
-                <span class="k">raise</span>
-    <span class="n">entries</span> <span class="o">=</span> <span class="p">[{</span><span class="o">**</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">key</span><span class="p">]),</span> <span class="s2">"requirement"</span><span class="p">:</span> <span class="n">text</span><span class="p">}</span>
-               <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">text</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">keys</span><span class="p">,</span> <span class="n">texts</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)]</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">return_metadata</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">entries</span>
-    <span class="n">fresh</span> <span class="o">=</span> <span class="p">[</span><span class="n">results</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">todo</span><span class="p">]</span>
-    <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">"contract"</span><span class="p">:</span> <span class="n">contract</span><span class="p">,</span>
-        <span class="s2">"model"</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
-        <span class="s2">"compiled_by"</span><span class="p">:</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"model"</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"model"</span><span class="p">)}),</span>
-        <span class="s2">"requirements"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">requirements</span><span class="p">),</span>
-        <span class="s2">"distinct"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">distinct</span><span class="p">),</span>
-        <span class="s2">"cached"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">distinct</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">todo</span><span class="p">),</span>
-        <span class="s2">"compiled"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"compiled"</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span>
-        <span class="s2">"failed"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"failed"</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span>
-        <span class="s2">"requests"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="s2">"usage"</span><span class="p">][</span><span class="s2">"requests"</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">fresh</span><span class="p">),</span>
-        <span class="s2">"prompt_tokens"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="s2">"usage"</span><span class="p">][</span><span class="s2">"prompt_tokens"</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">fresh</span><span class="p">),</span>
-        <span class="s2">"completion_tokens"</span><span class="p">:</span> <span class="nb">sum</span><span class="p">(</span><span class="n">e</span><span class="p">[</span><span class="s2">"usage"</span><span class="p">][</span><span class="s2">"completion_tokens"</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">fresh</span><span class="p">),</span>
-        <span class="s2">"exploration"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"fingerprint"</span><span class="p">:</span> <span class="n">fingerprint</span><span class="p">,</span> <span class="s2">"patients"</span><span class="p">:</span> <span class="n">patient_count</span><span class="p">,</span> <span class="s2">"items"</span><span class="p">:</span> <span class="n">items</span><span class="p">},</span>
-    <span class="p">}</span>
-    <span class="k">return</span> <span class="n">entries</span><span class="p">,</span> <span class="n">metadata</span>
+    <span class="k">return</span> <span class="n">compile_sql_queries</span><span class="p">(</span>
+        <span class="n">texts</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="n">WORKUP_TASK</span><span class="p">,</span> <span class="n">database</span><span class="o">=</span><span class="n">database</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="n">population_context</span><span class="p">,</span>
+        <span class="n">contract</span><span class="o">=</span><span class="n">contract</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">,</span> <span class="n">return_metadata</span><span class="o">=</span><span class="n">return_metadata</span><span class="p">,</span>
+        <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span> <span class="n">activity_callback</span><span class="o">=</span><span class="n">activity_callback</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4327,15 +4127,15 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_sql/agent.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">294</span>
-<span class="normal">295</span>
-<span class="normal">296</span>
-<span class="normal">297</span>
-<span class="normal">298</span>
-<span class="normal">299</span>
-<span class="normal">300</span>
-<span class="normal">301</span>
-<span class="normal">302</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">workup_sql_cache_key</span><span class="p">(</span><span class="n">requirement</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">population_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">324</span>
+<span class="normal">325</span>
+<span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span>
+<span class="normal">332</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">workup_sql_cache_key</span><span class="p">(</span><span class="n">requirement</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">population_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
                          <span class="n">database_fingerprint</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">contract</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The cache key of one requirement's accepted query."""</span>
     <span class="k">return</span> <span class="n">digest</span><span class="p">({</span>
