@@ -215,13 +215,8 @@ def _expression(description: str) -> dict:
     }, description)
 
 
-def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
-    """The JSON schema of a query, as a model writes it (strict, non-recursive).
-
-    Code checks what a schema cannot: that a field belongs to its item type, that
-    an operator fits the field, that values are the field's codes, that ids are
-    unique and every reference resolves (:func:`validate_workup_query`).
-    """
+def criterion_schema(extensions: Iterable[str] | None = ()) -> dict:
+    """The JSON schema of one named item matcher (``criteria`` entries), shared by every query kind."""
     types = item_types(extensions)
     window = _object({
         "anchor": {"type": "string", "enum": list(ANCHORS)},
@@ -251,6 +246,17 @@ def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
         "window": window,
         "min_count": {"type": "integer", "minimum": 1, "maximum": MAX_COUNT},
     })
+    return criterion
+
+
+def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
+    """The JSON schema of a query, as a model writes it (strict, non-recursive).
+
+    Code checks what a schema cannot: that a field belongs to its item type, that
+    an operator fits the field, that values are the field's codes, that ids are
+    unique and every reference resolves (:func:`validate_workup_query`).
+    """
+    criterion = criterion_schema(extensions)
     return _object({
         "summary": {"type": "string", "description": "One sentence: what the query checks."},
         "expressible": {"type": "boolean"},
@@ -269,6 +275,32 @@ def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
     })
 
 
+
+
+def criterion_query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
+    """The JSON schema of an eligibility-criterion query (``kind="criterion"``; see
+    :mod:`matchminer_ai.matching.structured_criteria`): the same matchers and expressions, with ``meets_when`` and
+    ``fails_when`` in place of ``requirement``."""
+    criterion = criterion_schema(extensions)
+    return _object({
+        "summary": {"type": "string", "description": "One sentence: what the query checks."},
+        "expressible": {"type": "boolean"},
+        "not_expressible_reason": {"type": "string"},
+        "approximations": {"type": "array", "maxItems": MAX_APPROXIMATIONS,
+                           "items": {"type": "string"}},
+        "conditional": {"type": "boolean", "description": "Whether the line applies to only some patients (a "
+                        "condition such as 'for patients with brain metastases' or 'of childbearing potential')."},
+        "condition_not_expressible_reason": {"type": "string", "description": "For a conditional line whose "
+                                             "condition no item type can document: what the condition is and "
+                                             "why; else ''."},
+        "criteria": {"type": "array", "maxItems": MAX_CRITERIA, "items": criterion},
+        "applies_when": _expression("Documented facts showing the line applies to the patient."),
+        "not_applicable_when": _expression("Documented facts showing it does not apply."),
+        "meets_when": _expression("Documented facts showing the patient satisfies the line."),
+        "fails_when": _expression("Documented facts showing the patient clearly fails the line."),
+    })
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -276,6 +308,11 @@ def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
 _EXPRESSIONS = ("applies_when", "not_applicable_when", "requirement")
 _TOP = ("summary", "expressible", "not_expressible_reason", "approximations", "conditional",
         "condition_not_expressible_reason", "criteria", *_EXPRESSIONS)
+#: The eligibility-criterion kind: whether the patient documentedly satisfies or clearly fails one line.
+CRITERION_EXPRESSIONS = ("applies_when", "not_applicable_when", "meets_when", "fails_when")
+CRITERION_TOP = ("summary", "expressible", "not_expressible_reason", "approximations", "conditional",
+                 "condition_not_expressible_reason", "criteria", *CRITERION_EXPRESSIONS)
+KINDS = ("workup", "criterion")
 
 
 class QueryError(ValueError):
@@ -401,8 +438,28 @@ def _check_expression(value, path, ids, problems) -> list[tuple[str, bool]]:
 
 def validate_workup_query(query, extensions: Iterable[str] | None = ()) -> list[str]:
     """Every problem of ``query``, as messages a model can act on ([] when valid)."""
+    return validate_query(query, extensions, kind="workup")
+
+
+def validate_criterion_query(query, extensions: Iterable[str] | None = ()) -> list[str]:
+    """Every problem of an eligibility-criterion query ([] when valid); see :func:`validate_query`."""
+    return validate_query(query, extensions, kind="criterion")
+
+
+def validate_query(query, extensions: Iterable[str] | None = (), *, kind: str = "workup") -> list[str]:
+    """Every problem of a query of ``kind`` (``workup`` or ``criterion``), as messages a model can act on.
+
+    Both kinds share matchers, windows and the applicability rules. A workup query's ``requirement`` needs a
+    criterion that is not negated. A criterion query has ``meets_when`` and ``fails_when``, at least one of them
+    nonempty when expressible, and each nonempty one needs a criterion that is not negated: an absent item never
+    shows that a patient satisfies or fails a line.
+    """
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
+    top, expressions = (_TOP, _EXPRESSIONS) if kind == "workup" else (CRITERION_TOP, CRITERION_EXPRESSIONS)
+    noun = "step" if kind == "workup" else "line"
     problems: list[str] = []
-    if not _keys(query, _TOP, "query", problems):
+    if not _keys(query, top, "query", problems):
         return problems
     _string(query["summary"], "summary", problems, blank=False)
     if not isinstance(query["expressible"], bool):
@@ -429,18 +486,18 @@ def validate_workup_query(query, extensions: Iterable[str] | None = ()) -> list[
     if not query["conditional"]:
         if not unconditioned:
             problems.append("applies_when: must be {\"all_of\": []} when conditional is false (set conditional true "
-                            "for a step that applies to only some patients)")
+                            f"for a {noun} that applies to only some patients)")
         if reason:
             problems.append("condition_not_expressible_reason: must be '' when conditional is false")
     elif unconditioned and not reason:
-        problems.append("condition_not_expressible_reason: a conditional step needs applies_when, or (when no "
+        problems.append(f"condition_not_expressible_reason: a conditional {noun} needs applies_when, or (when no "
                         "item type can document the condition) a reason naming the condition")
     elif not unconditioned and reason:
         problems.append("condition_not_expressible_reason: must be '' when applies_when encodes the condition")
     if not query["expressible"]:
         if criteria:
             problems.append("criteria: must be [] when expressible is false")
-        for name in _EXPRESSIONS:
+        for name in expressions:
             if query[name] != {"all_of": []}:
                 problems.append(f"{name}: must be {{\"all_of\": []}} when expressible is false")
         if isinstance(query["not_expressible_reason"], str) and not query[
@@ -524,7 +581,7 @@ def validate_workup_query(query, extensions: Iterable[str] | None = ()) -> list[
             seen_cycle.update(chain)
             problems.append(f"criteria {sorted(set(chain))}: anchor criteria form a cycle")
     used: set[str] = set(anchors.values())
-    for name in _EXPRESSIONS:
+    for name in expressions:
         literals = _check_expression(query[name], name, ids, problems)
         used.update(cid for cid, _ in literals)
         if name == "requirement":
@@ -537,8 +594,15 @@ def validate_workup_query(query, extensions: Iterable[str] | None = ()) -> list[
         if name == "not_applicable_when" and literals and all(n for _, n in literals):
             problems.append(
                 "not_applicable_when: needs a documented fact, a criterion that is not negated; "
-                "a step is not applicable only when documented facts say so, never because "
+                f"a {noun} is not applicable only when documented facts say so, never because "
                 "something is not documented (leave it {\"all_of\": []} instead)")
+        if name in ("meets_when", "fails_when") and literals and all(n for _, n in literals):
+            problems.append(
+                f"{name}: needs a documented fact, a criterion that is not negated; a missing item never "
+                "shows that a patient satisfies or fails a line (leave it {\"all_of\": []} instead)")
+    if kind == "criterion" and query["meets_when"] == {"all_of": []} and query["fails_when"] == {"all_of": []}:
+        problems.append("meets_when, fails_when: an expressible line needs at least one of them (the documented "
+                        "facts that show the patient satisfies the line, or clearly fails it)")
     for cid in ids:
         if cid not in used:
             problems.append(f"criteria {cid!r}: not used by any expression or window anchor")
@@ -556,7 +620,12 @@ def canonical_query(query: dict) -> dict:
 
 def check_workup_query(query, extensions: Iterable[str] | None = ()) -> dict:
     """``query`` in canonical form; raises :class:`QueryError` when it is invalid."""
-    problems = validate_workup_query(query, extensions)
+    return check_query(query, extensions, kind="workup")
+
+
+def check_query(query, extensions: Iterable[str] | None = (), *, kind: str = "workup") -> dict:
+    """A query of ``kind`` in canonical form; raises :class:`QueryError` when it is invalid."""
+    problems = validate_query(query, extensions, kind=kind)
     if problems:
         raise QueryError(problems)
     return canonical_query(query)
@@ -813,7 +882,9 @@ def render_examples() -> str:
 
 __all__ = [
     "ANCHORS",
+    "CRITERION_EXPRESSIONS",
     "EXAMPLES",
+    "KINDS",
     "IF_NOT_STATED",
     "OPS",
     "QUERY_LANGUAGE_VERSION",
@@ -825,12 +896,17 @@ __all__ = [
     "STATUS_TYPES",
     "canonical_query",
     "canonical_text",
+    "check_query",
     "check_workup_query",
+    "criterion_query_response_schema",
+    "criterion_schema",
     "item_types",
     "query_fields",
     "query_response_schema",
     "render_examples",
     "render_operator_guide",
     "render_query_field_guide",
+    "validate_criterion_query",
+    "validate_query",
     "validate_workup_query",
 ]

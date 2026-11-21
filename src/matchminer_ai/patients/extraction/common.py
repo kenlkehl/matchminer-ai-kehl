@@ -266,6 +266,26 @@ __all__ = [
     "retry_messages",
     "ncit_agent_codes",
     "parse_answer",
+    "prompt_messages",
     "qc_rows",
     "section_settings",
 ]
+
+
+def prompt_messages(content: str, head: str, settings: SectionSettings) -> list[dict]:
+    """The chat messages of one extraction prompt.
+
+    ``head`` is the prompt's fixed start (instructions and field guide, the same for every
+    note or chunk). Claude through the gateway gets it as the system block, which the
+    provider marks for prompt caching, and the rest as the user message; every other
+    backend gets the whole prompt as one user message, as before.
+    """
+    from matchminer_ai.llm.remote_auth import DATABRICKS_ANTHROPIC_PROVIDER, remote_provider_name
+
+    remote = settings.runtime.get("remote") or {}
+    if (settings.runtime.get("backend_mode") == "remote" and head.strip() and content.startswith(head)
+            and len(content) > len(head)
+            and remote_provider_name(remote) == DATABRICKS_ANTHROPIC_PROVIDER):
+        return [{"role": "system", "content": head}, {"role": "user", "content": content[len(head):]}]
+    return [{"role": "user", "content": content}]
+

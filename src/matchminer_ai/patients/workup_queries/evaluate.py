@@ -1002,6 +1002,54 @@ def _planned(ctx: Context, groups) -> list[ClusterResult]:
     return found
 
 
+def query_context(query: dict, patient: PatientData, *, reference_date=None,
+                  anchors: Mapping[str, object] | None = None, extensions: Iterable[str] = ()) -> Context:
+    """The evaluation context of one checked query on one patient (``reference_date`` defaults to the patient's
+    latest note date)."""
+    if reference_date is None:
+        reference_date = patient.last_note_date
+    reference, reference_text = None, None
+    if reference_date is not None:
+        value, precision = parse_date(reference_date)
+        if value is not None:
+            reference, reference_text = date_interval(value, precision), value
+    return Context(patient, reference, reference_text, anchors or {},
+                   criteria={c["id"]: c for c in query["criteria"]},
+                   types={t.name: t for t in item_types(extensions)})
+
+
+def query_applicability(ctx: Context, query: dict) -> tuple[str, list[str], list]:
+    """``(applicability, notes, not_applicable_groups)`` of a query with ``applies_when``, ``not_applicable_when``
+    and ``conditional``: applies, not_applicable (documented facts say so) or uncertain."""
+    applies, applies_groups = evaluate_expression(ctx, query["applies_when"])
+    # A conditional step whose condition no item can document applies to some patients only, so it is uncertain
+    # for every patient, never applying to the whole population.
+    unexpressed = bool(query["conditional"]) and not query["applies_when"]["all_of"]
+    if unexpressed:
+        applies = MAYBE
+    excluded, excluded_groups = (
+        evaluate_expression(ctx, query["not_applicable_when"])
+        if query["not_applicable_when"]["all_of"] else (NO, [])
+    )
+    if excluded == YES and applies == YES and query["applies_when"]["all_of"]:
+        applicability = "uncertain"
+    elif excluded == YES:
+        applicability = "not_applicable"
+    elif applies == YES:
+        applicability = "applies"
+    else:
+        applicability = "uncertain"
+    notes = []
+    if applicability == "uncertain" and unexpressed:
+        notes.append("Applicability uncertain: " + query["condition_not_expressible_reason"].strip().rstrip(".") + ".")
+    elif applicability == "uncertain" and query["applies_when"]["all_of"] and applies != YES:
+        notes.append("Applicability uncertain: " + "; ".join(
+            _explain(ctx, applies_groups, MAYBE if applies == MAYBE else NO)) + ".")
+    elif applicability == "uncertain":
+        notes.append("Applicability uncertain: documented facts both support and contradict it.")
+    return applicability, notes, excluded_groups
+
+
 def evaluate_workup_query(
     query: dict | None,
     patient: PatientData,
@@ -1032,43 +1080,10 @@ def evaluate_workup_query(
         return _result("unknown", "no_extraction", "uncertain",
                        "Unknown: no extraction records are available for this patient.",
                        query=query)
-    if reference_date is None:
-        reference_date = patient.last_note_date
-    reference, reference_text = None, None
-    if reference_date is not None:
-        value, precision = parse_date(reference_date)
-        if value is not None:
-            reference, reference_text = date_interval(value, precision), value
-    ctx = Context(patient, reference, reference_text, anchors or {},
-                  criteria={c["id"]: c for c in query["criteria"]},
-                  types={t.name: t for t in item_types(extensions)})
-    applies, applies_groups = evaluate_expression(ctx, query["applies_when"])
-    # A conditional step whose condition no item can document applies to some patients only, so it is uncertain
-    # for every patient, never applying to the whole population.
-    unexpressed = bool(query["conditional"]) and not query["applies_when"]["all_of"]
-    if unexpressed:
-        applies = MAYBE
-    excluded, excluded_groups = (
-        evaluate_expression(ctx, query["not_applicable_when"])
-        if query["not_applicable_when"]["all_of"] else (NO, [])
-    )
-    if excluded == YES and applies == YES and query["applies_when"]["all_of"]:
-        applicability = "uncertain"
-    elif excluded == YES:
-        applicability = "not_applicable"
-    elif applies == YES:
-        applicability = "applies"
-    else:
-        applicability = "uncertain"
+    ctx = query_context(query, patient, reference_date=reference_date, anchors=anchors,
+                        extensions=extensions)
+    applicability, notes, excluded_groups = query_applicability(ctx, query)
     met, groups = evaluate_expression(ctx, query["requirement"])
-    notes = []
-    if applicability == "uncertain" and unexpressed:
-        notes.append("Applicability uncertain: " + query["condition_not_expressible_reason"].strip().rstrip(".") + ".")
-    elif applicability == "uncertain" and query["applies_when"]["all_of"] and applies != YES:
-        notes.append("Applicability uncertain: " + "; ".join(
-            _explain(ctx, applies_groups, MAYBE if applies == MAYBE else NO)) + ".")
-    elif applicability == "uncertain":
-        notes.append("Applicability uncertain: documented facts both support and contradict it.")
     evidence = _evidence(ctx, groups)
     if applicability == "not_applicable":
         status, reason = "not_applicable", "documented_not_applicable"
@@ -1114,7 +1129,7 @@ def evaluate_workup_query(
         limitations.append(_incomplete(patient).capitalize() + ".")
     return _result(status, reason, applicability, text, query=query, criteria=criteria,
                    evidence=evidence, limitations=limitations,
-                   reference_date=reference_text)
+                   reference_date=ctx.reference_text)
 
 
 def _evidence_planned(planned: list[ClusterResult]) -> list[dict]:
@@ -1288,5 +1303,7 @@ __all__ = [
     "evaluate_workup_query",
     "item_view",
     "patient_data",
+    "query_applicability",
+    "query_context",
     "stage_group",
 ]

@@ -211,9 +211,12 @@ class Settings:
     decision_model: dict = field(default_factory=dict)
     # None: NO_PHI_CACHE or, in real mode, PHI_CACHE.
     cache: Path | None = None
-    # Synthetic mode's population sample.
+    # Synthetic mode's population: summaries and notes keyed by the generator's patient_id (the patient corpus's
+    # IDs), sampled from one split (site config dashboard.synthetic.population_split; None: every patient).
     population_summaries: Path | None = None
     population_notes: Path | None = None
+    population_split: str | None = field(
+        default_factory=lambda: load_site_config().get("dashboard.synthetic.population_split"))
     # Real mode only: the patient database, its preprocessed cache and browsable folders.
     population_duckdb: Path = field(default_factory=default_population_duckdb)
     population_cache: Path = field(default_factory=default_population_cache)

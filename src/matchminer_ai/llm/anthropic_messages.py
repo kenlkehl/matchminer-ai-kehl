@@ -237,11 +237,17 @@ _LOG_LOCK = threading.Lock()
 
 
 def _log_request(entry: dict) -> None:
+    """One line of ``$MMAI_GATEWAY_REQUEST_LOG`` (when set): timing, status and token counts, never content."""
     path = os.environ.get("MMAI_GATEWAY_REQUEST_LOG")
     if not path:
         return
     with _LOG_LOCK, open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def log_event(event: str, **values) -> None:
+    """A non-request line of the gateway log, such as a change of the concurrency limit."""
+    _log_request({"event": event, "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **values})
 
 
 def remote_body(kwargs: dict) -> dict:
@@ -333,7 +339,10 @@ class GatewayChatClient:
         entry.update(status=200, seconds=round(time.monotonic() - started, 3), served_model=result["model"],
                      stop_reason=result["transport"]["stop_reason"],
                      input_tokens=usage["prompt_tokens"], output_tokens=usage["completion_tokens"],
-                     cache_read_input_tokens=usage["cache_read_input_tokens"])
+                     uncached_input_tokens=usage["prompt_tokens"] - usage["cache_read_input_tokens"]
+                     - usage["cache_creation_input_tokens"],
+                     cache_read_input_tokens=usage["cache_read_input_tokens"],
+                     cache_creation_input_tokens=usage["cache_creation_input_tokens"])
         _log_request(entry)
         choice = result["choices"][0]
         return SimpleNamespace(

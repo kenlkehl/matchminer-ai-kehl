@@ -34,6 +34,7 @@ class MMAIConfig:
     document_extraction: dict[str, Any] = field(default_factory=dict)
     patient_extraction: dict[str, Any] = field(default_factory=dict)
     workup_query_compile: dict[str, Any] = field(default_factory=dict)
+    criteria_query_compile: dict[str, Any] = field(default_factory=dict)
     workup_sql_agent: dict[str, Any] = field(default_factory=dict)
 
 
@@ -114,6 +115,7 @@ def _config_from_data(data: dict[str, Any], preset_name: str) -> MMAIConfig:
         document_extraction=dict(data.get("document_extraction", {})),
         patient_extraction=dict(data.get("patient_extraction", {})),
         workup_query_compile=dict(data.get("workup_query_compile", {})),
+        criteria_query_compile=dict(data.get("criteria_query_compile", {})),
         workup_sql_agent=dict(data.get("workup_sql_agent", {})),
         model_metadata_cache_dir=data["model_metadata_cache_dir"],
         raw=deepcopy(data),

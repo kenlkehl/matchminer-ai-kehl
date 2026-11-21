@@ -35,6 +35,7 @@ from .common import (
     fill,
     ncit_agent_codes,
     parse_answer,
+    prompt_messages,
     qc_rows,
     retry_messages,
     section_settings,
@@ -298,6 +299,9 @@ def extract_patient_records(
     template = load_prompt_text(PROMPT_FILE)
     guide = render_field_guide("patient", extra_types)
     guidance = extension_guidance(extensions)
+    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
+    head = fill(template.split("{record}")[0], {
+        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
     ncit_resource = values.get(
         "ncit_resource", resolved.good_option_catalog.get("ncit_resource", "Thesaurus_26.07d.FLAT.zip")
     )
@@ -385,7 +389,7 @@ def extract_patient_records(
             prompt_tokens = len(tokenizer(content, add_special_tokens=False)["input_ids"])
             if prompt_tokens + max_tokens + 1024 > context:
                 return None
-        return [{"role": "user", "content": content}]
+        return prompt_messages(content, head, settings)
 
     def finish(pid):
         s = states[pid]

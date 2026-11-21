@@ -19,6 +19,14 @@ text like the store itself.
 Requests are long: Nemotron 3.5 Super often reasons 10,000-15,000 tokens per note.
 Keep ``--request-timeout`` above a whole completion on a busy server.
 
+``--claude haiku`` (or sonnet, opus, an endpoint name) uses Claude through the site config's
+Databricks gateway instead (only for notes the gateway is approved for). The gateway's
+adaptive limit starts at 32 requests in flight and grows to ``--concurrency`` while requests
+succeed, halving on rate limits. Every request's status and token counts (never content) go
+to ``<output>.gateway_requests.jsonl``, and the store manifest gets their totals; see
+``python -m matchminer_ai.llm.gateway_usage``. Patient-level chunks are sized with
+``--tokenizer`` (default: the app's Claude tokenizer stand-in).
+
 ``--server-registry FILE`` spreads one build over several servers, which may serve
 different builds of a model (for example NVFP4 and FP8): a JSON file
 ``{"servers": [{"url": ..., "model": ..., "upstream_concurrency": ...}]}``. Each server
@@ -37,6 +45,8 @@ from pathlib import Path
 
 from .settings import Settings, mode_side_error
 from matchminer_ai.schema import note_columns
+
+from .population import synthetic_note_columns
 
 
 def read_notes(settings, args):
@@ -63,13 +73,24 @@ def read_notes(settings, args):
         if error:
             raise InputError(error)
         dataset = ds.dataset(path, format="parquet")
-        key, columns = note_columns(dataset.schema.names)
+        key, columns = synthetic_note_columns(dataset.schema.names)
         source = {"kind": "synthetic_notes", "name": path.name,
                   "size": path.stat().st_size, "mtime_ns": path.stat().st_mtime_ns}
     typed = dataset.to_table(columns=[key]).column(key).unique().to_pylist()
     by_text = {str(v): v for v in typed}
     patients = sorted(by_text)
-    if args.patients:
+    if args.population_sample:
+        if settings.phi:
+            raise InputError("--population-sample is for synthetic mode (a real store covers its cache).")
+        from .population import synthetic_sample
+
+        sample = synthetic_sample(settings, settings.population_sample_size, settings.population_seed)[0]
+        wanted = [str(p) for p in sample[synthetic_key_of(sample)]]
+        unknown = [p for p in wanted if p not in by_text]
+        if unknown:
+            raise InputError(f"{len(unknown)} sampled patients have no notes in the source.")
+        patients = sorted(wanted)
+    elif args.patients:
         wanted = [line.strip() for line in Path(args.patients).read_text().splitlines()
                   if line.strip()]
         unknown = [p for p in wanted if p not in by_text]
@@ -90,7 +111,15 @@ def read_notes(settings, args):
     notes = notes.loc[notes.note_text.map(lambda t: isinstance(t, str) and bool(t.strip()))]
     source.update(patients=len(patients), sample_limit=args.limit, seed=args.seed,
                   patient_list=bool(args.patients))
+    if args.population_sample:
+        source.update(population_sample={"size": settings.population_sample_size,
+                                         "seed": settings.population_seed,
+                                         "split": settings.population_split})
     return notes.reset_index(drop=True), source
+
+
+def synthetic_key_of(sample):
+    return "patient_id" if "patient_id" in sample else "pseudo_mrn"
 
 
 def read_registry(path):
@@ -149,6 +178,11 @@ def build_config(settings, args, servers=None):
     config = settings.extraction_config()
     config.remote.update(request_timeout=args.request_timeout,
                          max_concurrent_requests=args.concurrency)
+    # The adaptive limit starts at --initial-concurrency (default: --concurrency for vLLM servers, whose long
+    # requests would take hours to grow it; 32 for the gateway, which ramps to find its rate limits).
+    initial = args.initial_concurrency or (min(32, args.concurrency) if args.claude else args.concurrency)
+    config.remote["adaptive_concurrency"] = {**(config.remote.get("adaptive_concurrency") or {}),
+                                             "initial": initial}
     if servers:
         # The endpoint pool reads the registry: each server's model and ceiling.
         config.remote.update(server_urls=[s["url"] for s in servers],
@@ -170,18 +204,26 @@ def main(argv=None):
                         default="document", help="document records only, or also patient "
                         "records (default: %(default)s)")
     parser.add_argument("--patients", help="a file of patient ids, one per line")
+    parser.add_argument("--population-sample", action="store_true",
+                        help="synthetic mode: the Population tab's default sample (its size, seed and split)")
     parser.add_argument("--limit", type=int, help="a seeded sample of this many patients")
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--endpoint", help="OpenAI-compatible /v1 URL (default: http://localhost:8000/v1)")
     parser.add_argument("--server-registry", metavar="FILE",
                         help="JSON registry of several servers and the model each serves "
                         "(instead of --endpoint); see above")
+    parser.add_argument("--claude", metavar="MODEL",
+                        help="Claude through the Databricks gateway: haiku, sonnet, opus (site config "
+                        "databricks.endpoints) or an endpoint name; see above")
     parser.add_argument("--model", help="served model (default: the extraction preset's model)")
     parser.add_argument("--tokenizer", help="tokenizer for patient-level chunks (default: --model)")
     parser.add_argument("--request-timeout", type=int, default=14400,
                         help="seconds per completion (default: %(default)s)")
     parser.add_argument("--concurrency", type=int, default=32,
-                        help="requests in flight (default: %(default)s)")
+                        help="most requests in flight (default: %(default)s)")
+    parser.add_argument("--initial-concurrency", type=int,
+                        help="requests in flight at the start, adapted from there (default: --concurrency, or "
+                        "32 with --claude)")
     parser.add_argument("--checkpoint-dir",
                         help="resume folder (default: .<output name>.checkpoints beside it)")
     parser.add_argument("--overwrite", action="store_true",
@@ -197,6 +239,8 @@ def main(argv=None):
     from .services import InputError
 
     servers = None
+    if args.claude and (args.endpoint or args.server_registry or args.model):
+        sys.exit("error: --claude names the model and endpoint; drop --endpoint, --server-registry and --model")
     if args.server_registry:
         if args.endpoint:
             sys.exit("error: use --endpoint or --server-registry, not both")
@@ -206,11 +250,21 @@ def main(argv=None):
         except InputError as exc:
             sys.exit(f"error: {exc}")
         args.endpoint = servers[0]["url"]
-    model = args.model or (servers[0]["model"] if servers else
-                           load_default_preset().document_extraction["remote"]["model_name"])
-    values = {"llm_backend": "local", "model": model, "tokenizer": args.tokenizer or model}
-    if args.endpoint:
-        values["endpoint"] = args.endpoint.rstrip("/")
+    if args.claude:
+        from .settings import claude_backends
+
+        profile = claude_backends()["claude_databricks"]
+        model = profile["models"].get(args.claude, args.claude)
+        if not model or not profile["endpoint"]:
+            sys.exit("error: the site config names no Databricks gateway or Claude endpoint")
+        values = {"llm_backend": "claude_databricks", "model": model, "endpoint": profile["endpoint"],
+                  "tokenizer": args.tokenizer or profile["tokenizer"]}
+    else:
+        model = args.model or (servers[0]["model"] if servers else
+                               load_default_preset().document_extraction["remote"]["model_name"])
+        values = {"llm_backend": "local", "model": model, "tokenizer": args.tokenizer or model}
+        if args.endpoint:
+            values["endpoint"] = args.endpoint.rstrip("/")
     settings = Settings(phi=args.phi, **values)
     try:
         output = resolve_store(settings, args.output, must_exist=False)
@@ -222,6 +276,11 @@ def main(argv=None):
         if error:
             raise InputError(error)
         checkpoints.mkdir(mode=0o700, parents=True, exist_ok=True)
+        gateway_log = None
+        if args.claude:
+            gateway_log = output.parent / f"{output.name}.gateway_requests.jsonl"
+            os.environ["MMAI_GATEWAY_REQUEST_LOG"] = str(gateway_log)
+            print(f"Gateway requests: {gateway_log}", flush=True)
         notes, source = read_notes(settings, args)
         print(f"{source['patients']:,} patients, {len(notes):,} notes", flush=True)
         config = build_config(settings, args, servers)
@@ -244,13 +303,20 @@ def main(argv=None):
             progress_callback=lambda done, total: print(
                 f"Document records: {done:,}/{total:,} notes", flush=True),
         )
+        extraction = extraction_metadata(
+            document_meta, patient_meta,
+            ", ".join(dict.fromkeys(s["model"] for s in servers)) if servers else model,
+            servers=servers)
+        if gateway_log is not None and gateway_log.exists():
+            from matchminer_ai.llm.gateway_usage import summarize
+
+            usage = summarize(gateway_log)
+            usage.pop("log", None)
+            usage["concurrency"].pop("trajectory", None)
+            extraction["gateway_usage"] = usage
         manifest = write_store(
             settings, output, documents, patient_records, source=source,
-            extraction=extraction_metadata(
-                document_meta, patient_meta,
-                ", ".join(dict.fromkeys(s["model"] for s in servers)) if servers else model,
-                servers=servers),
-            overwrite=args.overwrite,
+            extraction=extraction, overwrite=args.overwrite,
         )
     except InputError as exc:
         sys.exit(f"error: {exc}")

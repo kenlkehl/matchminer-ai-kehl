@@ -20,29 +20,72 @@ def records(frame):
     return json.loads(frame.to_json(orient="records", date_format="iso", force_ascii=False))
 
 
+def synthetic_key(names):
+    """The patient key of a synthetic table: the generator's ``patient_id`` when it has one (the IDs of the
+    dashboard's patient corpus), else ``pseudo_mrn``."""
+    names = set(names)
+    if "patient_id" in names:
+        return "patient_id"
+    return "pseudo_mrn" if "pseudo_mrn" in names else "patient_id"
+
+
+def synthetic_note_columns(names):
+    """``(key, {source: runtime})`` for a notes table: synthetic notes keyed by :func:`synthetic_key`."""
+    names = set(names)
+    key, columns = note_columns(names)
+    if key == "pseudo_mrn" and "patient_id" in names:
+        columns = {"patient_id": "patient_id",
+                   **{k: v for k, v in columns.items() if k != "pseudo_mrn"}}
+        key = "patient_id"
+    return key, columns
+
+
 def adapt_tables(summaries, notes):
-    """Explicit training-to-runtime boundary, never join on the synthetic prompt ID."""
+    """Explicit training-to-runtime boundary, never join on the synthetic prompt ID.
+
+    Synthetic tables keep the generator's ``patient_id`` when they have one; ``pseudo_mrn`` keys only tables
+    without it."""
     if "pseudo_mrn" in summaries:
-        summary_columns = ("pseudo_mrn", "patient_summary", "patient_boilerplate_text")
-        summaries = summaries.rename(columns={k: TRAINING_TO_RUNTIME[k] for k in summary_columns})
+        renames = {k: TRAINING_TO_RUNTIME[k] for k in ("patient_summary", "patient_boilerplate_text")}
+        if "patient_id" in summaries:
+            summaries = summaries.drop(columns=["pseudo_mrn"])
+        else:
+            renames["pseudo_mrn"] = "patient_id"
+        summaries = summaries.rename(columns=renames)
     if "pseudo_mrn" in notes:
-        notes = notes.drop(columns=["patient_id"], errors="ignore").rename(columns=SYNTHETIC_NOTES_TO_RUNTIME)
+        if "patient_id" in notes:
+            notes = notes.drop(columns=["pseudo_mrn"]).rename(
+                columns={k: v for k, v in SYNTHETIC_NOTES_TO_RUNTIME.items() if k != "pseudo_mrn"})
+        else:
+            notes = notes.rename(columns=SYNTHETIC_NOTES_TO_RUNTIME)
     if not summaries.columns.is_unique or not notes.columns.is_unique:
         raise InputError("Ambiguous cohort columns. Supply the documented runtime schema.")
     return summaries, notes
 
 
-def load_synthetic_sample(settings, size, seed, progress):
-    """Non-PHI mode: a seeded sample of the configured synthetic summary and note Parquets."""
-    from matchminer_ai.population import create_patient_cohort
-    import pyarrow.dataset as ds
+def synthetic_sample(settings, size, seed):
+    """Synthetic mode's seeded sample: ``(sample, note_ids, dataset, note_key, note_map, eligible_count)``.
 
-    progress("Reading synthetic summaries and matching note identifiers")
-    summaries = pd.read_parquet(settings.population_summaries)
+    Patients with a nonblank summary and notes, from ``settings.population_split`` when the summaries have a
+    ``split`` column; the same size and seed always give the same patients (the extraction store's are the
+    default sample's; preprocess_extractions ``--population-sample``)."""
+    import pyarrow.dataset as ds
+    import pyarrow.parquet as pq
+
+    names = pq.ParquetFile(settings.population_summaries).schema_arrow.names
+    summary_key = synthetic_key(names)
+    summary_text = "patient_summary" if "patient_summary" in names else "cancer_history_summary"
+    wanted = [summary_key, summary_text, "pseudo_mrn", "patient_boilerplate_text",
+              "general_exclusion_criteria_evidence", "split"]
+    summaries = pd.read_parquet(settings.population_summaries,
+                                columns=list(dict.fromkeys(c for c in wanted if c in names)))
+    if settings.population_split:
+        if "split" not in summaries:
+            raise InputError("The synthetic summaries have no split column.")
+        summaries = summaries.loc[summaries.split.eq(settings.population_split)]
+    summaries = summaries.drop(columns=["split"], errors="ignore")
     dataset = ds.dataset(settings.population_notes, format="parquet")
-    note_key, note_map = note_columns(dataset.schema.names)
-    summary_key = "pseudo_mrn" if "pseudo_mrn" in summaries else "patient_id"
-    summary_text = "patient_summary" if "patient_summary" in summaries else "cancer_history_summary"
+    note_key, note_map = synthetic_note_columns(dataset.schema.names)
     note_ids = dataset.to_table(columns=[note_key]).column(note_key).unique().to_pylist()
     eligible = summaries.loc[
         summaries[summary_key].astype(str).isin({str(x) for x in note_ids})
@@ -55,6 +98,16 @@ def load_synthetic_sample(settings, size, seed, progress):
     sample = eligible.sample(n=size, random_state=seed).reset_index(drop=True)
     keys = set(sample[summary_key].astype(str))
     typed_ids = [key for key in note_ids if str(key) in keys]
+    return sample, typed_ids, dataset, note_key, note_map, len(eligible)
+
+
+def load_synthetic_sample(settings, size, seed, progress):
+    """Synthetic mode: a seeded sample of the configured synthetic summary and note Parquets."""
+    from matchminer_ai.population import create_patient_cohort
+    import pyarrow.dataset as ds
+
+    progress("Reading synthetic summaries and matching note identifiers")
+    sample, typed_ids, dataset, note_key, note_map, eligible_count = synthetic_sample(settings, size, seed)
     columns = [c for c in note_map if c in dataset.schema.names]
     check_cancelled()
     progress(f"Loading original notes for {size} sampled patients")
@@ -77,13 +130,14 @@ def load_synthetic_sample(settings, size, seed, progress):
             progress(f"Loading original cohort notes · {note_count:,} notes read")
     if not batches:
         raise InputError("The selected patients have no available source notes.")
-    notes = pa.Table.from_batches(batches).to_pandas()
+    notes = pa.Table.from_batches(batches).to_pandas().rename(columns=note_map)
     sample, notes = adapt_tables(sample, notes)
     provenance = {
         "source": "operator_configured_population",
         "sample_size": size,
         "random_seed": seed,
-        "eligible_population_count": len(eligible),
+        "eligible_population_count": eligible_count,
+        "split": settings.population_split,
         "summary_file": Path(settings.population_summaries).name,
         "notes_file": Path(settings.population_notes).name,
         "source_files": [

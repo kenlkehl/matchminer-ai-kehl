@@ -434,6 +434,14 @@ class RemoteRequestSession:
             max_connections=self.per_server,
             remote_config=self.config,
         )
+        self.limiter = None
+        if claude and (self.config.get('adaptive_concurrency') or {}).get('enabled'):
+            # The gateway's own adaptive limit and rate-limit retries (gateway_limits); the
+            # ceiling is max_concurrent_requests per gateway URL.
+            from .gateway_limits import GatewayLimiter
+            self.limiter = GatewayLimiter(self.config['adaptive_concurrency'], self.capacity)
+            self.next_client = 0
+            return self
         self.slots = asyncio.Queue()
         for _ in range(self.per_server):
             for client, _port in self.clients:
@@ -480,6 +488,8 @@ class RemoteRequestSession:
                 getattr(choice.message, 'reasoning', None)
                 or getattr(choice.message, 'reasoning_content', None) or '',
                 choice.message.content or '', choice.finish_reason or 'stop', provenance)
+        if self.limiter is not None:
+            return await self._limited_generate(prompt, llm_config, params, extra, messages)
         client = await self.slots.get()
         try:
             return await single_inference_request(
@@ -493,6 +503,35 @@ class RemoteRequestSession:
             )
         finally:
             self.slots.put_nowait(client)
+
+    async def _limited_generate(self, prompt, llm_config, params, extra, messages):
+        from .gateway_limits import limited_request
+
+        client, _port = self.clients[self.next_client % len(self.clients)]
+        self.next_client += 1
+        request = dict(model=remote_request_model_name(llm_config), messages=messages,
+                       **request_params_for_prompt(params, prompt))
+        if extra:
+            request['extra_body'] = dict(extra)
+        try:
+            response = await limited_request(
+                self.limiter, client.chat.completions.create, request,
+                timeout=float(llm_config["request_timeout"]),
+                max_retries=max(1, int(llm_config["max_retries"])))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- reported as an error result, as single requests do
+            logger.info("  Row %d: all retries exhausted (%s)", prompt.row_idx, type(exc).__name__)
+            return ModelResult(row_idx=prompt.row_idx, reasoning="", summary=f"ERROR: {exc}",
+                               finish_reason="error")
+        choice = response.choices[0]
+        message = getattr(choice, "message", None)
+        return ModelResult(
+            row_idx=prompt.row_idx,
+            reasoning=getattr(message, "reasoning", None) or "",
+            summary=getattr(message, "content", "") or "",
+            finish_reason=getattr(choice, "finish_reason", None) or "stop",
+        )
 
     async def __aexit__(self, *exc):
         await self.preparation.__aexit__(*exc)

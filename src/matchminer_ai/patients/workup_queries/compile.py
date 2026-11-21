@@ -186,10 +186,41 @@ def compile_workup_queries(
         raise TypeError("population_context must be text or None.")
     texts = [requirement_text(r) for r in requirements]
     extensions = default_extensions(resolved) if extensions is None else list(extensions)
-    schema = query_response_schema(extensions)
     contract = compile_contract(extensions)
     keys = [workup_query_cache_key(t, population_context, contract=contract) for t in texts]
-    settings = section_settings(resolved, SECTION, "workup_query", schema)
+    return compile_queries(
+        texts, keys, config=resolved, section=SECTION, schema_name="workup_query",
+        schema=query_response_schema(extensions), contract=contract,
+        render=lambda text: render_compile_prompt(text, population_context, extensions=extensions),
+        validate=lambda query: validate_workup_query(query, extensions),
+        subject="requirement", context_sha256=digest((population_context or "").strip()),
+        cache=cache, progress_callback=progress_callback, return_metadata=return_metadata,
+        label="workup",
+    )
+
+
+def compile_queries(
+    subjects: Sequence[dict],
+    keys: Sequence[str],
+    *,
+    config: MMAIConfig,
+    section: str,
+    schema_name: str,
+    schema: dict,
+    contract: dict,
+    render: Callable[[dict], str],
+    validate: Callable[[Any], list[str]],
+    subject: str,
+    context_sha256: str | Callable[[dict], str],
+    cache: MutableMapping[str, dict] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    return_metadata: bool = False,
+    label: str = "",
+) -> list[dict] | tuple[list[dict], dict]:
+    """The compile loop of every query kind: one request per distinct key (``subjects[i]`` has ``keys[i]``),
+    revalidated cache reuse, retries with the problems named, and the entries and metadata
+    :func:`compile_workup_queries` documents (the subject under ``subject``)."""
+    settings = section_settings(config, section, schema_name, schema)
     model = settings.runtime.get("model_name")
     progress = progress_callback or (lambda done, total: None)
     entries: dict[str, dict] = {}
@@ -199,33 +230,36 @@ def compile_workup_queries(
             isinstance(saved, dict)
             and saved.get("status") == "compiled"
             and saved.get("contract") == contract
-            and not validate_workup_query(saved.get("query"), extensions)
+            and not validate(saved.get("query"))
         ):
             entries[key] = {**saved, "cached": True}
-    pending = [(key, texts[keys.index(key)]) for key in dict.fromkeys(keys) if key not in entries]
+    first_of = {}
+    for key, text in zip(keys, subjects, strict=True):
+        first_of.setdefault(key, text)
+    pending = [(key, first_of[key]) for key in dict.fromkeys(keys) if key not in entries]
     total, done = len(set(keys)), len(entries)
     progress(done, total)
     model_metadata: dict[str, Any] = {}
     if pending:
         queue = RequestQueue(
-            get_llm_backend(resolved), settings.runtimes, chunk_size=settings.batch_size,
+            get_llm_backend(config), settings.runtimes, chunk_size=settings.batch_size,
             chunks_in_flight=settings.batches_in_flight,
-            model_metadata_cache_dir=resolved.model_metadata_cache_dir,
+            model_metadata_cache_dir=config.model_metadata_cache_dir,
         )
         attempts: dict[str, list] = {}
-        requirement_of = dict(pending)
+        subject_of = dict(pending)
         for key, text in pending:
-            original = [{"role": "user", "content": render_compile_prompt(
-                text, population_context, extensions=extensions)}]
+            original = [{"role": "user", "content": render(text)}]
             queue.add((key, 1, original), original, "main")
 
         def finish(key, status, query, error):
             nonlocal done
             history = attempts.get(key, [])
+            context = context_sha256(subject_of[key]) if callable(context_sha256) else context_sha256
             entries[key] = {
                 "cache_key": key,
-                "requirement": requirement_of[key],
-                "population_context_sha256": digest((population_context or "").strip()),
+                subject: subject_of[key],
+                ("population_context_sha256" if subject == "requirement" else "context_sha256"): context,
                 "status": status,
                 "query": query,
                 "error": error,
@@ -257,7 +291,7 @@ def compile_workup_queries(
             except ValueError as exc:
                 value, problems, error = None, [], str(exc)
             else:
-                problems, error = validate_workup_query(value, extensions), None
+                problems, error = validate(value), None
             if error is None and not problems:
                 finish(key, "compiled", canonical_query(value), None)
                 return
@@ -270,9 +304,9 @@ def compile_workup_queries(
             finish(key, "failed", None, "no valid query after every attempt: "
                    + "; ".join(entry["problems"][:5]))
 
-        logger.info("Compiling %d workup queries.", len(pending))
+        logger.info("Compiling %d %s queries.", len(pending), label or subject)
         model_metadata = queue.run(record)
-    results = [{**entries[key], "requirement": text} for key, text in zip(keys, texts, strict=True)]
+    results = [{**entries[key], subject: text} for key, text in zip(keys, subjects, strict=True)]
     if not return_metadata:
         return results
     metadata = {
@@ -282,7 +316,7 @@ def compile_workup_queries(
         "compiled_by": sorted({entries[key]["model"] for key in set(keys)
                                if entries[key].get("model")}),
         "structured_outputs": settings.structured,
-        "requirements": len(texts),
+        ("requirements" if subject == "requirement" else f"{subject}s"): len(subjects),
         "distinct": total,
         "cached": sum(1 for key in set(keys) if entries[key].get("cached")),
         "compiled": sum(1 for key in set(keys) if entries[key]["status"] == "compiled"),
@@ -299,6 +333,7 @@ __all__ = [
     "PROMPT_FILE",
     "SECTION",
     "compile_contract",
+    "compile_queries",
     "compile_workup_queries",
     "default_extensions",
     "render_compile_prompt",

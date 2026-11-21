@@ -25,6 +25,7 @@ from .common import (
     fill,
     ncit_agent_codes,
     parse_answer,
+    prompt_messages,
     qc_rows,
     retry_messages,
     section_settings,
@@ -272,6 +273,9 @@ def extract_document_records(
     template = load_prompt_text(PROMPT_FILE)
     guide = render_field_guide("document", extra_types, linking=linking)
     guidance = extension_guidance(extensions)
+    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
+    head = fill(template.split("{linking}")[0], {
+        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
     limit = settings.values.get("max_document_characters", 200000)
     if type(limit) is not int or limit < 1:
         raise ValueError(f"{SECTION}.max_document_characters must be a positive integer")
@@ -337,7 +341,7 @@ def extract_document_records(
             "note_type": note["note_type"] or "none",
             "note_text": note["text"],
         })
-        return [{"role": "user", "content": content}]
+        return prompt_messages(content, head, settings)
 
     finished: list[str] = []
 
