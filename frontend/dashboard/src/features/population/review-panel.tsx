@@ -222,7 +222,7 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
           : ""}
         . Set the model connections in{" "}
         <Link to="/status" className="inline-flex items-center text-brand-blue hover:underline">
-          Data and Models
+          Data and models
           <ArrowUpRightIcon className="size-3" />
         </Link>
         .

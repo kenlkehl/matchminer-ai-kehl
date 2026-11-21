@@ -90,20 +90,20 @@ export function AppShell({ children }: { children: ReactNode }) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {tab === "trials" ? (
-                    <NavItem to="/" icon={TableIcon} label="Trials Overview" active={false} />
+                    <NavItem to="/" icon={TableIcon} label="Trial-centric search" active={false} />
                   ) : tab === "population" ? (
                     <NavItem
                       to="/population"
                       icon={UsersIcon}
-                      label="Population management"
+                      label="Population guideline concordance"
                       active
                     />
                   ) : tab === "patient" ? (
-                    <NavItem to="/patient" icon={UserIcon} label="Patient-centric" active />
+                    <NavItem to="/patient" icon={UserIcon} label="Patient-centric search" active />
                   ) : tab === "benchmarking" ? (
-                    <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarks" active />
+                    <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarking" active />
                   ) : (
-                    <NavItem to="/status" icon={ActivityIcon} label="Data and Models" active />
+                    <NavItem to="/status" icon={ActivityIcon} label="Data and models" active />
                   )}
                 </SidebarMenu>
               </SidebarGroupContent>

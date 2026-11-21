@@ -83,7 +83,7 @@ export function PopulationPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Population management">
+      <PageHeader title="Population guideline concordance">
         <p>Identify a patient population and evaluate documented care for guideline concordance.</p>
       </PageHeader>
       {pop.error ? (

@@ -150,7 +150,7 @@ export function usePopulation(): PopulationController {
       if (!alive.current) return;
       setError(
         err instanceof ApiError && err.status === 404
-          ? "Population management is unavailable on this server. Restart the dashboard to load the updated backend, then retry."
+          ? "Population guideline concordance is unavailable on this server. Restart the dashboard to load the updated backend, then retry."
           : `Could not connect to population management. ${errorMessage(err)}`,
       );
     } finally {

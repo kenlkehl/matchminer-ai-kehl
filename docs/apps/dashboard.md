@@ -15,17 +15,17 @@ come from and how the server is reached.
 | Trials | A site's extracted trial cohorts (an extraction run and its trial table) | The synthetic training run's trials (ClinicalTrials.gov listings and synthetic protocols), grouped by cancer type |
 | Patients | A preprocessed population cache of real patients | The synthetic run's patients |
 | Populations | The population cache, a sample from a population DuckDB database, uploaded tables, cohort archives | A sample of the synthetic population, uploaded tables, cohort archives |
-| Benchmarks | Evaluation runs under `dashboard.real.benchmark_roots` | Runs under `dashboard.synthetic.benchmark_roots` (the tab is hidden without any) |
+| Benchmarking | Evaluation runs under `dashboard.real.benchmark_roots` | Runs under `dashboard.synthetic.benchmark_roots` (the tab is hidden without any) |
 | Serving | Loopback only (`127.0.0.1:8781`); a non-loopback `--host` is refused; the access token is always required | `0.0.0.0:8034` by default; any Host unless `--allowed-hosts` names them; a token only with `--require-token` |
 | Data side | Writes never go to a `no_phi` folder | Never reads or writes a `phi` folder |
 
 TrialSpace, its rounds and the decision model come from the synthetic run in both modes. Real mode compares the
 population cache's vectors with cohort vectors made by the round's encoder, so it requires both to be the same
-TrialSpace model and says so on Data and Models if they differ.
+TrialSpace model and says so on Data and models if they differ.
 
 ## Tabs
 
-- **Trial-centric:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+- **Trial-centric search:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
@@ -35,11 +35,11 @@ TrialSpace model and says so on Data and Models if they differ.
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
   the Patient-centric Trials view.
-- **Population management:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
+- **Population guideline concordance:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default), compress their notes, and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
   workup item or a patient, and export the cohort and its results.
-- **Patient-centric:** one patient for three views. The patient is a corpus patient, an entered summary, or clinical
+- **Patient-centric search:** one patient for three views. The patient is a corpus patient, an entered summary, or clinical
   notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are compressed and summarized.
   - *Trials:* the ranked trial cohorts with decision-model scores and the GoodOption check. A trial's criteria check
     runs on the decision model, the LLM, or the patient's structured records (**Check with structured data**).
@@ -62,7 +62,7 @@ TrialSpace model and says so on Data and Models if they differ.
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line ([Evaluation](../evaluation/index.md)).
-- **Data and Models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
+- **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization, note compression,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
   GoodOption check and the per-criterion LLM check.
@@ -107,7 +107,7 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
 
 The decision model is the synthetic run's trained model (`--decision-model` overrides it, with fallbacks while the
-run is still training; Data and Models shows which one loaded). It scores in every tab and runs on `--device`, by
+run is still training; Data and models shows which one loaded). It scores in every tab and runs on `--device`, by
 default `cuda:0` when CUDA is available, else the CPU.
 
 The default model connection (`--llm-backend`, `--llm-model`) is Claude Haiku 5.5 through a Databricks AI Gateway
@@ -116,7 +116,7 @@ when the site config names the gateway (`databricks.host`, `databricks.profile`)
 serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
 endpoints the site names (`sonnet`, `opus`) can be chosen per task. An OpenAI-compatible endpoint is also offered
 (`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`). Each session can change the
-connection per task on Data and Models. Patient text and cohort criteria go to the selected endpoints, so use only
+connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
 endpoints authorized for the data.
 
 ## Real patients

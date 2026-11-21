@@ -109,7 +109,7 @@ class LLMChecks:
     def connection_unavailable(self, connection: Connection | None = None) -> str | None:
         connection = connection or self.connection
         if not connection.configured:
-            return "No LLM endpoint is configured (Data and Models)."
+            return "No LLM endpoint is configured (Data and models)."
         return vertex_credentials_error() if connection.vertex else None
 
     def good_option_unavailable(self, connection: Connection | None = None) -> str | None:

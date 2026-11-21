@@ -146,7 +146,7 @@ class Connection:
         """A copy of ``config`` sending ``sections`` (``llm_good_option``, ``llm_criteria_check``) to this
         connection, with the served model's sampling profile and debug mode (answers, reasoning, parse details)."""
         if not self.configured:
-            raise ValueError("No LLM endpoint is configured (Data and Models).")
+            raise ValueError("No LLM endpoint is configured (Data and models).")
         c = deepcopy(config)
         c.debug_mode = True
         c.remote.update(enabled=True, server_urls=[self.endpoint], max_concurrent_requests=MAX_IN_FLIGHT,

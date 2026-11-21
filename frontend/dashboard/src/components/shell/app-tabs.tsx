@@ -26,17 +26,17 @@ const TABS: {
   to: "/" | "/population" | "/patient" | "/benchmarking" | "/status";
   label: string;
 }[] = [
-  { tab: "trials", to: "/", label: "Trial-centric" },
-  { tab: "patient", to: "/patient", label: "Patient-centric" },
-  { tab: "population", to: "/population", label: "Population management" },
+  { tab: "trials", to: "/", label: "Trial-centric search" },
+  { tab: "patient", to: "/patient", label: "Patient-centric search" },
+  { tab: "population", to: "/population", label: "Population guideline concordance" },
   { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
-  { tab: "status", to: "/status", label: "Data and Models" },
+  { tab: "status", to: "/status", label: "Data and models" },
 ];
 
 /** The tabs above every page: those the server's mode shows. */
 export function AppTabs() {
   const current = useAppTab();
-  // The server's tabs for its mode; Data and Models is always last.
+  // The server's tabs for its mode; Data and models is always last.
   const shown = [
     ...(useQuery(metaOptions()).data?.tabs ?? ["trials", "population", "patient"]),
     "status",

@@ -76,7 +76,7 @@ export function StatusLine({ where }: { where: StatusMessage["where"] }) {
 
 /**
  * Where the notes go: the server's notice on patient text and LLM endpoints, the tasks' connections,
- * and a link to change them on the Data and Models page.
+ * and a link to change them on the Data and models page.
  */
 export function EndpointNotice({ tasks }: { tasks: Task[] }) {
   const config = useQuery(modelsOptions()).data;

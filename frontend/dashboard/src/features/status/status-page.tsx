@@ -143,7 +143,7 @@ export function StatusPage() {
   if (!s) return <Spinner className="size-6" />;
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Data and Models" />
+      <PageHeader title="Data and models" />
       <section>
         <h2 className="mb-2 text-lg font-semibold">Trials</h2>
         <dl className="divide-y divide-gray-100">
