@@ -10,6 +10,11 @@ the labeler's model ID to the second server's and caps it at --proxy-concurrency
 Servers come from the site config (``endpoints.teacher.url``, ``endpoints.secondary_teacher.url``) or the
 options. When every teacher job has finished, the orchestrator writes ``oa_pause/release`` (the OA waiter then resumes the OA summarization) and
 stops the proxy; metrics follow. Status: ``run_status.json``; log: ``logs/run.log``, one log per job in ``logs/``.
+
+A synthetic run (``--synthetic-corpus``, no PHI) takes its patients and ctgov cohorts from the n=5000 run's TrialSpace
+corpus instead of the extraction, patients and cohort-table stages, so the Benchmarking tab of the dashboard's
+synthetic mode has a run to show. ``--teacher-after`` holds the label jobs until the named files exist (other teacher
+work finishes first); ``--embed-device`` encodes on GPUs instead of the CPU.
 """
 import argparse
 import json
@@ -37,6 +42,7 @@ class Job:
         self.name, self.command, self.deps, self.kind = name, command, list(deps), kind
         self.output, self.attempts = output, attempts
         self.state, self.process, self.tries, self.started, self.finished, self.code = 'pending', None, 0, None, None, None
+        self.held = False  # a label job held by --teacher-after (logged once)
 
 
 def checked(job):
@@ -62,26 +68,33 @@ def plan(args):
     py, root = args.python, Path(args.root)
     e = lambda *parts: str(root.joinpath(*parts))  # noqa: E731
     mod = lambda name: [py, '-m', f'{PACKAGE}.{name}']  # noqa: E731
-    extraction = [*mod('cohorts'), '--trials', args.trials, '--servers', e('servers', 'extraction_servers.json'),
-                  '--output', e('extraction'), '--holders', e('oa_pause', 'holders.json')]
-    if args.extraction_source:
-        extraction += ['--source', args.extraction_source]
-    jobs = [Job('extraction', extraction, kind='gb300', output=e('extraction')),
-            Job('patients', [*mod('prepare'), 'patients', '--summaries', args.summaries, '--denominator',
-                             args.denominator, '--output', e('patients')], output=e('patients')),
-            Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--output',
-                                 e('cohort_table')], ['extraction'], output=e('cohort_table')),
-            Job('corpus', [*mod('prepare'), 'corpus', '--patients', e('patients'), '--cohorts',
+    if args.synthetic_corpus:
+        jobs = [Job('patients', [*mod('prepare'), 'synthetic-patients', '--corpus', args.synthetic_corpus, '--split',
+                                 args.synthetic_split, '--output', e('patients')], output=e('patients')),
+                Job('cohort_table', [*mod('prepare'), 'synthetic-cohorts', '--corpus', args.synthetic_corpus,
+                                     '--output', e('cohort_table')], output=e('cohort_table'))]
+    else:
+        extraction = [*mod('cohorts'), '--trials', args.trials, '--servers', e('servers', 'extraction_servers.json'),
+                      '--output', e('extraction'), '--holders', e('oa_pause', 'holders.json')]
+        if args.extraction_source:
+            extraction += ['--source', args.extraction_source]
+        jobs = [Job('extraction', extraction, kind='gb300', output=e('extraction')),
+                Job('patients', [*mod('prepare'), 'patients', '--summaries', args.summaries, '--denominator',
+                                 args.denominator, '--output', e('patients')], output=e('patients')),
+                Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--output',
+                                     e('cohort_table')], ['extraction'], output=e('cohort_table'))]
+    jobs += [Job('corpus', [*mod('prepare'), 'corpus', '--patients', e('patients'), '--cohorts',
                            e('cohort_table'), '--output', e('corpus'), '--seed', str(args.seed), '--patient-queries',
                            str(args.patient_queries), '--cohort-queries', str(args.cohort_queries)],
                 ['patients', 'cohort_table'], output=e('corpus'))]
-    embeds = []
+    embeds, devices = [], args.embed_device.split(',')
     for embedder in EMBEDDERS:
         for side, source, deps in (('patients', e('patients'), ['patients']), ('cohorts', e('corpus'), ['corpus'])):
             name = f'embed_{embedder}_{side}'
+            device = devices[len(embeds) % len(devices)]
             embeds.append(name)
             jobs.append(Job(name, [*mod('embed'), '--input', source, '--side', side, '--embedder', embedder,
-                                   '--device', 'cpu', '--threads', str(args.threads), '--output',
+                                   '--device', device, '--threads', str(args.threads), '--output',
                                    e('embeddings', embedder, side)], deps, output=e('embeddings', embedder, side)))
     jobs += [Job('retrieve', [*mod('retrieve'), '--corpus', e('corpus'), '--embeddings', e('embeddings'),
                               '--k', str(args.k), '--output', e('retrieval')], ['corpus', *embeds], output=e('retrieval')),
@@ -175,9 +188,13 @@ def start_proxy(args, root):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--root', required=True, help='The evaluation directory (PHI)')
-    p.add_argument('--trials', required=True)
-    p.add_argument('--summaries', required=True)
-    p.add_argument('--denominator', required=True)
+    p.add_argument('--trials', help='The trial sample CSV (a real run)')
+    p.add_argument('--summaries', help='The summary batches (a real run)')
+    p.add_argument('--denominator', help='processed_soc_treatments.csv (a real run)')
+    p.add_argument('--synthetic-corpus', help="A synthetic run: the n=5000 run's trialspace_corpus directory")
+    p.add_argument('--synthetic-split', default='test', help='A synthetic run: the generator split of its patients')
+    p.add_argument('--embed-device', default='cpu', help='Encoding device(s), comma-separated (cpu, cuda:0,cuda:1)')
+    p.add_argument('--teacher-after', nargs='*', default=[], help='Files that must exist before label jobs start')
     p.add_argument('--python', default=sys.executable)
     p.add_argument('--extraction-source', help='Code snapshot for cohorts.py --source (revised cohort prompts)')
     p.add_argument('--seed', type=int, default=42)
@@ -202,6 +219,8 @@ def main(argv=None):
     p.add_argument('--label-attempts', type=int, default=3)
     p.add_argument('--poll-seconds', type=int, default=30)
     args = p.parse_args(argv)
+    if not args.synthetic_corpus and not (args.trials and args.summaries and args.denominator):
+        p.error('a real run needs --trials, --summaries and --denominator (or give --synthetic-corpus)')
     site = load_site_config()
     args.teacher_url = args.teacher_url or site.require('endpoints.teacher.url')
     args.secondary_teacher_url = args.secondary_teacher_url or site.get('endpoints.secondary_teacher.url')
@@ -211,27 +230,49 @@ def main(argv=None):
     root = private_dir(args.root)
     for name in ('logs', 'servers', 'oa_pause', 'labels', 'decide', 'embeddings'):
         private_dir(root / name)
-    scratch = private_dir(Path('/tmp/mmai-fidelity-phi/labels'))
+    scratch = private_dir(Path('/tmp/mmai-fidelity-synthetic/labels' if args.synthetic_corpus
+                               else '/tmp/mmai-fidelity-phi/labels'))
     os.environ.update(MMAI_LABEL_SCRATCH_DIR=str(scratch), HF_HUB_OFFLINE='1', TOKENIZERS_PARALLELISM='false',
                       PYTHONUNBUFFERED='1')
     os.environ.setdefault('OPENAI_API_KEY', 'not-needed')
     hold_gb300(root / 'oa_pause' / 'holders.json', 'orchestrator (run.py)')
     jobs = plan(args)
-    write_json(root / 'design_notes.json', [
-        f'Patients: validation-split SOC index events with summaries; {args.patient_queries} sampled for the '
-        f'patient-centric workflow and {args.cohort_queries} cohorts for the trial-centric one (seed {args.seed}; '
-        'corpus/sample.json).',
-        'Trials: the v22-style SOC trial sample (500 NCT IDs, training trials excluded), ctgov cohorts extracted with '
-        "the training run's frozen programs (extraction/).",
-        f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
-        f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
-        'Key texts, trialspace prompt profile, 4,096-token cap, CPU float32 encoding.',
-        'Teacher: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 on the on-prem teacher server (and its FP8 '
-        'build on a second server), contracts match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; Nemotron '
-        'sampling (temperature 1.0, top_p 0.95), thinking on, JSON tasks schema-constrained.',
-        f'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
-        f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
-        'lists_ab/criteria_sample.json, lists_c/criteria_sample.json).'])
+    if args.synthetic_corpus:
+        write_json(root / 'design_notes.json', [
+            f'Synthetic run (no PHI): the n=5000 run\'s {args.synthetic_split}-split synthetic patients with their '
+            f'summaries; {args.patient_queries} sampled for the patient-centric workflow and {args.cohort_queries} '
+            f'cohorts for the trial-centric one (seed {args.seed}; corpus/sample.json).',
+            "Trials: the n=5000 run's ctgov cohorts (training's extraction; trialspace_corpus).",
+            f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
+            f'(c) TrialSpace\'s top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
+            f'Key texts, trialspace prompt profile, 4,096-token cap, encoded on {args.embed_device}.',
+            'TrialSpace round 2 was fine-tuned on every synthetic patient (split policy all_synthetic_training), '
+            'these included, so its retrieval results here are optimistic; the decision model never trained on the '
+            'test split.',
+            'Teacher: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 on the on-prem teacher server, contracts '
+            'match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; Nemotron sampling (temperature 1.0, top_p '
+            '0.95), thinking on, JSON tasks schema-constrained.',
+            'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model, '
+            'published as ksg-dfci/MatchEval-1226).',
+            f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
+            'lists_ab/criteria_sample.json, lists_c/criteria_sample.json).',
+            'A demonstration of the evaluation on synthetic data; the real-patient evaluation is the meaningful one.'])
+    else:
+        write_json(root / 'design_notes.json', [
+            f'Patients: validation-split SOC index events with summaries; {args.patient_queries} sampled for the '
+            f'patient-centric workflow and {args.cohort_queries} cohorts for the trial-centric one (seed {args.seed}; '
+            'corpus/sample.json).',
+            'Trials: the v22-style SOC trial sample (500 NCT IDs, training trials excluded), ctgov cohorts extracted with '
+            "the training run's frozen programs (extraction/).",
+            f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
+            f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
+            'Key texts, trialspace prompt profile, 4,096-token cap, CPU float32 encoding.',
+            'Teacher: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 on the on-prem teacher server (and its FP8 '
+            'build on a second server), contracts match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; Nemotron '
+            'sampling (temperature 1.0, top_p 0.95), thinking on, JSON tasks schema-constrained.',
+            'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
+            f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
+            'lists_ab/criteria_sample.json, lists_c/criteria_sample.json).'])
     proxy, released = None, False
     status_path = root / 'run_status.json'
     log(f'orchestrator started: {len(jobs)} jobs')
@@ -255,6 +296,11 @@ def main(argv=None):
                     continue
                 if running_elsewhere(job):
                     continue  # wait for the other process; checked again next round
+                if job.name.startswith('label_') and not all(Path(f).exists() for f in args.teacher_after):
+                    if not job.held:
+                        job.held = True
+                        log(f'{job.name}: waiting for other teacher work to finish (--teacher-after)')
+                    continue
                 if job.kind == 'gpu' and any(j.kind == 'gpu' and j.state == 'running' for j in jobs.values()):
                     continue
                 if job.kind == 'gb300' and job.name.startswith('label_') and proxy is None and not args.no_proxy:

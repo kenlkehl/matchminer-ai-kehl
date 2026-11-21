@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { metaOptions } from "@/lib/queries";
+
 import { StateBar } from "./common";
 import { componentLabel, judgeName, stamp } from "./format";
 import { runsOptions } from "./queries";
@@ -21,6 +23,7 @@ import type { RunRow } from "./types";
 /** Every evaluation run under the mode's benchmark roots, newest first. */
 export function BenchmarksPage() {
   const runs = useQuery(runsOptions());
+  const real = useQuery(metaOptions()).data?.mode === "real";
   const data = runs.data;
   const fidelity = data?.runs.filter((r) => r.kind === "fidelity") ?? [];
   const judge = data?.runs.filter((r) => r.kind === "judge") ?? [];
@@ -48,7 +51,7 @@ export function BenchmarksPage() {
             <h2 className="text-lg font-semibold">Distillation fidelity</h2>
             <p className="text-sm text-gray-600">
               How closely TrialSpace retrieval and the decision model reproduce the teacher model's
-              labels on real patients, in both matching directions.
+              labels on {real ? "real" : "synthetic"} patients, in both matching directions.
             </p>
             {fidelity.length ? (
               <FidelityRuns runs={fidelity} />

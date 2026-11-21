@@ -172,6 +172,66 @@ def notes_text(frame):
     return chunks[0][0] if chunks else ''
 
 
+def _allocate(counts, pools):
+    """Seeded strata counts, a short stratum's remainder moved to strata with patients left (synthetic records are
+    shorter than real ones, so the long strata can be empty)."""
+    taken = [min(c, len(p)) for c, p in zip(counts, pools)]
+    short = sum(counts) - sum(taken)
+    while short and any(t < len(p) for t, p in zip(taken, pools)):
+        for i, pool in enumerate(pools):
+            if short and taken[i] < len(pool):
+                taken[i] += 1
+                short -= 1
+    return taken
+
+
+def build_synthetic(fidelity_dir, sources, n, seed):
+    """A synthetic run's summary items (no PHI): seeded query patients of the fidelity run, stratified by note volume
+    as ``build`` does, with their synthetic notes (``sources['notes']``, all_synthetic_notes.parquet) and the n=5000
+    run's summaries (``sources['summaries']``); the summarizer's prompts are those of ``sources['prompts']``, the code
+    snapshot that wrote the summaries."""
+    import json
+    import random
+    from pathlib import Path
+    import pandas as pd
+    import pyarrow.compute as pc
+    import pyarrow.dataset as ds
+
+    prompts = Path(sources['prompts'])
+    instructions = dict(primer=(prompts / 'patient.serial.user.primer.txt').read_text().removesuffix('\n'),
+                        question=(prompts / 'patient.serial.user.question.txt').read_text().removesuffix('\n'))
+    sample = json.loads((Path(fidelity_dir) / 'corpus' / 'sample.json').read_text())
+    queries = [str(patient) for patient in sample['patient_queries']]
+    table = ds.dataset(sources['notes']).to_table(columns=['patient_id', 'date', 'event_number', 'synthetic_note'],
+                                                  filter=pc.field('patient_id').isin(queries))
+    notes = table.to_pandas().sort_values(['patient_id', 'date', 'event_number'], kind='stable')
+    notes = notes[notes.synthetic_note.fillna('').str.strip().ne('')]
+    chars = notes.synthetic_note.str.len().groupby(notes.patient_id).sum()
+    summaries = pd.read_parquet(sources['summaries'], columns=['patient_id', 'patient_summary'],
+                                filters=[('patient_id', 'in', queries)]).drop_duplicates('patient_id')
+    summaries = summaries.set_index('patient_id').patient_summary
+    rng = random.Random(f'{seed}:summary')
+    counts = [int(share * n) for _, share, _, _ in STRATA]
+    for i in range(n - sum(counts)):
+        counts[i % len(counts)] += 1
+    tokens = chars / 4
+    pools = [sorted(p for p in tokens[(tokens >= low) & ((tokens < high) if high else True)].index if p in summaries.index)
+             for _, _, low, high in STRATA]
+    items, design = [], dict(strata={}, sampled={}, query_events=len(queries), source='synthetic',
+                             with_summary=sum(p in summaries.index for p in chars.index))
+    for (name, *_), pool, count in zip(STRATA, pools, _allocate(counts, pools)):
+        design['strata'][name], design['sampled'][name] = len(pool), count
+        for patient in sorted(rng.sample(pool, count)):
+            rows = notes[notes.patient_id == patient]
+            frame = pd.DataFrame(dict(patient_id=rows.patient_id, note_text=rows.synthetic_note, note_date=rows.date))
+            summary = summaries[patient]
+            items.append(dict(item_id=f'S{len(items) + 1:02d}', event=patient, stratum=name,
+                              weight=len(pool) / max(1, count), notes=notes_text(frame), note_rows=len(rows),
+                              summary=summary, statements=statements(summary)))
+    design['prompt_sha256'] = {k: __import__('hashlib').sha256(v.encode()).hexdigest() for k, v in instructions.items()}
+    return items, instructions, design
+
+
 def build(fidelity_dir, denominators, n, seed):
     """Seeded events of the evaluation's 500 query events, stratified by note volume. Returns (items, instructions,
     design); items carry the notes and the summary (PHI) and an opaque item id, never the MRN."""

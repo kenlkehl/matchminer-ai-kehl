@@ -41,6 +41,10 @@ def build_component(name, args):
     module = component_module(name)
     if name == 'extraction':
         items, instructions, design = module.build(args.fidelity_dir, frozen_prompts(), args.extraction_trials, args.seed)
+    elif name == 'summary' and args.synthetic_notes:
+        items, instructions, design = module.build_synthetic(
+            args.fidelity_dir, dict(notes=args.synthetic_notes, summaries=args.synthetic_summaries,
+                                    prompts=args.synthetic_prompts), args.summary_events, args.seed)
     elif name == 'summary':
         items, instructions, design = module.build(args.fidelity_dir, args.denominators, args.summary_events, args.seed)
     else:
@@ -60,7 +64,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--run-dir', required=True, type=Path)
     p.add_argument('--fidelity-dir', required=True, type=Path, help='the retro_fidelity run (E)')
-    p.add_argument('--denominators', required=True, type=Path, help='real_eval_denominators_20261114 (R)')
+    p.add_argument('--denominators', type=Path, help='real_eval_denominators_20261114 (R), for a real run')
+    p.add_argument('--synthetic-notes', type=Path, help="a synthetic run: the n=5000 run's all_synthetic_notes.parquet")
+    p.add_argument('--synthetic-summaries', type=Path,
+                   help="a synthetic run: the n=5000 run's patient_summaries_with_spaces.parquet")
+    p.add_argument('--synthetic-prompts', type=Path,
+                   help="a synthetic run: the prompts folder of the code snapshot that wrote those summaries")
     p.add_argument('--components', nargs='+', default=list(COMPONENTS), choices=COMPONENTS)
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--extraction-trials', type=int, default=10)
@@ -72,12 +81,22 @@ def main(argv=None):
                    help='rebuild these components: their items and requests move to superseded/<time>/, and answers to '
                         'requests that did not change still count (answers are matched by request id)')
     args = p.parse_args(argv)
+    synthetic = bool(args.synthetic_notes)
+    if synthetic and not (args.synthetic_summaries and args.synthetic_prompts):
+        p.error('a synthetic run needs --synthetic-notes, --synthetic-summaries and --synthetic-prompts')
+    if not synthetic and not args.denominators:
+        p.error('a real run needs --denominators (or give the --synthetic-* sources)')
+    if synthetic and 'extraction' in args.components:
+        # The n=5000 run kept no per-trial extraction checkpoints, which the extraction rubric reads.
+        p.error('a synthetic run judges the summary and decision components only (--components summary decision)')
     private()
     private_dir(args.run_dir)
     manifest_path = args.run_dir / 'build.json'
     manifest = __import__('json').loads(manifest_path.read_text()) if manifest_path.exists() else dict(
         version=VERSION, components={})
-    settings = dict(seed=args.seed, fidelity_dir=args.fidelity_dir.name, denominators=args.denominators.name,
+    source = (f'synthetic:{args.synthetic_notes.name}+{args.synthetic_summaries.name}' if synthetic
+              else args.denominators.name)
+    settings = dict(seed=args.seed, fidelity_dir=args.fidelity_dir.name, denominators=source,
                     sizes=dict(extraction=args.extraction_trials, summary=args.summary_events,
                                decision=dict(match=args.match_pairs, boilerplate=args.boilerplate_pairs,
                                              criteria=args.criteria_lines)))

@@ -10,6 +10,11 @@ written), the sections split exactly as training's corpus splits summaries (tria
 IDs ``<NCT>-ctgov-cohort-<n>``, ``text`` the key criteria, ``boilerplate`` the boilerplate criteria and ``items``
 every tagged criteria line (trialspace.data.prepare, retrieval_cohorts.build).
 
+``synthetic-patients`` / ``synthetic-cohorts`` (a synthetic run, ``run.py --synthetic-corpus``): the same two outputs
+from the n=5000 run's TrialSpace corpus (``trialspace/trialspace_corpus``): the patients of one generator split
+(``test``: the decision model never trained on them), each its own person, and the ctgov cohorts, as training's
+corpus holds them. No PHI.
+
 ``corpus``: the labeler's corpus directory (patients.jsonl hard-linked from the patients stage, cohorts.jsonl) and
 ``sample.json``: the seeded query samples, ``--patient-queries`` index events (patient-centric) and
 ``--cohort-queries`` cohorts (trial-centric), with the seed and every sampled ID.
@@ -117,6 +122,57 @@ def cohorts(args):
                      check=args.check, upstream=dict(extraction=identity['extraction']))
 
 
+def synthetic_patients(args):
+    source = Path(args.corpus) / 'patients.jsonl'
+    identity = dict(version=VERSION, stage='synthetic_patients', split=SPLIT, source_split=args.split,
+                    inputs=stamp_inputs([source]))
+
+    def work():
+        rows = [dict(id=str(r['id']), text=r['text'], boilerplate=r.get('boilerplate') or '', split=SPLIT, batch=None)
+                for r in read_jsonl(source) if r.get('source_split') == args.split]
+        if not rows:
+            raise ValueError(f'No {args.split} patients in {source.name}')
+        rows.sort(key=lambda row: row['id'])
+        for person, row in enumerate(rows):
+            row['person'] = person  # each synthetic patient is one person with one summary
+        write_jsonl(Path(args.output) / 'patients.jsonl', rows)
+        summary = dict(events=len(rows), persons=len(rows), source_split=args.split,
+                       empty_boilerplate=sum(not row['boilerplate'].strip() for row in rows),
+                       patient_sha256=digest(rows))
+        write_json(Path(args.output) / 'patients.json', summary)
+        log(f'synthetic patients: {summary["events"]} of the {args.split} split')
+        return summary
+
+    return run_stage(args.output, 'retro-patients', identity, ['patients.jsonl', 'patients.json'], work,
+                     check=args.check)
+
+
+def synthetic_cohorts(args):
+    source = Path(args.corpus) / 'cohorts.jsonl'
+    identity = dict(version=VERSION, stage='synthetic_cohorts', split=SPLIT, inputs=stamp_inputs([source]))
+
+    def work():
+        rows = [dict(id=r['id'], trial_id=r['trial_id'], source=r['source'], text=r['text'],
+                     boilerplate=r.get('boilerplate') or '', items=r.get('items') or [], split=SPLIT,
+                     cohort_name=r.get('cohort_name'))
+                for r in read_jsonl(source) if r.get('source') == 'ctgov' and (r.get('text') or '').strip()]
+        rows.sort(key=lambda row: row['id'])
+        write_jsonl(Path(args.output) / 'cohorts.jsonl', rows)
+        summary = dict(cohorts=len(rows), trials=len({r['trial_id'] for r in rows}),
+                       without_boilerplate=sum(not r['boilerplate'] for r in rows),
+                       criteria_lines=sum(len(r['items']) for r in rows),
+                       exclusion_lines=sum(i.get('criterion_type') == 'exclusion' for r in rows for i in r['items']),
+                       untyped_lines=sum(i.get('criterion_type') not in ('inclusion', 'exclusion')
+                                         for r in rows for i in r['items']),
+                       cohort_sha256=digest(rows))
+        write_json(Path(args.output) / 'cohorts.json', summary)
+        log(f'synthetic cohorts: {summary["cohorts"]} ctgov cohorts of {summary["trials"]} trials')
+        return summary
+
+    return run_stage(args.output, 'retro-cohorts', identity, ['cohorts.jsonl', 'cohorts.json'], work,
+                     check=args.check)
+
+
 def draw(ids, count, seed, name):
     if count > len(ids):
         raise ValueError(f'Cannot draw {count} {name} from {len(ids)}')
@@ -164,18 +220,24 @@ def main(argv=None):
     a.add_argument('--denominator', required=True, help='processed_soc_treatments.csv of the same pull')
     b = sub.add_parser('cohorts')
     b.add_argument('--extraction', required=True, help='The cohorts.py stage directory')
+    d = sub.add_parser('synthetic-patients')
+    d.add_argument('--corpus', required=True, help="The n=5000 run's trialspace_corpus directory")
+    d.add_argument('--split', default='test', help="The generator split (patients.jsonl source_split)")
+    f = sub.add_parser('synthetic-cohorts')
+    f.add_argument('--corpus', required=True, help="The n=5000 run's trialspace_corpus directory")
     c = sub.add_parser('corpus')
     c.add_argument('--patients', required=True)
     c.add_argument('--cohorts', required=True)
     c.add_argument('--seed', type=int, default=42)
     c.add_argument('--patient-queries', type=int, default=500)
     c.add_argument('--cohort-queries', type=int, default=200)
-    for q in (a, b, c):
+    for q in (a, b, c, d, f):
         q.add_argument('--output', required=True)
         stage.add_check_arg(q)
     args = p.parse_args(argv)
     private()
-    dict(patients=patients, cohorts=cohorts, corpus=corpus)[args.command](args)
+    dict(patients=patients, cohorts=cohorts, corpus=corpus, **{'synthetic-patients': synthetic_patients,
+         'synthetic-cohorts': synthetic_cohorts})[args.command](args)
 
 
 if __name__ == '__main__':
