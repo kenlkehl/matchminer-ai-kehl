@@ -16,6 +16,8 @@ A query is one JSON object::
       "expressible": true,
       "not_expressible_reason": "",
       "approximations": [],
+      "conditional": false,
+      "condition_not_expressible_reason": "",
       "criteria": [
         {"id": "ct_chest", "label": "CT chest", "item_type": "imaging_study",
          "status": "performed",
@@ -34,7 +36,10 @@ A query is one JSON object::
 
 ``criteria`` are named item matchers; ``requirement``, ``applies_when`` and
 ``not_applicable_when`` are AND-of-OR expressions over them (each literal may be
-negated). Every query is validated in code (:func:`validate_workup_query`) before
+negated). ``conditional`` says whether the guideline makes the step apply to only some patients of the population
+(a symptom, a finding, a stage, a treatment, a risk); a conditional step whose condition no extracted item can
+document keeps ``applies_when`` empty and says why in ``condition_not_expressible_reason``, and its applicability
+is then uncertain for every patient, never "applies". Every query is validated in code (:func:`validate_workup_query`) before
 it is used; the JSON schema (:func:`query_response_schema`) constrains a model's
 answer under vLLM structured outputs and has no recursion, ``null``,
 ``minLength`` or ``pattern``, which that decoder handles poorly.
@@ -51,7 +56,9 @@ from matchminer_ai.patients.extraction import vocabulary as v
 from matchminer_ai.patients.extraction.extensions import resolve_extensions
 from matchminer_ai.patients.extraction.schema import CORE_ITEM_TYPES, SCHEMA_VERSION, ItemType
 
-QUERY_LANGUAGE_VERSION = "mmai-workup-query-v1"
+# v2 (2026-11-21): ``conditional`` and ``condition_not_expressible_reason``, so a step conditional on facts the items
+# cannot document is uncertain rather than applying to the whole population.
+QUERY_LANGUAGE_VERSION = "mmai-workup-query-v2"
 
 # Guideline biomarker panels list 14 or more markers, each its own required group: an
 # 8-group cap made such a requirement impossible to write under structured outputs.
@@ -250,6 +257,11 @@ def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
         "not_expressible_reason": {"type": "string"},
         "approximations": {"type": "array", "maxItems": MAX_APPROXIMATIONS,
                            "items": {"type": "string"}},
+        "conditional": {"type": "boolean", "description": "Whether the step applies to only some patients of the "
+                        "population (a symptom, finding, stage, treatment or risk the guideline names)."},
+        "condition_not_expressible_reason": {"type": "string", "description": "For a conditional step whose "
+                                             "condition no item type can document: what the condition is and "
+                                             "why; else ''."},
         "criteria": {"type": "array", "maxItems": MAX_CRITERIA, "items": criterion},
         "applies_when": _expression("Documented facts showing the requirement applies."),
         "not_applicable_when": _expression("Documented facts showing it does not apply."),
@@ -262,8 +274,8 @@ def query_response_schema(extensions: Iterable[str] | None = ()) -> dict:
 # ---------------------------------------------------------------------------
 
 _EXPRESSIONS = ("applies_when", "not_applicable_when", "requirement")
-_TOP = ("summary", "expressible", "not_expressible_reason", "approximations", "criteria",
-        *_EXPRESSIONS)
+_TOP = ("summary", "expressible", "not_expressible_reason", "approximations", "conditional",
+        "condition_not_expressible_reason", "criteria", *_EXPRESSIONS)
 
 
 class QueryError(ValueError):
@@ -407,6 +419,24 @@ def validate_workup_query(query, extensions: Iterable[str] | None = ()) -> list[
     if not isinstance(criteria, list) or len(criteria) > MAX_CRITERIA:
         problems.append(f"criteria: must be a list of at most {MAX_CRITERIA} criteria")
         return problems
+    if not isinstance(query["conditional"], bool):
+        problems.append("conditional: must be true or false")
+        return problems
+    _string(query["condition_not_expressible_reason"], "condition_not_expressible_reason", problems)
+    reason = query["condition_not_expressible_reason"]
+    reason = reason.strip() if isinstance(reason, str) else ""
+    unconditioned = query["applies_when"] == {"all_of": []}
+    if not query["conditional"]:
+        if not unconditioned:
+            problems.append("applies_when: must be {\"all_of\": []} when conditional is false (set conditional true "
+                            "for a step that applies to only some patients)")
+        if reason:
+            problems.append("condition_not_expressible_reason: must be '' when conditional is false")
+    elif unconditioned and not reason:
+        problems.append("condition_not_expressible_reason: a conditional step needs applies_when, or (when no "
+                        "item type can document the condition) a reason naming the condition")
+    elif not unconditioned and reason:
+        problems.append("condition_not_expressible_reason: must be '' when applies_when encodes the condition")
     if not query["expressible"]:
         if criteria:
             problems.append("criteria: must be [] when expressible is false")
@@ -615,6 +645,7 @@ EXAMPLES: list[tuple[str, dict]] = [
             "summary": "A performed contrast CT of the chest in the 30 days before the "
             "reference date.",
             "expressible": True, "not_expressible_reason": "", "approximations": [],
+            "conditional": False, "condition_not_expressible_reason": "",
             "criteria": [_criterion(
                 "ct_chest", "CT chest with contrast", "imaging_study",
                 [("modality", "in", ["ct"], "no_match"),
@@ -632,6 +663,7 @@ EXAMPLES: list[tuple[str, dict]] = [
         {
             "summary": "Performed CT imaging that covers the chest, the abdomen and the pelvis.",
             "expressible": True, "not_expressible_reason": "", "approximations": [],
+            "conditional": False, "condition_not_expressible_reason": "",
             "criteria": [
                 _criterion("ct_chest", "CT chest", "imaging_study",
                            [("modality", "in", ["ct"], "no_match"),
@@ -653,6 +685,7 @@ EXAMPLES: list[tuple[str, dict]] = [
         {
             "summary": "A performed core needle or excisional biopsy.",
             "expressible": True, "not_expressible_reason": "", "approximations": [],
+            "conditional": False, "condition_not_expressible_reason": "",
             "criteria": [_criterion(
                 "core_or_excision", "Core or excisional biopsy", "procedure",
                 [("procedure_type", "in", ["core_needle_biopsy", "excisional_biopsy"],
@@ -671,6 +704,7 @@ EXAMPLES: list[tuple[str, dict]] = [
             "expressible": True, "not_expressible_reason": "",
             "approximations": ["Whether MRI was possible is not extracted; head CT is accepted "
                                "as the alternative."],
+            "conditional": True, "condition_not_expressible_reason": "",
             "criteria": [
                 _criterion("brain_mri", "Brain MRI", "imaging_study",
                            [("modality", "in", ["mri"], "no_match"),
@@ -701,10 +735,30 @@ EXAMPLES: list[tuple[str, dict]] = [
         },
     ),
     (
+        "Spine MRI with contrast if back pain or symptoms of cord compression",
+        {
+            "summary": "A performed spine MRI with contrast; it applies only to patients with back pain or cord "
+            "compression symptoms, which extracted items do not record.",
+            "expressible": True, "not_expressible_reason": "", "approximations": [],
+            "conditional": True,
+            "condition_not_expressible_reason": "Back pain and cord compression symptoms are not extracted item "
+            "types, so whether the step applies cannot be checked.",
+            "criteria": [_criterion(
+                "spine_mri", "Spine MRI with contrast", "imaging_study",
+                [("modality", "in", ["mri"], "no_match"),
+                 ("body_regions", "contains_any", ["spine"], "unknown"),
+                 ("contrast", "in", ["with_contrast", "with_and_without_contrast"], "unknown")],
+            )],
+            "applies_when": _NONE, "not_applicable_when": _NONE,
+            "requirement": _all([("spine_mri", False)]),
+        },
+    ),
+    (
         "Biomarker testing including EGFR and ALK",
         {
             "summary": "EGFR and ALK results documented.",
             "expressible": True, "not_expressible_reason": "", "approximations": [],
+            "conditional": False, "condition_not_expressible_reason": "",
             "criteria": [
                 _criterion("egfr", "EGFR result", "biomarker",
                            [("biomarker", "text_contains_any", ["EGFR"], "no_match"),
@@ -726,6 +780,7 @@ EXAMPLES: list[tuple[str, dict]] = [
             "expressible": True, "not_expressible_reason": "",
             "approximations": ["The history and physical examination is always done and is "
                                "not checked."],
+            "conditional": False, "condition_not_expressible_reason": "",
             "criteria": [
                 _criterion("cbc", "CBC", "lab_test", [("lab_test", "in", ["cbc"], "no_match")]),
                 _criterion("chemistry", "Chemistry profile", "lab_test",
@@ -742,7 +797,8 @@ EXAMPLES: list[tuple[str, dict]] = [
             "expressible": False,
             "not_expressible_reason": "Organ function tests such as PFTs are not extracted "
             "item types.",
-            "approximations": [], "criteria": [],
+            "approximations": [], "conditional": False, "condition_not_expressible_reason": "",
+            "criteria": [],
             "applies_when": _NONE, "not_applicable_when": _NONE, "requirement": _NONE,
         },
     ),

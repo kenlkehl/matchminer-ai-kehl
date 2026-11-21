@@ -32,7 +32,8 @@ documents it: not documented, which is not evidence it was not done),
 missing, the extraction of some notes failed, or the requirement cannot be
 expressed with extracted items) and ``not_applicable`` (documented facts in
 ``not_applicable_when``). Applicability is reported separately as ``applies``,
-``not_applicable`` or ``uncertain``; ``not_applicable`` needs documented facts.
+``not_applicable`` or ``uncertain``; ``not_applicable`` needs documented facts, and a conditional step whose
+condition no item can document (``condition_not_expressible_reason``) is uncertain.
 """
 
 from __future__ import annotations
@@ -1042,6 +1043,11 @@ def evaluate_workup_query(
                   criteria={c["id"]: c for c in query["criteria"]},
                   types={t.name: t for t in item_types(extensions)})
     applies, applies_groups = evaluate_expression(ctx, query["applies_when"])
+    # A conditional step whose condition no item can document applies to some patients only, so it is uncertain
+    # for every patient, never applying to the whole population.
+    unexpressed = bool(query["conditional"]) and not query["applies_when"]["all_of"]
+    if unexpressed:
+        applies = MAYBE
     excluded, excluded_groups = (
         evaluate_expression(ctx, query["not_applicable_when"])
         if query["not_applicable_when"]["all_of"] else (NO, [])
@@ -1056,7 +1062,9 @@ def evaluate_workup_query(
         applicability = "uncertain"
     met, groups = evaluate_expression(ctx, query["requirement"])
     notes = []
-    if applicability == "uncertain" and query["applies_when"]["all_of"] and applies != YES:
+    if applicability == "uncertain" and unexpressed:
+        notes.append("Applicability uncertain: " + query["condition_not_expressible_reason"].strip().rstrip(".") + ".")
+    elif applicability == "uncertain" and query["applies_when"]["all_of"] and applies != YES:
         notes.append("Applicability uncertain: " + "; ".join(
             _explain(ctx, applies_groups, MAYBE if applies == MAYBE else NO)) + ".")
     elif applicability == "uncertain":

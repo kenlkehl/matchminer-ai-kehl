@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { TrashIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -31,7 +31,42 @@ const JOB_TITLES: Record<string, string> = {
  * a DuckDB sample; or a cohort of one's own), fetch the patients matching a guideline space, then check
  * their workup documentation against the guideline, with drilldowns by item and by patient.
  */
+const GAP = 16; // px kept between the workflow pane and the window's edges
+
+/**
+ * On wide screens, keep the workflow pane's bottom inside the window wherever the page is scrolled: its height is
+ * the room from its top (or the sticky offset) to the window's bottom, so scrolling the pane alone always reaches
+ * its last control.
+ */
+function useFitToWindow() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const wide = window.matchMedia("(min-width: 64rem)");
+    const fit = () => {
+      if (!wide.matches) {
+        element.style.maxHeight = "";
+        return;
+      }
+      const top = Math.max(element.getBoundingClientRect().top, GAP);
+      element.style.maxHeight = `${String(Math.max(200, window.innerHeight - top - GAP))}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    document.addEventListener("scroll", fit, { passive: true, capture: true });
+    wide.addEventListener("change", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      document.removeEventListener("scroll", fit, { capture: true });
+      wide.removeEventListener("change", fit);
+    };
+  }, []);
+  return ref;
+}
+
 export function PopulationPage() {
+  const workflow = useFitToWindow();
   const mode = useQuery(metaOptions()).data?.mode;
   const pop = usePopulation();
   const version = pop.population?.version;
@@ -75,8 +110,9 @@ export function PopulationPage() {
         {/* The workflow steps are their own pane: on wide screens it stays in view and scrolls by itself, so the
             results beside it stay visible. */}
         <aside
+          ref={workflow}
           aria-label="Population workflow"
-          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto lg:overscroll-contain"
+          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-4 lg:overflow-y-auto"
         >
           {mode ? (
             <fieldset disabled={!pop.ready || pop.busy} className="min-w-0">

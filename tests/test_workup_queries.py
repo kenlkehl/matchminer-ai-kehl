@@ -144,13 +144,15 @@ def criterion(cid, item_type, filters, *, status="performed", anchor="any_time",
     }
 
 
-def query(criteria, requirement, applies=(), excluded=()):
+def query(criteria, requirement, applies=(), excluded=(), unexpressed=""):
+    """``unexpressed``: a conditional step's condition no item type documents (then ``applies`` is empty)."""
     def expression(groups):
         return {"all_of": [{"any_of": [{"criterion": c, "negated": n} for c, n in g]}
                            for g in groups]}
 
     return {"summary": "Fabricated query.", "expressible": True, "not_expressible_reason": "",
-            "approximations": [], "criteria": criteria,
+            "approximations": [], "conditional": bool(applies or unexpressed),
+            "condition_not_expressible_reason": unexpressed, "criteria": criteria,
             "applies_when": expression(applies), "not_applicable_when": expression(excluded),
             "requirement": expression(requirement)}
 
@@ -395,6 +397,30 @@ def test_applicability_needs_documented_facts():
     undated = document("n3", "2024-04-02", [treatment("n3", "2024-04-02", start=None)])
     result = run([late, scan, undated], mri)[0]
     assert result["status"] == "unknown" and "fallback" not in result["criteria"][0]["anchor"]
+
+
+
+def test_a_condition_no_item_documents_leaves_applicability_uncertain():
+    """'Spine MRI if back pain': the step is done or not, but whether it applies cannot be known from the items, so
+    it is uncertain for every patient and stays out of the completion fraction (it never applies to everyone)."""
+    from matchminer_ai.patients.workup_queries import validate_workup_query
+
+    spine = EXAMPLES["Spine MRI with contrast if back pain or symptoms of cord compression"]
+    scan = document("n1", "2024-03-02", [study("n1", "2024-03-02", modality="mri", regions=("spine",))],
+                    kind="imaging_report")
+    result = run([scan], spine)[0]
+    assert (result["status"], result["applicability"]) == ("met", "uncertain")
+    assert "Back pain and cord compression symptoms are not extracted" in result["bottom_line"]
+    report = check_workup_with_extractions(pd.DataFrame([scan]), compiled(spine))
+    counts = report["aggregate"][0]
+    assert counts["applicability"]["uncertain"] == 1 and counts["applicable_assessed"] == 0
+    # The query must say the step is conditional, and either encode the condition or say why it cannot.
+    unconditional = {**spine, "conditional": False, "condition_not_expressible_reason": ""}
+    assert validate_workup_query(unconditional) == []  # a step for everyone (the model's call, checked by the prompt)
+    assert any("needs applies_when" in p for p in validate_workup_query({**spine, "condition_not_expressible_reason": ""}))
+    staged = EXAMPLES["Brain MRI (or head CT with contrast if MRI is not possible) if stage III-IV, before "
+                      "systemic therapy starts"]
+    assert any("conditional is false" in p for p in validate_workup_query({**staged, "conditional": False}))
 
 
 def test_anchor_without_fallback_is_unknown_and_diagnosis_anchor():

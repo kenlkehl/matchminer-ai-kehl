@@ -69,9 +69,11 @@ strict and non-recursive (no `$ref`, `null`, `minLength` or `pattern`).
 | `summary` | One sentence: what the query checks. |
 | `expressible` | `false` when no item type can check the requirement: physical examination, history taking, organ function tests such as PFTs or ECG, multidisciplinary or tumor board evaluation. Then `criteria` is `[]`, every expression is `{"all_of": []}` and `not_expressible_reason` says why; the result is `unknown`. Laboratory tests are `lab_test` items and counseling, screenings and referrals are `counseling` items, so those are expressible. |
 | `approximations` | Up to 8 notes on what was left out or approximated ("upper abdomen" by the abdomen region). Shown as limitations. |
+| `conditional` | `true` when the guideline makes the step apply to only some patients of the population: a symptom, a finding, a stage or site, a histology, a planned or current treatment, a risk, or a step to consider only in some situations. Wording that only says when or how to do the step ("pretreatment", "if not previously done", "with contrast") is not a condition. |
+| `condition_not_expressible_reason` | For a conditional step whose condition no item type can document (symptoms, clinical suspicion, family history, reproductive status, clinical judgment): what the condition is and why; `applies_when` is then empty and the step's applicability is uncertain for every patient. `""` otherwise. |
 | `criteria` | Up to 24 named matchers of one item type each: `id`, `label`, `item_type`, `status` (`performed`, `planned`, `any`), `filters`, `window`, `min_count` (1-20). |
 | `requirement` | What must be documented. |
-| `applies_when` | Documented facts that make a conditional step apply (`{"all_of": []}`: the whole population). |
+| `applies_when` | Documented facts that make a conditional step apply; `{"all_of": []}` for a step that is not conditional (it applies to the whole population), or for a conditional step whose condition cannot be documented. |
 | `not_applicable_when` | Documented facts that make it not apply. It needs at least one criterion that is not negated: a step is never not applicable because something is undocumented. |
 
 Expressions are AND-of-OR, with up to 24 groups of up to 12 literals: `{"all_of": [{"any_of": [{"criterion": "id",
@@ -206,7 +208,11 @@ The status vocabulary (`STATUSES`) also has `done_not_recommended`, which only t
 
 `applicability` is `applies` (no condition, or `applies_when` holds),
 `not_applicable` (documented contrary facts) or `uncertain` (the condition is not
-documented, or the facts conflict). Not applicable always needs documented facts.
+documented, no item type can document it, or the facts conflict). Not applicable always needs documented facts.
+A step with an uncertain applicability still gets its status (whether the step was done), but it is left out of
+the completion fraction. Before query language v2 (2026-11-21) a condition no item type could document was
+dropped, so such steps applied to every patient; v2 queries are compiled anew (the cache key covers the language
+version).
 
 Each result also carries:
 
@@ -241,7 +247,7 @@ Queries cover the item types of the extraction extensions that `document_extract
 select, unless `extensions` is passed. Distinct requirements are compiled once per call. Pass `cache` (any mapping,
 such as a dict or a folder of JSON files) to reuse compilations across calls. The key (`workup_query_cache_key`)
 covers the requirement's name, conditions and category, the population context, the extraction schema version and
-extensions, the query language version (`mmai-workup-query-v1`), and the prompt and response-schema hashes. Only
+extensions, the query language version (`mmai-workup-query-v2`), and the prompt and response-schema hashes. Only
 compiled queries are cached, and a cached query is validated again before use. Compiled queries contain guideline
 text only.
 
