@@ -252,6 +252,8 @@ export interface ExtractionCost {
   typical_reasoning_tokens: string;
   method: "extractions" | "extraction_sql";
   reused_extraction: boolean;
+  /** Where reused records come from: the mode's extraction store, or this session's extraction. */
+  records_source?: "store" | "session" | null;
   model: string;
   sql_agent?: {
     store: string;

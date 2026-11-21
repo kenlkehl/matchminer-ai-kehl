@@ -323,8 +323,28 @@ def test_patient_view_extracts_on_demand_and_reuses_session_records(
     assert review["metadata"]["requests"] == 0
     cost = client.post("/api/guidelines/workup/extraction-cost", json=body).json()
     assert cost["reused_extraction"] and cost["requests"] == 0
+    # A corpus patient the mode's extraction store holds: its stored records serve the review, nothing extracted.
+    frame = pd.DataFrame([{"patient_id": "patient-1", **n} for n in notes])
+    write_store(settings, settings.extraction_records, document_rows(frame), source={"kind": "fabricated"},
+                extraction={"schema_version": "mmai-clinical-extraction-v1", "model": "fabricated"})
+    stored = {**body, "patient_id": "patient-1"}
+    assert client.post("/api/guidelines/workup/extraction-cost", json=stored).json()["records_source"] == "store"
+    again = client.post("/api/guidelines/workup", json={**stored, "method": "extractions"})
+    review = wait(client, again.json()["job"]["id"])["result"]["review"]
+    assert calls == [2] and review["metadata"]["extraction"]["store"] == "records"
+    assert review["assessments"][0]["status"] == "met" and review["assessments"][0]["evidence"][0]["note_number"] == 2
     client.delete("/api/patient/session")
     assert not client.app.state.mmai.guidelines.session_extractions.entries
+
+
+def test_session_extraction_serves_requests_for_fewer_levels():
+    from matchminer_ai.apps.dashboard.guidelines.extraction_workup import SessionExtractions
+
+    sessions = SessionExtractions(ttl=60)
+    sessions.save("owner", "notes", "document_and_patient", {"n": 1})
+    assert sessions.get("owner", "notes", "document") == {"n": 1}
+    sessions.save("owner", "notes", "document", {"n": 2})
+    assert sessions.get("owner", "notes", "document_and_patient") is None
 
 
 def test_free_text_notes_are_one_undated_note(tmp_path, monkeypatch, backend, make_client):

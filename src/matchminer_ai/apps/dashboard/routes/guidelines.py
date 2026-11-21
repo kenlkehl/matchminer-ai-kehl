@@ -128,6 +128,9 @@ class WorkupRequest(SummaryRequest):
     method: Literal["full_notes", "agentic", "extractions", "extraction_sql"] = "full_notes"
     # Extraction methods only: extract each note, or also build a patient-level record.
     extraction_levels: Literal["document", "document_and_patient"] = "document"
+    # Extraction methods only: the corpus patient whose notes these are, so the mode's extraction store's records
+    # serve the review.
+    patient_id: str | None = Field(default=None, max_length=200)
 
 
 class ExtractionCostRequest(NotesRequest):
@@ -135,6 +138,7 @@ class ExtractionCostRequest(NotesRequest):
     space_index: int = Field(ge=0, le=19)
     extraction_levels: Literal["document", "document_and_patient"] = "document"
     method: Literal["extractions", "extraction_sql"] = "extractions"
+    patient_id: str | None = Field(default=None, max_length=200)
 
 
 def router(g: GuidelineState) -> APIRouter:
@@ -361,7 +365,8 @@ def router(g: GuidelineState) -> APIRouter:
         notes = source_notes(body)
         _, space = workup_space(owner, body.retrieval_job_id, body.space_index)
         worker = g.patient_inference(owner, "workup")
-        return worker.extraction_cost(body.text, notes, space, body.extraction_levels, method=body.method)
+        return worker.extraction_cost(body.text, notes, space, body.extraction_levels, method=body.method,
+                                      patient_id=body.patient_id)
 
     @api.post("/api/guidelines/workup", status_code=202)
     def workup(body: WorkupRequest, request: Request):
@@ -378,7 +383,7 @@ def router(g: GuidelineState) -> APIRouter:
             if body.note_source == "compressed":
                 options["note_source"] = "compressed"
             if body.method in EXTRACTION_METHODS:
-                options["extraction_levels"] = body.extraction_levels
+                options.update(extraction_levels=body.extraction_levels, patient_id=body.patient_id)
             review = worker.review_workup(body.text, notes, space, progress, method=body.method, **options)
             return {"review": review, "space_index": body.space_index, "method": body.method,
                     "extraction_levels": body.extraction_levels, "note_source": body.note_source,

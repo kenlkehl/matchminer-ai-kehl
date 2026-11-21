@@ -92,6 +92,8 @@ export function RecordsView() {
         setProgress(j.message);
       });
       await queryClient.invalidateQueries({ queryKey: ["patient-records"] });
+      // A Guidelines review of these notes now reuses this extraction.
+      await queryClient.invalidateQueries({ queryKey: ["extraction-cost"] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

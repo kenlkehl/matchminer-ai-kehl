@@ -644,34 +644,38 @@ def estimate_cost(frame, levels, *, compile_requests, cached_queries, items):
 
 
 class SessionExtractions:
-    """On-demand extraction records per browser session, in memory only."""
+    """On-demand extraction records per browser session, in memory only: the Structured data tab, the
+    Guidelines workup review and the criteria checks share them."""
 
     def __init__(self, ttl):
         self.ttl, self.lock, self.entries = ttl, threading.Lock(), {}
 
     @staticmethod
-    def key(frame, levels, config):
+    def key(frame, config):
+        """These notes and the extraction settings (not the levels: each entry records its own)."""
         payload = {
             "notes": frame[["note_text", "note_date", "note_type"]].astype(object).where(
                 frame[["note_text", "note_date", "note_type"]].notna(), None).values.tolist(),
-            "levels": levels,
             "sections": {name: getattr(config, name) for name in
                          ("document_extraction", "patient_extraction")},
             "endpoint": config.remote.get("server_urls"),
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
-    def get(self, owner, key):
+    def get(self, owner, key, levels="document"):
+        """The session's extraction of these notes when it has every level asked for (a document and
+        patient-level extraction also serves document-level requests)."""
         with self.lock:
             entry = self.entries.get(owner)
-            if entry and entry["key"] == key and time.monotonic() - entry["updated"] < self.ttl:
+            if (entry and entry["key"] == key and set(LEVELS[levels]) <= set(LEVELS[entry["levels"]])
+                    and time.monotonic() - entry["updated"] < self.ttl):
                 entry["updated"] = time.monotonic()
                 return copy.deepcopy(entry["value"])
             return None
 
-    def save(self, owner, key, value):
+    def save(self, owner, key, levels, value):
         with self.lock:
-            self.entries[owner] = {"key": key, "value": copy.deepcopy(value),
+            self.entries[owner] = {"key": key, "levels": levels, "value": copy.deepcopy(value),
                                    "updated": time.monotonic()}
 
     def clear(self, owner):
@@ -738,9 +742,37 @@ def exploration_store(settings):
             "with the preprocess_extractions command.") from None
 
 
+def _stored_records(handle, patient_id, text, notes):
+    """``(record frames, extraction metadata, note numbers)`` of a corpus patient the mode's extraction store
+    holds (``handle``, the dashboard's StoreHandle), else None. The workspace holds that patient's notes, so they
+    number the store's evidence (note ids hash the patient id, date, type and text; blank notes are left out, as
+    the store builds leave them out)."""
+    if handle is None or not patient_id or patient_id.startswith("entered-"):
+        return None
+    from .records import source_of, store_records
+
+    found = store_records(handle, patient_id)
+    if found is None:
+        return None
+    documents, patients, store = found
+    frames = [f for f in (documents, patients) if f is not None and len(f)]
+    statuses = (documents.extraction_status.value_counts().to_dict()
+                if documents is not None and "extraction_status" in documents else {})
+    source = source_of(store)
+    metadata = {"store": source["name"], "levels": source["levels"], "model": source["model"],
+                "schema_version": source["schema_version"], "requests": 0,
+                "counts": {str(k): int(v) for k, v in statuses.items()}}
+    shown = [n for n in notes or [] if str(n.get("note_text") or "").strip()] or None
+    return frames, metadata, _note_numbers(notes_frame(text, shown, patient_id=patient_id))
+
+
 def patient_review(text, notes, space, *, settings, config, sessions, owner, levels, progress,
-                   method="extraction_queries"):
+                   method="extraction_queries", records=None, patient_id=None):
     """The patient view's extraction-based workup review of one patient's notes.
+
+    The records: the mode's extraction store's when it holds ``patient_id`` (``records``, the dashboard's
+    StoreHandle), else this session's extraction of these notes when it has at least ``levels`` (such as the
+    Structured data tab's), else a new extraction (kept in the session).
 
     ``method``: ``extraction_queries`` (compiled JSON queries, no patient data reach
     an LLM after extraction) or ``extraction_sql`` (the SQL agent's queries, explored
@@ -756,18 +788,25 @@ def patient_review(text, notes, space, *, settings, config, sessions, owner, lev
         raise InputError("Choose extraction queries or the SQL agent.")
     store = exploration_store(settings) if method == "extraction_sql" else None
     frame = notes_frame(text, notes)
-    key = SessionExtractions.key(frame, levels, config)
-    saved = sessions.get(owner, key) if sessions is not None else None
-    if saved is not None:
-        progress(f"Reusing this session's extraction records · {len(frame)} notes")
-        extraction, reused = saved, True
+    found = _stored_records(records, patient_id, text, notes)
+    if found is not None:
+        record_frames, extraction_metadata, numbers = found
+        patient_key, reused = patient_id, True
+        progress(f"Using the extraction store's records · {extraction_metadata['store']}")
     else:
-        extraction, reused = extract_on_demand(frame, levels, config, progress), False
-        if sessions is not None:
-            sessions.save(owner, key, extraction)
-    records = [pd.DataFrame(extraction["documents"])]
-    if extraction["patients"]:
-        records.append(pd.DataFrame(extraction["patients"]))
+        key = SessionExtractions.key(frame, config)
+        saved = sessions.get(owner, key, levels) if sessions is not None else None
+        if saved is not None:
+            progress(f"Reusing this session's extraction records · {len(frame)} notes")
+            extraction, reused = saved, True
+        else:
+            extraction, reused = extract_on_demand(frame, levels, config, progress), False
+            if sessions is not None:
+                sessions.save(owner, key, levels, extraction)
+        record_frames = [pd.DataFrame(extraction["documents"])]
+        if extraction["patients"]:
+            record_frames.append(pd.DataFrame(extraction["patients"]))
+        extraction_metadata, numbers, patient_key = extraction["metadata"], _note_numbers(frame), "workspace-patient"
     if method == "extraction_sql":
         compiled, metadata = compile_space_sql(space, settings, config, store, progress)
         summary = sql_summary(compiled, metadata)
@@ -778,29 +817,26 @@ def patient_review(text, notes, space, *, settings, config, sessions, owner, lev
               for entry, item in zip(compiled, space["diagnostic_workup"], strict=True)]
     if method == "extraction_sql":
         progress("Running the workup SQL queries over this patient's extracted items")
-        report = check_workup_with_sql(records, linked, patient_ids=["workspace-patient"],
-                                       config=config)
+        report = check_workup_with_sql(record_frames, linked, patient_ids=[patient_key], config=config)
         notice = SQL_NOTICE + SQL_EXPLORATION_NOTICE.format(
             store=store.path.name, patients=store.manifest["counts"].get("patients", 0))
     else:
         progress("Checking workup queries against the extracted items")
-        report = check_workup_with_extractions(records, linked,
-                                               patient_ids=["workspace-patient"])
+        report = check_workup_with_extractions(record_frames, linked, patient_ids=[patient_key])
         notice = NOTICE
     review = report["patients"][0]["review"]
-    numbers = _note_numbers(frame)
     for assessment in review["assessments"]:
         for evidence in assessment["evidence"]:
             evidence["note_number"] = numbers.get(evidence.get("note_id"))
-    counts = extraction["metadata"]["counts"]
+    counts = extraction_metadata["counts"]
     review["notice"] = notice + ("" if reused else EXTRACTION_NOTICE)
     review["metadata"].update(
         method=method,
         note_count=len(frame),
         undated_notes=int(frame.note_date.isna().sum()),
-        requests=(0 if reused else extraction["metadata"]["requests"]) + metadata["requests"],
+        requests=(0 if reused else extraction_metadata["requests"]) + metadata["requests"],
         model=metadata.get("model"),
-        extraction={**extraction["metadata"], "reused": reused,
+        extraction={**extraction_metadata, "reused": reused,
                     "failed": counts.get("failed", 0), "partial": counts.get("partial", 0)},
         queries=summary,
         evidence_selection="extracted_item_quotes",

@@ -88,7 +88,7 @@ class GuidelineState:
             if task == "workup":
                 worker = worker.with_workup_backups(
                     full=workspace.for_task("workup_full_backup"), agent=workspace.for_task("workup_agent_backup"),
-                ).with_extractions(self.session_extractions, owner)
+                ).with_extractions(self.session_extractions, owner, self.records)
         return worker
 
     def update(self, owner: str, values: dict, *, task: str | None, apply_to_all: bool) -> Settings:

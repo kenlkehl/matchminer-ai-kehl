@@ -15,7 +15,7 @@ import { EndpointNotice } from "../fields";
 import { JobProgress } from "../job-progress";
 import { MAX_NOTE_CHARACTERS } from "../notes";
 import { NoteSourceField } from "../patient-input";
-import { getPatient, isBusy, setPatient, usePatient, usesExtraction } from "../store";
+import { getPatient, isBusy, recordsBody, setPatient, usePatient, usesExtraction } from "../store";
 import type { ExtractionCost, GuidelineSpace, WorkupMethod } from "../types";
 import { Considerations, PopulationTab, SourceTab } from "./considerations";
 import { Findings } from "./findings";
@@ -225,7 +225,15 @@ function CostEstimate({ index }: { index: number }) {
     };
   }, [s.notesVersion]);
   const cost = useQuery({
-    queryKey: ["extraction-cost", s.retrievalJobId, index, s.extractionLevels, method, version],
+    queryKey: [
+      "extraction-cost",
+      s.retrievalJobId,
+      index,
+      s.extractionLevels,
+      method,
+      version,
+      recordsBody(s).patient_id,
+    ],
     queryFn: () => {
       const now = getPatient();
       return api.post<ExtractionCost>("/api/guidelines/workup/extraction-cost", {
@@ -235,6 +243,7 @@ function CostEstimate({ index }: { index: number }) {
         space_index: index,
         extraction_levels: now.extractionLevels,
         method,
+        patient_id: recordsBody(now).patient_id,
       });
     },
     enabled: ready && version === s.notesVersion,
@@ -244,7 +253,11 @@ function CostEstimate({ index }: { index: number }) {
   const text = !ready
     ? "Add clinical notes to estimate what extraction sends."
     : cost.data
-      ? `${costLine(cost.data)} Notes go to the guideline concordance connection; use only an endpoint authorized for them.`
+      ? `${costLine(cost.data)}${
+          cost.data.reused_extraction
+            ? ""
+            : " Notes go to the guideline concordance connection; use only an endpoint authorized for them."
+        }`
       : cost.isError
         ? cost.error.message
         : "Estimating what this sends…";

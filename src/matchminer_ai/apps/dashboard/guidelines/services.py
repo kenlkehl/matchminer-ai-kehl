@@ -262,7 +262,8 @@ class Inference:
         self.compression_cache = compression_cache
         self.compression_settings = compression_settings
         self.workup_backups = workup_backups or {}
-        # (SessionExtractions, owner): on-demand extraction records for this session.
+        # (SessionExtractions, owner, StoreHandle): this session's on-demand extraction records and the mode's
+        # extraction store.
         self.extractions = extractions
 
     def _copy(self, **changes):
@@ -284,13 +285,13 @@ class Inference:
     def with_workup_backups(self, *, full, agent):
         return self._copy(workup_backups={"full_notes": full, "agentic": agent})
 
-    def with_extractions(self, sessions, owner):
-        return self._copy(extractions=(sessions, owner))
+    def with_extractions(self, sessions, owner, records=None):
+        return self._copy(extractions=(sessions, owner, records))
 
-    def extraction_cost(self, text, notes, space, levels, *, method="extractions"):
+    def extraction_cost(self, text, notes, space, levels, *, method="extractions", patient_id=None):
         """What an extraction-based review of this patient would send (no model calls)."""
         from .extraction_workup import (
-            LEVELS, SessionExtractions, cached_query_count, cached_sql_count, estimate_cost,
+            LEVELS, SessionExtractions, _stored_records, cached_query_count, cached_sql_count, estimate_cost,
             exploration_store, notes_frame,
         )
 
@@ -317,15 +318,17 @@ class Inference:
         else:
             distinct, cached = cached_query_count(space, self.settings, config)
             compile_requests = distinct - cached
-        sessions, owner = self.extractions or (None, None)
-        saved = sessions is not None and sessions.get(
-            owner, SessionExtractions.key(frame, levels, config)) is not None
+        sessions, owner, records = self.extractions or (None, None, None)
+        stored = _stored_records(records, patient_id, text, notes)
+        saved = stored is not None or (sessions is not None and sessions.get(
+            owner, SessionExtractions.key(frame, config), levels) is not None)
         cost = estimate_cost(frame, levels, compile_requests=compile_requests,
                              cached_queries=cached, items=len(space["diagnostic_workup"]))
         if saved:
             cost.update(document_requests=0, patient_requests=0,
                         requests=compile_requests, reused_extraction=True)
         return {**cost, **sql, "method": method, "reused_extraction": saved,
+                "records_source": "store" if stored is not None else "session" if saved else None,
                 "model": config.document_extraction["remote"]["model_name"]}
 
     def _compress_notes(self, text, notes, progress, config):
@@ -423,7 +426,7 @@ class Inference:
 
     def review_workup(
         self, text, notes, space, progress, *, method="full_notes",
-        patient_summary=None, note_source="original", extraction_levels="document",
+        patient_summary=None, note_source="original", extraction_levels="document", patient_id=None,
     ):
         from matchminer_ai.patients import (
             review_patient_workup,
@@ -436,11 +439,11 @@ class Inference:
             if note_source != "original":
                 raise InputError(
                     "Structured extraction quotes the original notes; select Original notes.")
-            sessions, owner = self.extractions or (None, None)
+            sessions, owner, records = self.extractions or (None, None, None)
             return patient_review(
                 text, notes, space, settings=self.settings,
                 config=self.settings.extraction_config(), sessions=sessions, owner=owner,
-                levels=extraction_levels, progress=progress,
+                levels=extraction_levels, progress=progress, records=records, patient_id=patient_id,
                 method="extraction_sql" if method == "extraction_sql" else "extraction_queries",
             )
         config = self.settings.inference_config()

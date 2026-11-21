@@ -12,6 +12,7 @@ import {
   hasSummary,
   initialPatientState,
   isBusy,
+  recordsBody,
   type ActiveJob,
   type NotesOrigin,
   type PatientState,
@@ -554,7 +555,9 @@ export function reviewWorkup(spaceIndex: number) {
       space_index: spaceIndex,
       method: s.workupMethod,
       note_source: extraction ? "original" : s.noteSource,
-      ...(extraction ? { extraction_levels: s.extractionLevels } : {}),
+      ...(extraction
+        ? { extraction_levels: s.extractionLevels, patient_id: recordsBody(s).patient_id }
+        : {}),
     },
     spaceIndex,
   );

@@ -331,10 +331,11 @@ def workspace_frame(text, notes):
 
 
 def session_records(sessions: SessionExtractions, owner, frame, levels, config):
-    """The session's on-demand extraction of these notes, or None."""
+    """The session's on-demand extraction of these notes with at least ``levels`` (the Structured data tab's or a
+    Guidelines review's), or None."""
     if frame is None or sessions is None:
         return None
-    return sessions.get(owner, SessionExtractions.key(frame, levels, config))
+    return sessions.get(owner, SessionExtractions.key(frame, config), levels)
 
 
 def extraction_frames(extraction):
@@ -349,7 +350,7 @@ def extract_workspace(frame, levels, config, sessions, owner, progress):
     if levels not in LEVELS:
         raise InputError("Choose document-level or document and patient-level extraction.")
     extraction = extract_on_demand(frame, levels, config, progress)
-    sessions.save(owner, SessionExtractions.key(frame, levels, config), extraction)
+    sessions.save(owner, SessionExtractions.key(frame, config), levels, extraction)
     return extraction
 
 

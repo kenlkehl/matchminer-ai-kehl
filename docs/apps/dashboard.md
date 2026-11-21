@@ -54,8 +54,10 @@ TrialSpace model and says so on Data and Models if they differ.
     treatment type, biomarker result, specimen result, modality, ECOG score. Type chips filter the rows (labs and
     counseling start hidden), and a patient with several cancers gets a cancer filter. A corpus patient the mode's
     extraction store holds shows its stored records; otherwise the notes are
-    extracted on request with the guideline concordance connection, and the Guidelines extraction review reuses
-    them.
+    extracted on request with the guideline concordance connection. The Guidelines workup review (extraction
+    queries or the SQL agent) and the criteria checks use the same records: the store's, else the session's
+    extraction of the notes (one with patient level also serves a document-level review), and they extract only
+    when neither exists.
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs

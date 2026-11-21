@@ -196,7 +196,9 @@ export function missingEvidenceLabel(item: WorkupAssessment, review: WorkupRevie
 export function costLine(cost: ExtractionCost): string {
   const plural = (n: number, noun: string) => `${String(n)} ${noun}${n === 1 ? "" : "s"}`;
   const extraction = cost.reused_extraction
-    ? "This session already extracted these notes; they will be reused."
+    ? cost.records_source === "store"
+      ? "The extraction store's records of this patient are used; nothing is extracted."
+      : "This session already extracted these notes (in Structured data or an earlier review); they will be reused."
     : `On-demand extraction: ${plural(cost.notes, "note")} (${cost.characters.toLocaleString()} characters) → ` +
       `${plural(cost.document_requests, "LLM request")}` +
       (cost.patient_requests
