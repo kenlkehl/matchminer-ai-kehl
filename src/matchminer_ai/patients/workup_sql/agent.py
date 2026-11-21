@@ -50,7 +50,7 @@ from matchminer_ai.llm.structured import (
 )
 from matchminer_ai.patients.extraction.schema import SCHEMA_VERSION
 from matchminer_ai.patients.workup_queries.compile import requirement_text
-from matchminer_ai.patients.workup_queries.evaluate import APPLICABILITY, STATUSES
+from matchminer_ai.patients.workup_queries.evaluate import APPLICABILITY
 
 from .database import DATABASE_VERSION, ExtractionDatabase, read_database_info, render_database_guide
 from .profile import (
@@ -86,6 +86,34 @@ _EXPLORING = ("search", "query")
 _FIELDS = ("action", "purpose", "terms", "sql", "summary", "approximations",
            "not_expressible_reason",
            "recommends_against", "memory")
+
+
+@dataclass(frozen=True)
+class SQLTask:
+    """What one kind of SQL agent run decides: its prompt, the subject it is given (a workup requirement, a
+    criteria line), and the statuses and reasons its final query returns. The loop, sandbox, database, profile,
+    search and budgets are shared."""
+
+    name: str
+    prompt_file: str
+    agent_version: str
+    #: The reasons a query may give, by status.
+    reasons: dict
+    #: The subject's key in entries and payloads, its normalizer, and a short label for logs and activity.
+    subject: str
+    subject_text: Callable[[dict], dict]
+    label: Callable[[dict], str]
+    #: The payload key of the context (a guideline population, a trial cohort) and of the entry's context hash.
+    context_key: str
+    context_sha_key: str
+    #: Extra row rules: (row, flag, recommends_against) -> None.
+    row_rules: Callable | None = None
+    #: The context one subject is shown, from the run's context (default: the run's context).
+    context_for: Callable | None = None
+
+    @property
+    def statuses(self) -> tuple[str, ...]:
+        return tuple(self.reasons)
 
 
 @dataclass(frozen=True)
@@ -247,8 +275,9 @@ def response_schema(limits: WorkupSQLLimits, actions: Sequence[str] = ACTIONS) -
 _PROFILE_PLACEHOLDER = "(the exploration database's profile, computed by code)"
 
 
-def render_system_prompt(limits: WorkupSQLLimits, extensions=(), profile: str | None = None) -> str:
-    return (load_prompt_text(PROMPT_FILE)
+def render_system_prompt(limits: WorkupSQLLimits, extensions=(), profile: str | None = None, *,
+                         task: SQLTask | None = None) -> str:
+    return (load_prompt_text((task or WORKUP_TASK).prompt_file)
             .replace("{store_profile}", profile or _PROFILE_PLACEHOLDER)
             .replace("{max_search_terms}", str(limits.max_search_terms))
             .replace("{max_rows}", str(limits.max_rows))
@@ -275,17 +304,18 @@ def agent_llm_identity(config: MMAIConfig | None = None) -> dict:
             "model": str(connection.get("model_name") or ""), "effort": str(effort or "")}
 
 
-def agent_contract(config: MMAIConfig | None = None, extensions=()) -> dict:
+def agent_contract(config: MMAIConfig | None = None, extensions=(), *, task: SQLTask | None = None) -> dict:
     """What an accepted query depends on besides its requirement, population and database."""
+    task = task or WORKUP_TASK
     limits = agent_limits(config)
     return {
-        "agent_version": AGENT_VERSION,
+        "agent_version": task.agent_version,
         "llm": agent_llm_identity(config),
         "database_version": DATABASE_VERSION,
         "profile_version": PROFILE_VERSION,
         "schema_version": SCHEMA_VERSION,
         "extensions": sorted(extensions),
-        "prompt_sha256": digest(render_system_prompt(limits, extensions)),
+        "prompt_sha256": digest(render_system_prompt(limits, extensions, task=task)),
         "response_schema_sha256": digest(response_schema(limits)),
         "result_columns": list(RESULT_COLUMNS),
     }
@@ -321,13 +351,14 @@ class ResultCheck:
 
 
 def check_result(reply: dict, patient_count: int, limits: WorkupSQLLimits, *,
-                 recommends_against: bool = False) -> ResultCheck:
+                 recommends_against: bool = False, task: SQLTask | None = None) -> ResultCheck:
     """Check a final query's full output against the contract (one row per patient).
 
     For a requirement that advises against its step (``recommends_against``), a
     documented step is ``done_not_recommended``, never ``met``; otherwise
     ``done_not_recommended`` is not allowed.
     """
+    task = task or WORKUP_TASK
     problems: list[str] = []
     if reply["error"]:
         return ResultCheck([f"The query failed: {reply['error']}: {reply['error_detail']}"],
@@ -359,19 +390,13 @@ def check_result(reply: dict, patient_count: int, limits: WorkupSQLLimits, *,
             flag("patient_key repeats", key)
             continue
         status, reason = row["status"], row["reason"]
-        if status not in STATUSES:
-            flag(f"status must be one of {', '.join(STATUSES)}", key, "invalid status")
-        elif reason not in SQL_REASONS[status]:
-            flag(f"reason does not fit its status (allowed pairs: {_pairs()})", key,
+        if status not in task.reasons:
+            flag(f"status must be one of {', '.join(task.statuses)}", key, "invalid status")
+        elif reason not in task.reasons[status]:
+            flag(f"reason does not fit its status (allowed pairs: {_pairs(task)})", key,
                  "reason does not fit status")
-        elif recommends_against and status == "met":
-            flag("this requirement advises against the step (recommends_against true): "
-                 "report a documented step as done_not_recommended / "
-                 "documented_not_recommended, never met", key, "met for a step advised against")
-        elif not recommends_against and status == "done_not_recommended":
-            flag("done_not_recommended is only for a requirement that advises against the "
-                 "step: set recommends_against true, or report met", key,
-                 "done_not_recommended without recommends_against")
+        elif task.row_rules is not None:
+            task.row_rules(row, lambda kind, tag=None: flag(kind, key, tag), recommends_against)
         if row["applicability"] not in APPLICABILITY:
             flag(f"applicability must be one of {', '.join(APPLICABILITY)}", key,
                  "invalid applicability")
@@ -417,8 +442,28 @@ def _error_name(error) -> str:
     return name if re.fullmatch(r"[A-Za-z_]{1,60}", name) else "error"
 
 
-def _pairs() -> str:
-    return "; ".join(f"{s}/{r}" for s, reasons in SQL_REASONS.items() for r in reasons)
+def _pairs(task: SQLTask | None = None) -> str:
+    return "; ".join(f"{s}/{r}" for s, reasons in (task or WORKUP_TASK).reasons.items() for r in reasons)
+
+
+def _workup_rules(row, flag, recommends_against) -> None:
+    if recommends_against and row["status"] == "met":
+        flag("this requirement advises against the step (recommends_against true): "
+             "report a documented step as done_not_recommended / "
+             "documented_not_recommended, never met", "met for a step advised against")
+    elif not recommends_against and row["status"] == "done_not_recommended":
+        flag("done_not_recommended is only for a requirement that advises against the "
+             "step: set recommends_against true, or report met",
+             "done_not_recommended without recommends_against")
+
+
+WORKUP_TASK = SQLTask(
+    name="workup", prompt_file=PROMPT_FILE, agent_version=AGENT_VERSION, reasons=SQL_REASONS,
+    subject="requirement", subject_text=requirement_text,
+    label=lambda subject: subject.get("name") or "requirement",
+    context_key="guideline_population", context_sha_key="population_context_sha256",
+    row_rules=_workup_rules,
+)
 
 
 def ownership_sql(sql: str) -> str:
@@ -430,12 +475,13 @@ def ownership_sql(sql: str) -> str:
 
 
 def run_final_query(box: SQLSandbox, sql: str, patient_count: int,
-                    limits: WorkupSQLLimits, *, recommends_against: bool = False) -> ResultCheck:
+                    limits: WorkupSQLLimits, *, recommends_against: bool = False,
+                    task: SQLTask | None = None) -> ResultCheck:
     """Run a final query once over the whole database and check its output."""
     sql = _strip(sql)
     reply = box.query(sql, max_rows=patient_count + 1, count_limit=patient_count + 2,
                       max_cell_chars=None, timeout=limits.final_timeout_seconds)
-    check = check_result(reply, patient_count, limits, recommends_against=recommends_against)
+    check = check_result(reply, patient_count, limits, recommends_against=recommends_against, task=task)
     if not check.problems:
         owned = box.query(ownership_sql(sql), max_rows=1, timeout=limits.final_timeout_seconds)
         foreign = owned["rows"][0][0] if not owned["error"] and owned["rows"] else None
@@ -502,10 +548,12 @@ def _render_check(check: ResultCheck, limits: WorkupSQLLimits) -> str:
 class _Run:
     """State of one requirement's agent loop."""
 
-    def __init__(self, requirement, population, box, patient_count, llm, limits, system,
+    def __init__(self, task, subject, context, box, patient_count, llm, limits, system,
                  profile=None, extensions=()):
-        self.requirement = requirement_text(requirement)
-        self.population = (population or "").strip()
+        self.task = task
+        self.subject = task.subject_text(subject)
+        self.context = ((task.context_for(self.subject, context) if task.context_for else context)
+                        or "").strip()
         self.box, self.patient_count, self.limits = box, patient_count, limits
         self.system, self.llm = system, llm
         self.profile, self.extensions = profile, tuple(extensions)
@@ -545,10 +593,11 @@ class _Run:
         elif left <= 3:
             guidance = "Few actions are left: submit your best final query now."
         elif turn == 0:
-            guidance = ("Start with search: the requirement's words, word stems, abbreviations "
+            noun = self.task.subject
+            guidance = (f"Start with search: the {noun}'s words, word stems, abbreviations "
                         "and synonyms. The store profile already gives table and code counts."
                         if self.profile is not None else
-                        "Start by exploring the tables that can document this requirement: "
+                        f"Start by exploring the tables that can document this {noun}: "
                         "codes, text spellings and counts.")
         elif turn + 1 >= self.limits.first_submit and not self.submits:
             guidance = ("Submit a first candidate now; its results will show what to revise.")
@@ -556,12 +605,12 @@ class _Run:
             guidance = ("Your last submission was not valid: fix every problem listed and "
                         "submit again.")
         else:
-            guidance = ("Explore what decides the requirement, then submit a first candidate by "
+            guidance = (f"Explore what decides the {self.task.subject}, then submit a first candidate by "
                         f"action {self.limits.first_submit}.")
         older = self.steps[:len(self.steps) - len(recent)]
         return {
-            "requirement": self.requirement,
-            "guideline_population": self.population or "(not given)",
+            self.task.subject: self.subject,
+            self.task.context_key: self.context or "(not given)",
             "exploration_patients": self.patient_count,
             "turn": turn + 1,
             "actions_left": left,
@@ -628,11 +677,11 @@ class _Run:
                            "outcome": outcome})
 
 
-def _compile_one(requirement, population, box, patient_count, llm, limits, system,
+def _compile_one(task, subject, context, box, patient_count, llm, limits, system,
                  on_turn=None, profile=None, extensions=()) -> dict:
     from matchminer_ai.patients.note_search_qa import _MeasuredClient
 
-    run = _Run(requirement, population, box, patient_count, llm, limits, system, profile,
+    run = _Run(task, subject, context, box, patient_count, llm, limits, system, profile,
                extensions)
     client = _MeasuredClient(llm)
     started = time.monotonic()
@@ -667,7 +716,7 @@ def _compile_one(requirement, population, box, patient_count, llm, limits, syste
                 outcome["termination"] = "context_limit"
                 _fall_back(run, outcome, "context_accepted")
                 break
-            value = client.complete("workup-sql-agent", messages, schema, run.validator(actions))
+            value = client.complete(f"{task.name}-sql-agent", messages, schema, run.validator(actions))
             run.memory = value["memory"]
             action, purpose = value["action"], value["purpose"].strip()
             if action in _EXPLORING and run.pending:
@@ -694,7 +743,7 @@ def _compile_one(requirement, population, box, patient_count, llm, limits, syste
                 run.submits += 1
                 run.reviews = 0
                 check = run_final_query(box, value["sql"], patient_count, limits,
-                                        recommends_against=value["recommends_against"])
+                                        recommends_against=value["recommends_against"], task=task)
                 candidate = {"sql": _strip(value["sql"]), "summary": value["summary"].strip(),
                              "approximations": [a.strip() for a in value["approximations"]
                                                 if a.strip()],
@@ -835,10 +884,11 @@ def reusable_sql_entry(entry, contract) -> bool:
             and (entry.get("expressible") is False or isinstance(entry.get("sql"), str)))
 
 
-def _log(entry) -> None:
+def _log(entry, task=None) -> None:
     """One line per explored requirement: guideline text and counts, never data."""
+    task = task or WORKUP_TASK
     usage = entry.get("usage") or {}
-    args = (entry["requirement"].get("name") or "requirement", entry["termination"],
+    args = (task.label(entry[task.subject]), entry["termination"],
             entry.get("action_count", 0), entry.get("seconds", 0), usage.get("requests", 0),
             usage.get("prompt_tokens", 0))
     if entry["status"] == "failed":
@@ -885,24 +935,52 @@ def compile_workup_sql(
     transport failures), ``model``, ``contract`` and ``cached``. With ``return_metadata``, also returns metadata.
     """
     config = config or load_default_preset()
-    limits = agent_limits(config)
-    if isinstance(database, ExtractionDatabase):
-        fingerprint, extensions = database.fingerprint, database.extensions
-        patient_count = len(database.patient_ids)
-        items = len(database.views)
-    else:
-        info = read_database_info(database)
-        if info.get("database_version") != DATABASE_VERSION:
-            raise ValueError("The extraction database is from another version; rebuild it.")
-        fingerprint = info["fingerprint"]
-        extensions = json.loads(info.get("extensions") or "[]")
-        patient_count, items = int(info["patients"]), int(info["items"])
-    if patient_count < 1:
-        raise ValueError("The exploration database has no patients.")
-    contract = agent_contract(config, extensions)
+    contract_extensions = _database_facts(database)[1]
+    contract = agent_contract(config, contract_extensions)
     texts = [requirement_text(r) for r in requirements]
+    fingerprint = _database_facts(database)[0]
     keys = [workup_sql_cache_key(r, population_context, database_fingerprint=fingerprint,
                                  contract=contract) for r in requirements]
+    return compile_sql_queries(
+        texts, keys, task=WORKUP_TASK, database=database, config=config, context=population_context,
+        contract=contract, cache=cache, progress_callback=progress_callback, return_metadata=return_metadata,
+        llm=llm, activity_callback=activity_callback)
+
+
+def _database_facts(database) -> tuple[str, list, int, int]:
+    """``(fingerprint, extensions, patients, items)`` of an exploration database."""
+    if isinstance(database, ExtractionDatabase):
+        return (database.fingerprint, database.extensions, len(database.patient_ids),
+                len(database.views))
+    info = read_database_info(database)
+    if info.get("database_version") != DATABASE_VERSION:
+        raise ValueError("The extraction database is from another version; rebuild it.")
+    return (info["fingerprint"], json.loads(info.get("extensions") or "[]"), int(info["patients"]),
+            int(info["items"]))
+
+
+def compile_sql_queries(
+    subjects: Sequence[dict],
+    keys: Sequence[str],
+    *,
+    task: SQLTask,
+    database: str | Path | ExtractionDatabase,
+    config: MMAIConfig,
+    context: str | None,
+    contract: dict,
+    cache: MutableMapping[str, dict] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    return_metadata: bool = False,
+    llm: StructuredConfig | None = None,
+    activity_callback: Callable[[list[dict]], None] | None = None,
+):
+    """The agent runs of every task kind: one accepted query per distinct key (``subjects[i]`` has ``keys[i]``),
+    as :func:`compile_workup_sql` documents (the subject under ``task.subject``)."""
+    limits = agent_limits(config)
+    fingerprint, extensions, patient_count, items = _database_facts(database)
+    if patient_count < 1:
+        raise ValueError("The exploration database has no patients.")
+    texts = list(subjects)
     distinct = list(dict.fromkeys(keys))
     progress = progress_callback or (lambda done, total: None)
     results: dict[str, dict] = {}
@@ -916,7 +994,7 @@ def compile_workup_sql(
     if todo:
         llm = llm or resolve_agent_llm(config)
         model = llm.model
-        population_sha = digest((population_context or "").strip())
+        context_sha = digest((context or "").strip())
         first = {key: texts[keys.index(key)] for key in todo}
         box = (SQLSandbox(database=database, limits=limits.sandbox())
                if isinstance(database, ExtractionDatabase)
@@ -936,13 +1014,13 @@ def compile_workup_sql(
             if activity_callback is None:
                 return
             with lock:
-                items = [{"name": first[key]["name"], "action": action,
+                shown_items = [{"name": task.label(first[key]), "action": action,
                           "max_actions": limits.max_actions}
                          for key, action in sorted(active.items(),
                                                    key=lambda kv: (-kv[1], kv[0]))]
-            if items != shown:
-                shown = items
-                activity_callback(copy.deepcopy(items))
+            if shown_items != shown:
+                shown = shown_items
+                activity_callback(copy.deepcopy(shown_items))
 
         with box, ThreadPoolExecutor(max_workers=min(limits.max_concurrent_items,
                                                      len(todo))) as pool:
@@ -954,8 +1032,8 @@ def compile_workup_sql(
                 profile = None
             system = render_system_prompt(
                 limits, extensions,
-                render_profile(profile) if profile else "(not available for this database)")
-            futures = {submit_cancellable(pool, _compile_one, first[key], population_context,
+                render_profile(profile) if profile else "(not available for this database)", task=task)
+            futures = {submit_cancellable(pool, _compile_one, task, first[key], context,
                                           box, patient_count, llm, limits, system,
                                           on_turn(key), profile, extensions): key
                        for key in todo}
@@ -971,8 +1049,8 @@ def compile_workup_sql(
                         outcome = future.result()
                         entry = {
                             "cache_key": key,
-                            "requirement": first[key],
-                            "population_context_sha256": population_sha,
+                            task.subject: first[key],
+                            task.context_sha_key: context_sha,
                             **outcome,
                             "exploration": {"fingerprint": fingerprint,
                                             "patients": patient_count, "items": items},
@@ -982,7 +1060,7 @@ def compile_workup_sql(
                         }
                         if cache is not None:
                             cache[key] = copy.deepcopy(entry)
-                        _log(entry)
+                        _log(entry, task)
                         results[key] = {**entry, "cached": False}
                         progress(len(results), len(distinct))
                     report()
@@ -990,7 +1068,7 @@ def compile_workup_sql(
                 for future in pending:
                     future.cancel()
                 raise
-    entries = [{**copy.deepcopy(results[key]), "requirement": text}
+    entries = [{**copy.deepcopy(results[key]), task.subject: text}
                for key, text in zip(keys, texts, strict=True)]
     if not return_metadata:
         return entries
@@ -999,7 +1077,7 @@ def compile_workup_sql(
         "contract": contract,
         "model": model,
         "compiled_by": sorted({e.get("model") for e in results.values() if e.get("model")}),
-        "requirements": len(requirements),
+        ("requirements" if task.subject == "requirement" else f"{task.subject}s"): len(subjects),
         "distinct": len(distinct),
         "cached": len(distinct) - len(todo),
         "compiled": sum(e["status"] == "compiled" for e in results.values()),
@@ -1015,6 +1093,8 @@ def compile_workup_sql(
 __all__ = [
     "ACTIONS",
     "AGENT_VERSION",
+    "SQLTask",
+    "WORKUP_TASK",
     "RESULT_COLUMNS",
     "SQL_REASONS",
     "WorkupSQLLimits",
@@ -1022,6 +1102,7 @@ __all__ = [
     "agent_llm_identity",
     "agent_limits",
     "check_result",
+    "compile_sql_queries",
     "compile_workup_sql",
     "render_system_prompt",
     "resolve_agent_llm",

@@ -140,3 +140,47 @@ def test_compile_shares_boilerplate_lines_across_cohorts_and_skips_untyped_lines
     again = compile_criteria_queries([dict(lines[1], number=7)], cohort_context="Cohort B", config=config,
                                      cache=cache)
     assert again[0]["cached"] and again[0]["line"]["number"] == 7 and len(backend.calls) == 1
+
+
+ECOG_SQL = """
+SELECT p.patient_key,
+  CASE WHEN latest.score IS NULL THEN 'not_documented' WHEN latest.score <= 1 THEN 'meets' ELSE 'fails' END AS status,
+  CASE WHEN latest.score IS NULL THEN 'not_documented' WHEN latest.score <= 1 THEN 'documented_meeting'
+       ELSE 'documented_failing' END AS reason,
+  'applies' AS applicability,
+  COALESCE(latest.keys, []) AS evidence_item_keys,
+  COALESCE('ECOG ' || CAST(latest.score AS VARCHAR), '') AS detail
+FROM patients p
+LEFT JOIN (
+  SELECT patient_key, arg_max(score, date_hi) AS score, list(item_key) AS keys
+  FROM performance_status WHERE scale = 'ecog' GROUP BY patient_key
+) latest ON latest.patient_key = p.patient_key
+"""
+
+
+def test_criteria_sql_runs_once_and_keeps_the_polarity():
+    pytest.importorskip("duckdb")
+    from matchminer_ai.matching.structured_criteria import CRITERIA_SQL_TASK, check_criteria_with_sql
+    from matchminer_ai.patients.workup_sql.agent import agent_limits, check_result
+
+    rows = [document("ok", "n1", "2025-03-01", [ecog("n1", "2025-03-01", 1)]),
+            document("poor", "n2", "2025-03-01", [ecog("n2", "2025-03-01", 3)]),
+            document("quiet", "n3", "2025-03-01")]
+    entries = [{"line": {"number": 1, "text": "ECOG 0-1", "criterion_type": "inclusion", "boilerplate": False},
+                "status": "compiled", "expressible": True, "sql": ECOG_SQL, "summary": "Latest ECOG.",
+                "approximations": [], "cache_key": "k1"},
+               {"line": {"number": 2, "text": "Age 18 or older", "criterion_type": "inclusion",
+                         "boilerplate": False},
+                "status": "compiled", "expressible": False, "sql": None, "not_expressible_reason": "Age."}]
+    report = check_criteria_with_sql(rows, entries, patient_ids=["ok", "poor", "quiet", "none"])
+    status = {p["patient_id"]: [line["status"] for line in p["lines"]] for p in report["patients"]}
+    assert status == {"ok": ["meets", "not_checkable"], "poor": ["clearly_fails", "not_checkable"],
+                      "quiet": ["not_documented", "not_checkable"], "none": ["no_records", "not_checkable"]}
+    poor = next(p for p in report["patients"] if p["patient_id"] == "poor")["lines"][0]
+    assert poor["bottom_line"] == "Clearly not met: ECOG 3." and poor["evidence"][0]["side"] == "fails"
+    # A failing row under an uncertain condition breaks the criteria contract.
+    reply = {"error": None, "columns": ["patient_key", "status", "applicability", "reason", "evidence_item_keys",
+                                        "detail"],
+             "rows": [[1, "fails", "uncertain", "documented_failing", [], ""]], "row_count": 1, "more_rows": False}
+    check = check_result(reply, 1, agent_limits(load_default_preset()), task=CRITERIA_SQL_TASK)
+    assert check.kinds == ["fails without applies"]

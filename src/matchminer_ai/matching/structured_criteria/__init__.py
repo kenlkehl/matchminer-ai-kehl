@@ -22,20 +22,25 @@ from .evaluate import (
     line_counts,
 )
 from .language import CRITERION_EXAMPLES, CRITERION_QUERY_VERSION, check_criterion_query, validate_criterion_query
+from .sql import CRITERIA_SQL_TASK, check_criteria_with_sql, compile_criteria_sql, criteria_sql_cache_key
 
 __all__ = [
     "CHECKED",
+    "CRITERIA_SQL_TASK",
     "CRITERION_EXAMPLES",
     "CRITERION_QUERY_VERSION",
     "NOTICE",
     "STATUSES",
     "aggregate_structured_criteria",
     "check_criteria_with_extractions",
+    "check_criteria_with_sql",
     "check_criterion_query",
     "checkable",
     "compile_criteria_queries",
+    "compile_criteria_sql",
     "criteria_compile_contract",
     "criteria_query_cache_key",
+    "criteria_sql_cache_key",
     "evaluate_criterion_query",
     "line_counts",
     "line_text",

@@ -20,44 +20,45 @@ def records(frame):
     return json.loads(frame.to_json(orient="records", date_format="iso", force_ascii=False))
 
 
-def synthetic_key(names):
-    """The patient key of a synthetic table: the generator's ``patient_id`` when it has one (the IDs of the
-    dashboard's patient corpus), else ``pseudo_mrn``."""
+def synthetic_key(names, key="pseudo_mrn"):
+    """The patient key of a synthetic table: ``key`` (``settings.population_key``) when the table has it.
+
+    ``pseudo_mrn`` by default, because older synthetic tables' ``patient_id`` is a generation-prompt ID; the v23
+    synthetic run's ``patient_id`` is the patient's own (one per ``pseudo_mrn``, the patient corpus's IDs)."""
     names = set(names)
-    if "patient_id" in names:
-        return "patient_id"
+    if key in names:
+        return key
     return "pseudo_mrn" if "pseudo_mrn" in names else "patient_id"
 
 
-def synthetic_note_columns(names):
+def synthetic_note_columns(names, key="pseudo_mrn"):
     """``(key, {source: runtime})`` for a notes table: synthetic notes keyed by :func:`synthetic_key`."""
     names = set(names)
-    key, columns = note_columns(names)
-    if key == "pseudo_mrn" and "patient_id" in names:
+    column, columns = note_columns(names)
+    if column == "pseudo_mrn" and synthetic_key(names, key) == "patient_id":
         columns = {"patient_id": "patient_id",
                    **{k: v for k, v in columns.items() if k != "pseudo_mrn"}}
-        key = "patient_id"
-    return key, columns
+        column = "patient_id"
+    return column, columns
 
 
-def adapt_tables(summaries, notes):
-    """Explicit training-to-runtime boundary, never join on the synthetic prompt ID.
-
-    Synthetic tables keep the generator's ``patient_id`` when they have one; ``pseudo_mrn`` keys only tables
-    without it."""
+def adapt_tables(summaries, notes, key="pseudo_mrn"):
+    """Explicit training-to-runtime boundary: patients keyed by ``key`` (:func:`synthetic_key`), never by an older
+    table's synthetic prompt ID."""
     if "pseudo_mrn" in summaries:
         renames = {k: TRAINING_TO_RUNTIME[k] for k in ("patient_summary", "patient_boilerplate_text")}
-        if "patient_id" in summaries:
+        if synthetic_key(summaries.columns, key) == "patient_id":
             summaries = summaries.drop(columns=["pseudo_mrn"])
         else:
+            summaries = summaries.drop(columns=["patient_id"], errors="ignore")
             renames["pseudo_mrn"] = "patient_id"
         summaries = summaries.rename(columns=renames)
     if "pseudo_mrn" in notes:
-        if "patient_id" in notes:
+        if synthetic_key(notes.columns, key) == "patient_id":
             notes = notes.drop(columns=["pseudo_mrn"]).rename(
                 columns={k: v for k, v in SYNTHETIC_NOTES_TO_RUNTIME.items() if k != "pseudo_mrn"})
         else:
-            notes = notes.rename(columns=SYNTHETIC_NOTES_TO_RUNTIME)
+            notes = notes.drop(columns=["patient_id"], errors="ignore").rename(columns=SYNTHETIC_NOTES_TO_RUNTIME)
     if not summaries.columns.is_unique or not notes.columns.is_unique:
         raise InputError("Ambiguous cohort columns. Supply the documented runtime schema.")
     return summaries, notes
@@ -73,7 +74,7 @@ def synthetic_sample(settings, size, seed):
     import pyarrow.parquet as pq
 
     names = pq.ParquetFile(settings.population_summaries).schema_arrow.names
-    summary_key = synthetic_key(names)
+    summary_key = synthetic_key(names, settings.population_key)
     summary_text = "patient_summary" if "patient_summary" in names else "cancer_history_summary"
     wanted = [summary_key, summary_text, "pseudo_mrn", "patient_boilerplate_text",
               "general_exclusion_criteria_evidence", "split"]
@@ -85,7 +86,7 @@ def synthetic_sample(settings, size, seed):
         summaries = summaries.loc[summaries.split.eq(settings.population_split)]
     summaries = summaries.drop(columns=["split"], errors="ignore")
     dataset = ds.dataset(settings.population_notes, format="parquet")
-    note_key, note_map = synthetic_note_columns(dataset.schema.names)
+    note_key, note_map = synthetic_note_columns(dataset.schema.names, settings.population_key)
     note_ids = dataset.to_table(columns=[note_key]).column(note_key).unique().to_pylist()
     eligible = summaries.loc[
         summaries[summary_key].astype(str).isin({str(x) for x in note_ids})
@@ -131,7 +132,7 @@ def load_synthetic_sample(settings, size, seed, progress):
     if not batches:
         raise InputError("The selected patients have no available source notes.")
     notes = pa.Table.from_batches(batches).to_pandas().rename(columns=note_map)
-    sample, notes = adapt_tables(sample, notes)
+    sample, notes = adapt_tables(sample, notes, settings.population_key)
     provenance = {
         "source": "operator_configured_population",
         "sample_size": size,

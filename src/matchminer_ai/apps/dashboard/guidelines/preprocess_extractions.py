@@ -73,7 +73,7 @@ def read_notes(settings, args):
         if error:
             raise InputError(error)
         dataset = ds.dataset(path, format="parquet")
-        key, columns = synthetic_note_columns(dataset.schema.names)
+        key, columns = synthetic_note_columns(dataset.schema.names, settings.population_key)
         source = {"kind": "synthetic_notes", "name": path.name,
                   "size": path.stat().st_size, "mtime_ns": path.stat().st_mtime_ns}
     typed = dataset.to_table(columns=[key]).column(key).unique().to_pylist()
@@ -85,7 +85,9 @@ def read_notes(settings, args):
         from .population import synthetic_sample
 
         sample = synthetic_sample(settings, settings.population_sample_size, settings.population_seed)[0]
-        wanted = [str(p) for p in sample[synthetic_key_of(sample)]]
+        from .population import synthetic_key
+
+        wanted = [str(p) for p in sample[synthetic_key(sample.columns, settings.population_key)]]
         unknown = [p for p in wanted if p not in by_text]
         if unknown:
             raise InputError(f"{len(unknown)} sampled patients have no notes in the source.")
@@ -116,10 +118,6 @@ def read_notes(settings, args):
                                          "seed": settings.population_seed,
                                          "split": settings.population_split})
     return notes.reset_index(drop=True), source
-
-
-def synthetic_key_of(sample):
-    return "patient_id" if "patient_id" in sample else "pseudo_mrn"
 
 
 def read_registry(path):
