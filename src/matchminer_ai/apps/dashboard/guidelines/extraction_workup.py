@@ -632,7 +632,7 @@ def estimate_cost(frame, levels, *, compile_requests, cached_queries, items):
         "workup_items": items,
         "requests": len(frame) + patient_chunks + compile_requests,
         "output_reserve_per_request": 50000,
-        "typical_reasoning_tokens": "10,000-15,000 per request with Nemotron 3.5 Super",
+        "typical_reasoning_tokens": "10,000-15,000 per request (measured with Nemotron 3.5 Super)",
         "levels": list(LEVELS[levels]),
     }
 

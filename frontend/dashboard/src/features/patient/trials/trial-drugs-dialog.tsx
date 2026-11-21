@@ -15,8 +15,8 @@ import { Spinner } from "@/components/ui/spinner";
 import type { Meta, TrialSummary } from "@/lib/api";
 import { trialOptions } from "@/lib/queries";
 
-import type { OpenEvidence } from "../overview/catalog-links";
-import { DrugsSection } from "../overview/drugs-section";
+import type { OpenEvidence } from "../../overview/catalog-links";
+import { DrugsSection } from "../../overview/drugs-section";
 
 /** Why a trial's drugs can't be shown (the Drugs / mechanism button is then disabled), or null. */
 export function drugsUnavailable(trial: TrialSummary, meta: Meta | undefined): string | null {

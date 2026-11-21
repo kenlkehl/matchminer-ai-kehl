@@ -260,10 +260,8 @@ def router(g: GuidelineState) -> APIRouter:
     def preprocessing_restore(body, owner, notes):
         restore = {"notes_input": {"text": body.text, "notes": notes}, "summary": body.summary,
                    "note_source": body.note_source}
-        if body.retrieval_job_id:
-            retrieval = finished(owner, body.retrieval_job_id, "retrieve")
-            if retrieval is None:
-                raise InputError("The previous guideline search is unavailable in this session.")
+        retrieval = finished(owner, body.retrieval_job_id, "retrieve") if body.retrieval_job_id else None
+        if retrieval is not None:  # an expired search is simply not restored
             restore.update(retrieval=retrieval.result, retrieval_job_id=body.retrieval_job_id)
         previous = jobs.latest(owner, exclude_prefix="population-")
         if previous and previous.status == "done":
@@ -341,7 +339,9 @@ def router(g: GuidelineState) -> APIRouter:
             result["search"] = {"catalogs": body.catalogs, "top_n": body.top_n, "candidate_k": body.candidate_k}
             return result
 
-        return submit(session_owner(request), "retrieve", "guideline spaces", retrieve_job)
+        return submit(session_owner(request), "retrieve", "guideline spaces", retrieve_job,
+                      restore={"summary": body.summary, "search": {"catalogs": body.catalogs, "top_n": body.top_n,
+                                                                   "candidate_k": body.candidate_k}})
 
     def workup_space(owner, retrieval_job_id, space_index):
         retrieval = finished(owner, retrieval_job_id, "retrieve")

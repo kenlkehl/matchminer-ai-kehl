@@ -240,7 +240,10 @@ def test_compression_job_preserves_current_summary_and_owned_retrieval(compresse
     assert again["result"]["compression"]["reused"] is True
     assert len(calls["compression"]) == 1
     client.cookies.clear()
-    assert client.post("/api/patient/compress", json=payload).status_code == 400
+    # Another browser session cannot reach this session's search: it compresses without it (as after an expired
+    # search) and gets none of its results.
+    other = client.post("/api/patient/compress", json=payload)
+    assert other.status_code == 202 and "retrieval" not in (other.json()["job"]["restore"] or {})
 
 
 def test_old_implicit_compression_argument_is_rejected(compressed_app):

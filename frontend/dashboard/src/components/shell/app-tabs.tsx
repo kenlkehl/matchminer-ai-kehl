@@ -1,28 +1,46 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 
-export type AppTab = "dashboard" | "ai";
+import type { AppTabName } from "@/lib/api";
+import { metaOptions } from "@/lib/queries";
 
-/** Which of the applications the current page belongs to. */
+export type AppTab = AppTabName;
+
+const PREFIXES: [string, AppTab][] = [
+  ["/population", "population"],
+  ["/patient", "patient"],
+  ["/benchmarking", "benchmarking"],
+];
+
+/** Which tab the current page belongs to (Trials: the overview and patients for a cohort). */
 export function useAppTab(): AppTab {
   return useRouterState({
-    select: (s) => (s.location.pathname.startsWith("/ai") ? "ai" : "dashboard"),
+    select: (s) =>
+      PREFIXES.find(([prefix]) => s.location.pathname.startsWith(prefix))?.[1] ?? "trials",
   });
 }
 
-const TABS: { tab: AppTab; to: "/" | "/ai"; label: string }[] = [
-  { tab: "dashboard", to: "/", label: "Trial Management and Study Status" },
-  { tab: "ai", to: "/ai", label: "Search for trials for a patient" },
+const TABS: {
+  tab: AppTab;
+  to: "/" | "/population" | "/patient" | "/benchmarking";
+  label: string;
+}[] = [
+  { tab: "trials", to: "/", label: "Trials" },
+  { tab: "population", to: "/population", label: "Population" },
+  { tab: "patient", to: "/patient", label: "Patient" },
+  { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
 ];
 
-/** The tabs above every page, as in mm-dash. */
+/** The tabs above every page: those the server's mode shows. */
 export function AppTabs() {
   const current = useAppTab();
+  const shown = useQuery(metaOptions()).data?.tabs ?? ["trials", "population", "patient"];
   return (
     <nav
       aria-label="Applications"
       className="-mx-6 -mt-6 mb-6 flex border-b border-gray-200 bg-gray-100 px-6 pt-2 print:hidden"
     >
-      {TABS.map(({ tab, to, label }) => (
+      {TABS.filter(({ tab }) => shown.includes(tab)).map(({ tab, to, label }) => (
         <Link
           key={tab}
           to={to}

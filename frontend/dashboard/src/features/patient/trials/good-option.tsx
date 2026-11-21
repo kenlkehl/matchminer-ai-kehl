@@ -26,8 +26,8 @@ import { type GoodOptionResult, type LLMStatus, runCheck, type TrialSummary } fr
 import { percent, when } from "@/lib/format";
 import { llmOptions } from "@/lib/queries";
 
-import { CatalogLink, ClassLinks, type OpenEvidence } from "../overview/catalog-links";
-import { STUDIED_ROLES } from "../overview/search";
+import { CatalogLink, ClassLinks, type OpenEvidence } from "../../overview/catalog-links";
+import { STUDIED_ROLES } from "../../overview/search";
 
 // ---------------------------------------------------------------- the runs (kept while the tab is open)
 

@@ -7,7 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
 import { isoWhen, when } from "@/lib/format";
 
-import { LLMPanel } from "./llm-panel";
+import { ModelsPanel } from "./models-panel";
 
 interface Status {
   store: {
@@ -20,9 +20,15 @@ interface Status {
     path: string;
     poll_seconds: number;
   };
-  sources: Record<string, string>;
+  mode: "real" | "synthetic";
+  sources: Record<string, string | null>;
   good_options?: GoodOptions | null;
-  patients: { corpus: string; count: number };
+  patients: {
+    source: "population" | "training";
+    corpus: string | null;
+    count: number;
+    error: string | null;
+  };
   round: { round: number; encoder: Record<string, string>; model: { model: string } } | null;
   skipped_rounds: { round: number; reason: string }[];
   encoder: { available: boolean; problem: string | null; state: string; device: string };
@@ -68,7 +74,13 @@ interface GoodOptions {
 }
 
 /** The GoodOption catalog the trials' drugs come from, or why there are none. */
-function GoodOptionsRow({ path, info }: { path: string | undefined; info: GoodOptions | null }) {
+function GoodOptionsRow({
+  path,
+  info,
+}: {
+  path: string | null | undefined;
+  info: GoodOptions | null;
+}) {
   if (!info) {
     return (
       <Row label="GoodOption catalog">
@@ -154,8 +166,22 @@ export function StatusPage() {
           <Row label="Counts">
             <code className="text-xs">{JSON.stringify(s.store.counts)}</code>
           </Row>
-          <Row label="Trial data">{s.sources.trial_data}</Row>
-          <Row label="OA database">{s.sources.oa_db}</Row>
+          <Row label="Mode">
+            {s.mode === "real"
+              ? "Real data: the site's trials and real patients"
+              : "Synthetic: the synthetic run's trials and patients"}
+          </Row>
+          {s.mode === "real" ? (
+            <>
+              <Row label="Trial data">{s.sources.trial_data}</Row>
+              <Row label="OA database">{s.sources.oa_db}</Row>
+            </>
+          ) : (
+            <>
+              <Row label="Trials">{s.sources.trials}</Row>
+              <Row label="Cohorts">{s.sources.cohorts}</Row>
+            </>
+          )}
           <Row label="Grouping rules">
             {s.sources.grouping}
             {s.store.rules.centers
@@ -173,8 +199,16 @@ export function StatusPage() {
       <section>
         <h2 className="mb-2 text-lg font-semibold">Matching</h2>
         <dl className="divide-y divide-gray-100">
-          <Row label="Synthetic patients">
-            {s.patients.count.toLocaleString()} ({s.patients.corpus})
+          <Row
+            label={
+              s.patients.source === "population"
+                ? "Patients (population cache)"
+                : "Synthetic patients"
+            }
+          >
+            {s.patients.count.toLocaleString()}
+            {s.patients.corpus ? ` (${s.patients.corpus})` : ""}
+            {s.patients.error ? <p className="text-red-700">{s.patients.error}</p> : null}
           </Row>
           <Row label="TrialSpace round">
             {s.round ? `round ${String(s.round.round)} · ${s.round.model.model}` : "none"}
@@ -200,8 +234,8 @@ export function StatusPage() {
         </dl>
       </section>
       <section>
-        <h2 className="mb-2 text-lg font-semibold">LLM checks</h2>
-        <LLMPanel />
+        <h2 className="mb-2 text-lg font-semibold">Models</h2>
+        <ModelsPanel />
       </section>
       <section>
         <h2 className="mb-2 text-lg font-semibold">Recent jobs</h2>

@@ -155,7 +155,8 @@ class Benchmarks:
         directory = self.run(run_id, "fidelity")
         status = read_json(directory / "run_status.json") or {}
         stages = {}
-        for name in FIDELITY_STAGES:
+        embeddings = sorted(str(p.relative_to(directory)) for p in directory.glob("embeddings/*/*") if p.is_dir())
+        for name in (*FIDELITY_STAGES[:4], *embeddings, *FIDELITY_STAGES[4:]):  # embedding comes after the corpus
             receipt = read_json(directory / name / "stage_receipt.json")
             if receipt is not None:
                 stages[name] = {"content": receipt.get("content"),
@@ -181,7 +182,10 @@ class Benchmarks:
         root = directory / "responses"
         for judge in sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
             responses[judge] = {f.stem: sum(1 for _ in f.open(encoding="utf-8")) for f in sorted((root / judge).glob("*.jsonl"))}
+        from matchminer_ai.evaluation.dual_judge.judging import JUDGE_NAMES
+
         return {"id": run_id, "name": directory.name, "version": build.get("version"), "components": components,
+                "judge_names": JUDGE_NAMES,
                 "responses": responses, "compare": read_json(directory / "compare" / "summary.json"),
                 "metrics": read_json(directory / "metrics" / "metrics.json"),
                 "adjudications": self._decision_count(directory),
@@ -194,12 +198,23 @@ class Benchmarks:
         if not steps or any(s not in RECOMPUTE_STEPS for s in steps):
             raise InputError(f"steps must be among {RECOMPUTE_STEPS}")
 
+        # A rerun keeps the comparison's own settings (its audit sample, seed and judges).
+        summary = read_json(directory / "compare" / "summary.json") or {}
+        compare_args = []
+        if summary.get("audit_fraction") is not None:
+            compare_args += ["--audit-fraction", str(summary["audit_fraction"])]
+        if summary.get("seed") is not None:
+            compare_args += ["--seed", str(summary["seed"])]
+        if summary.get("judges"):
+            compare_args += ["--judges", ",".join(summary["judges"])]
+
         def run(progress):
             out = {}
             for n, step in enumerate(steps):
                 progress(n, len(steps), f"running {step}")
-                done = subprocess.run([sys.executable, "-m", f"matchminer_ai.evaluation.dual_judge.{step}",
-                                       "--run-dir", str(directory)], capture_output=True, text=True, timeout=1800)
+                command = [sys.executable, "-m", f"matchminer_ai.evaluation.dual_judge.{step}", "--run-dir",
+                           str(directory), *(compare_args if step == "compare" else [])]
+                done = subprocess.run(command, capture_output=True, text=True, timeout=1800)
                 # The steps log counts only; the last lines say what they did.
                 out[step] = {"returncode": done.returncode, "log": done.stdout.strip().splitlines()[-6:]}
                 if done.returncode != 0:

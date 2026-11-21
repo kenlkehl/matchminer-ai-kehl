@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { cn } from "cn";
-import { ArrowLeftIcon, ChevronUpIcon, PillIcon } from "lucide-react";
+import { ChevronUpIcon, PillIcon, SearchIcon } from "lucide-react";
 import {
   type PointerEvent,
   type ReactNode,
@@ -15,35 +15,35 @@ import {
   useState,
 } from "react";
 
-import { PageHeader } from "@/components/page-header";
 import { SidebarSlot } from "@/components/shell/sidebar-slot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { CohortHit, PairScores, TrialsForPatientResult } from "@/lib/api";
+import { api, type CohortHit, type PairScores, type TrialsForPatientResult } from "@/lib/api";
 import { metaOptions } from "@/lib/queries";
 import { useSite } from "@/lib/site";
 
-import { ScoringStatus } from "../matching/patients-for-cohort-page";
+import { ScoringStatus } from "../../matching/patients-for-cohort-page";
 import {
   byScore,
   ExclusionLine,
   likelyExcluded,
   MatchBadge,
   Requirements,
-} from "../matching/score-view";
-import { useScoring } from "../matching/use-scoring";
-import { CatalogEvidenceDialog } from "../overview/catalog-evidence-dialog";
+} from "../../matching/score-view";
+import { useScoring } from "../../matching/use-scoring";
+import { CatalogEvidenceDialog } from "../../overview/catalog-evidence-dialog";
+import { hasSummary, type PatientSearch, setPatient, usePatientValue } from "../store";
 import { GoodOptionButton, GoodOptionDialog } from "./good-option";
-import { SearchForm } from "./search-form";
-import { type AiFilters, type AiSearch, setAiState, useAiState } from "./store";
+import { type AiFilters, setAiState, useAiState } from "./store";
 import { TrialDialog } from "./trial-dialog";
 import { drugsUnavailable, TrialDrugsDialog } from "./trial-drugs-dialog";
 
-const route = getRouteApi("/_app/ai/");
+const route = getRouteApi("/_app/patient/");
 
 const AI_DISCLAIMER =
   "Trial matches are based on probabilistic AI and can be incorrect. Trials displayed may be " +
@@ -52,33 +52,80 @@ const AI_DISCLAIMER =
 
 type Row = CohortHit & { id: string };
 
-/** The AI tab: a search page, and a results page with the patient's panel above the trials. */
-export function AiSearchPage() {
+/** "synthetic patient" in synthetic mode, "patient" in real mode. */
+function usePatientNoun(): string {
+  return useQuery(metaOptions()).data?.mode === "real" ? "patient" : "synthetic patient";
+}
+
+/**
+ * The Patient tab's Trials view (mm-dash's AI search): the open trials' cohorts that match the shared
+ * patient's summary, with the decision model's scores and the common-exclusion check.
+ */
+export function TrialsView({ active }: { active: boolean }) {
   const ai = useAiState();
-  return ai.page === "results" && ai.result ? (
-    <Results result={ai.result} key={ai.searches} />
-  ) : (
+  return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="MatchMiner-AI">
-        <p>
-          MatchMiner-AI matches a patient's cancer summary against the open trials' cohorts on the
-          disease-center dashboards and flags likely common exclusions. Choose a synthetic patient,
-          or enter a summary.
-        </p>
-      </PageHeader>
-      <SearchForm />
-      {ai.result ? (
-        <Button
-          variant="outline"
-          className="self-start"
-          onClick={() => {
-            setAiState({ page: "results" });
-          }}
-        >
-          Back to the last results
-        </Button>
-      ) : null}
+      <SearchBar />
+      {ai.result ? <Results result={ai.result} active={active} key={ai.searches} /> : null}
     </div>
+  );
+}
+
+/** Search with the shared patient: a corpus patient by its ID, else the summary and other history. */
+function SearchBar() {
+  const patientId = usePatientValue((s) => s.patientId);
+  const fromCorpus = usePatientValue((s) => s.fromCorpus);
+  const summary = usePatientValue((s) => s.summary);
+  const otherHistory = usePatientValue((s) => s.otherHistory);
+  const allCohorts = useAiState().allCohorts;
+  const noun = usePatientNoun();
+  const byPatient = !!patientId && fromCorpus;
+  const ready = byPatient || hasSummary(summary);
+  const search = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api.post<TrialsForPatientResult>("/api/match/trials-for-patient", body),
+    onSuccess: (result) => {
+      setAiState((s) => ({
+        result,
+        searches: s.searches + 1,
+        filters: { ...s.filters, excludeHigherThreshold: true },
+      }));
+      setPatient({ inputOpen: false });
+    },
+  });
+  const submit = () => {
+    const common = { k: 50, per_trial: !allCohorts, scope: "dashboard" };
+    search.mutate(
+      byPatient
+        ? { ...common, patient_id: patientId }
+        : { ...common, summary, boilerplate: otherHistory },
+    );
+  };
+  return (
+    <section
+      aria-label="Find trials"
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white p-4"
+    >
+      <div className="flex min-w-64 flex-1 flex-col gap-1 text-sm text-gray-700">
+        <p>
+          {byPatient ? (
+            <>
+              Matches {noun} <strong>{patientId}</strong>'s cancer summary against the open trials'
+              cohorts on the disease-center dashboards and flags likely common exclusions.
+            </>
+          ) : ready ? (
+            "Matches the patient summary above against the open trials' cohorts on the disease-center dashboards and flags likely common exclusions."
+          ) : (
+            "Choose a patient, enter a summary, or create one from clinical notes above to find trials."
+          )}
+        </p>
+        {search.error ? <p className="text-red-700">{search.error.message}</p> : null}
+      </div>
+      <Button disabled={!ready || search.isPending} onClick={submit}>
+        {search.isPending ? <Spinner /> : <SearchIcon />}
+        Find trials
+      </Button>
+    </section>
   );
 }
 
@@ -99,8 +146,17 @@ function filterRows(
   );
 }
 
-function Results({ result }: { result: TrialsForPatientResult }) {
+/** The results; kept mounted while the Guidelines view shows (its filters show only when active). */
+function Results({ result, active }: { result: TrialsForPatientResult; active: boolean }) {
   const ai = useAiState();
+  const noun = usePatientNoun();
+  const stale = usePatientValue((s) =>
+    s.patientId && s.fromCorpus
+      ? result.patient.custom || result.patient.id !== s.patientId
+      : !result.patient.custom ||
+        result.patient.key.trim() !== s.summary.trim() ||
+        result.patient.boilerplate.trim() !== s.otherHistory.trim(),
+  );
   const meta = useQuery(metaOptions()).data;
   const higher = meta?.higher_threshold_groups ?? [];
   const rows = useMemo(
@@ -126,7 +182,7 @@ function Results({ result }: { result: TrialsForPatientResult }) {
   // The Drugs / mechanism dialog and the catalog evidence over it are in the URL, so Back closes them.
   const search = route.useSearch();
   const navigate = route.useNavigate();
-  const go = (patch: AiSearch) => {
+  const go = (patch: PatientSearch) => {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), resetScroll: false });
   };
   const evidence = search.evidence ? (
@@ -147,7 +203,7 @@ function Results({ result }: { result: TrialsForPatientResult }) {
 
   return (
     <>
-      <AiFilterPanel rows={rows} scores={scoring.scores} higher={higher} />
+      {active ? <AiFilterPanel rows={rows} scores={scoring.scores} higher={higher} /> : null}
       <ResultsLayout result={result}>
         <section className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -162,11 +218,15 @@ function Results({ result }: { result: TrialsForPatientResult }) {
               "Displaying trial suggestions for the entered summary."
             ) : (
               <>
-                Displaying trial suggestions for synthetic patient{" "}
-                <strong>{result.patient.id}</strong>.
+                Displaying trial suggestions for {noun} <strong>{result.patient.id}</strong>.
               </>
             )}
           </p>
+          {stale ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              The patient above has changed since this search. Find trials again to search with it.
+            </p>
+          ) : null}
           <p className="text-sm text-gray-600 italic">{AI_DISCLAIMER}</p>
           {shown.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-500">
@@ -404,17 +464,6 @@ function ResultsLayout({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <Button
-        variant="outline"
-        size="sm"
-        className="self-start"
-        onClick={() => {
-          setAiState({ page: "search" });
-        }}
-      >
-        <ArrowLeftIcon />
-        New search
-      </Button>
       <PatientPanel patient={result.patient} />
       {children}
     </div>
@@ -440,7 +489,7 @@ function PatientPanel({ patient }: { patient: TrialsForPatientResult["patient"] 
   const body = useRef<HTMLDivElement>(null);
   useScrollPaddingFor(panel);
   const [limits, measure] = usePanelLimits(panel, header, body, collapsed);
-  // Kept with the AI tab's other state, so later searches open at the chosen height until a reload.
+  // Kept with the Trials view's other state, so later searches open at the chosen height until a reload.
   const chosen = useAiState().summaryHeight;
   const [dragged, setDragged] = useState<number | null>(null);
   const height = dragged ?? chosen ?? PANEL_DEFAULT;
@@ -492,10 +541,10 @@ function PatientPanel({ patient }: { patient: TrialsForPatientResult["patient"] 
         hidden={collapsed}
         className="grid min-h-0 flex-1 gap-x-4 gap-y-2 px-4 pt-2 pb-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]"
       >
-        <PatientText id={`${id}-key`} label="Cancer Summary" text={patient.key} />
+        <PatientText id={`${id}-key`} label="Cancer summary" text={patient.key} />
         <PatientText
           id={`${id}-boilerplate`}
-          label="Common Exclusions"
+          label="Other relevant history"
           text={patient.boilerplate}
         />
       </div>

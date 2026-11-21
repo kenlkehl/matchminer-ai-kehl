@@ -15,8 +15,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { type CohortHit, type PairScores, VERSION_LABELS } from "@/lib/api";
 import { cohortOptions } from "@/lib/queries";
 
-import { CriteriaCheck } from "../matching/criteria-check";
-import { ExclusionLine, MatchBadge, Requirements } from "../matching/score-view";
+import { CriteriaCheck } from "../../matching/criteria-check";
+import { ExclusionLine, MatchBadge, Requirements } from "../../matching/score-view";
 
 /** A matched trial's cohort: its facts, the decision model's answers and the per-criterion check. */
 export function TrialDialog({

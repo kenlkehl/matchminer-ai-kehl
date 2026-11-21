@@ -1,6 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ActivityIcon, FunnelIcon, type LucideIcon, SearchIcon, TableIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  FunnelIcon,
+  GaugeIcon,
+  LogOutIcon,
+  type LucideIcon,
+  UserIcon,
+  UsersIcon,
+  TableIcon,
+} from "lucide-react";
 import { type ReactNode, useCallback, useState, useSyncExternalStore } from "react";
 
 import {
@@ -22,7 +31,7 @@ import {
   sidebarCookieOpen,
   useSidebar,
 } from "@/components/ui/sidebar";
-import type { CenterInfo, SiteBranding } from "@/lib/api";
+import { api, type CenterInfo, type SiteBranding } from "@/lib/api";
 import { metaOptions } from "@/lib/queries";
 import { useSite } from "@/lib/site";
 
@@ -80,10 +89,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {tab === "dashboard" ? (
+                  {tab === "trials" ? (
                     <NavItem to="/" icon={TableIcon} label="Trials Overview" active={false} />
+                  ) : tab === "population" ? (
+                    <NavItem to="/population" icon={UsersIcon} label="Population" active />
+                  ) : tab === "patient" ? (
+                    <NavItem to="/patient" icon={UserIcon} label="Patient" active />
                   ) : (
-                    <NavItem to="/ai" icon={SearchIcon} label="Trials for a Patient" active />
+                    <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarks" active />
                   )}
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -91,11 +104,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* A page's own panel (e.g. its filters) shows only while the sidebar is open. */}
             <div ref={setSlot} className="px-4 group-data-[collapsible=icon]:hidden" />
             <SlotOpener slot={slot} />
-            {tab === "dashboard" && meta ? <CenterNav centers={meta.centers} /> : null}
+            {tab === "trials" && meta ? <CenterNav centers={meta.centers} /> : null}
           </SidebarContent>
           <SidebarFooter>
             <SidebarMenu>
               <NavItem to="/status" icon={ActivityIcon} label="Data and Models" active={false} />
+              {meta?.sign_in ? <SignOut /> : null}
             </SidebarMenu>
           </SidebarFooter>
           <SidebarRail />
@@ -191,14 +205,35 @@ function SlotOpener({ slot }: { slot: HTMLElement | null }) {
   );
 }
 
+/** Sign out (real mode, or a server started with --require-token). */
+function SignOut() {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        tooltip="Sign out"
+        className="text-sidebar-foreground/80"
+        onClick={() => {
+          void api.post("/api/logout", {}).finally(() => {
+            window.location.assign("/login");
+          });
+        }}
+      >
+        <LogOutIcon />
+        <span>Sign out</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 function AppFooter() {
   const site = useSite();
+  const mode = useQuery(metaOptions()).data?.mode;
   return (
     <div className="mt-auto pt-10">
       <footer className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-t border-gray-200 pt-3 text-xs text-gray-500">
         <p className="italic">
-          {site.confidentiality ? `${site.confidentiality} ` : ""}Research use only; patients shown
-          are synthetic.
+          {site.confidentiality ? `${site.confidentiality} ` : ""}Research use only
+          {mode === "synthetic" ? "; patients shown are synthetic." : "."}
         </p>
         {site.institution ? (
           <p>
@@ -211,7 +246,7 @@ function AppFooter() {
 }
 
 interface NavItemProps {
-  to: "/" | "/ai" | "/status";
+  to: "/" | "/population" | "/patient" | "/benchmarking" | "/status";
   icon: LucideIcon;
   label: string;
   active: boolean;

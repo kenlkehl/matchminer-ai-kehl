@@ -174,6 +174,7 @@ export function PatientsForCohortPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  nativeButton={false}
                   render={
                     <Link
                       to="/"
