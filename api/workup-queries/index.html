@@ -2220,6 +2220,14 @@ strict and non-recursive (no <code>$ref</code>, <code>null</code>, <code>minLeng
 <td>Up to 8 notes on what was left out or approximated ("upper abdomen" by the abdomen region). Shown as limitations.</td>
 </tr>
 <tr>
+<td><code>conditional</code></td>
+<td><code>true</code> when the guideline makes the step apply to only some patients of the population: a symptom, a finding, a stage or site, a histology, a planned or current treatment, a risk, or a step to consider only in some situations. Wording that only says when or how to do the step ("pretreatment", "if not previously done", "with contrast") is not a condition.</td>
+</tr>
+<tr>
+<td><code>condition_not_expressible_reason</code></td>
+<td>For a conditional step whose condition no item type can document (symptoms, clinical suspicion, family history, reproductive status, clinical judgment): what the condition is and why; <code>applies_when</code> is then empty and the step's applicability is uncertain for every patient. <code>""</code> otherwise.</td>
+</tr>
+<tr>
 <td><code>criteria</code></td>
 <td>Up to 24 named matchers of one item type each: <code>id</code>, <code>label</code>, <code>item_type</code>, <code>status</code> (<code>performed</code>, <code>planned</code>, <code>any</code>), <code>filters</code>, <code>window</code>, <code>min_count</code> (1-20).</td>
 </tr>
@@ -2229,7 +2237,7 @@ strict and non-recursive (no <code>$ref</code>, <code>null</code>, <code>minLeng
 </tr>
 <tr>
 <td><code>applies_when</code></td>
-<td>Documented facts that make a conditional step apply (<code>{"all_of": []}</code>: the whole population).</td>
+<td>Documented facts that make a conditional step apply; <code>{"all_of": []}</code> for a step that is not conditional (it applies to the whole population), or for a conditional step whose condition cannot be documented.</td>
 </tr>
 <tr>
 <td><code>not_applicable_when</code></td>
@@ -2434,7 +2442,11 @@ does not hold otherwise. Planned items never satisfy <code>performed</code>.</p>
 <a href="../workup-sql/#results-and-overrides">SQL agent</a> reports.</p>
 <p><code>applicability</code> is <code>applies</code> (no condition, or <code>applies_when</code> holds),
 <code>not_applicable</code> (documented contrary facts) or <code>uncertain</code> (the condition is not
-documented, or the facts conflict). Not applicable always needs documented facts.</p>
+documented, no item type can document it, or the facts conflict). Not applicable always needs documented facts.
+A step with an uncertain applicability still gets its status (whether the step was done), but it is left out of
+the completion fraction. Before query language v2 (2026-11-21) a condition no item type could document was
+dropped, so such steps applied to every patient; v2 queries are compiled anew (the cache key covers the language
+version).</p>
 <p>Each result also carries:</p>
 <ul>
 <li>a machine-made <code>bottom_line</code>, for example "Met: CT chest: CT (chest, abdomen, pelvis), with contrast, 2024-03-02
@@ -2464,7 +2476,7 @@ returns counts of distinct, cached, compiled and first-attempt-valid queries and
 select, unless <code>extensions</code> is passed. Distinct requirements are compiled once per call. Pass <code>cache</code> (any mapping,
 such as a dict or a folder of JSON files) to reuse compilations across calls. The key (<code>workup_query_cache_key</code>)
 covers the requirement's name, conditions and category, the population context, the extraction schema version and
-extensions, the query language version (<code>mmai-workup-query-v1</code>), and the prompt and response-schema hashes. Only
+extensions, the query language version (<code>mmai-workup-query-v2</code>), and the prompt and response-schema hashes. Only
 compiled queries are cached, and a cached query is validated again before use. Compiled queries contain guideline
 text only.</p>
 
@@ -2857,15 +2869,7 @@ criteria, <code>evidence</code> and <code>limitations</code>. Pure computation: 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_queries/evaluate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1155</span>
-<span class="normal">1156</span>
-<span class="normal">1157</span>
-<span class="normal">1158</span>
-<span class="normal">1159</span>
-<span class="normal">1160</span>
-<span class="normal">1161</span>
-<span class="normal">1162</span>
-<span class="normal">1163</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1163</span>
 <span class="normal">1164</span>
 <span class="normal">1165</span>
 <span class="normal">1166</span>
@@ -2919,7 +2923,15 @@ criteria, <code>evidence</code> and <code>limitations</code>. Pure computation: 
 <span class="normal">1214</span>
 <span class="normal">1215</span>
 <span class="normal">1216</span>
-<span class="normal">1217</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_workup_with_extractions</span><span class="p">(</span>
+<span class="normal">1217</span>
+<span class="normal">1218</span>
+<span class="normal">1219</span>
+<span class="normal">1220</span>
+<span class="normal">1221</span>
+<span class="normal">1222</span>
+<span class="normal">1223</span>
+<span class="normal">1224</span>
+<span class="normal">1225</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_workup_with_extractions</span><span class="p">(</span>
     <span class="n">records</span><span class="p">,</span>
     <span class="n">compiled</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3012,8 +3024,7 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_queries/evaluate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1004</span>
-<span class="normal">1005</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1005</span>
 <span class="normal">1006</span>
 <span class="normal">1007</span>
 <span class="normal">1008</span>
@@ -3117,7 +3128,15 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
 <span class="normal">1106</span>
 <span class="normal">1107</span>
 <span class="normal">1108</span>
-<span class="normal">1109</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">evaluate_workup_query</span><span class="p">(</span>
+<span class="normal">1109</span>
+<span class="normal">1110</span>
+<span class="normal">1111</span>
+<span class="normal">1112</span>
+<span class="normal">1113</span>
+<span class="normal">1114</span>
+<span class="normal">1115</span>
+<span class="normal">1116</span>
+<span class="normal">1117</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">evaluate_workup_query</span><span class="p">(</span>
     <span class="n">query</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">patient</span><span class="p">:</span> <span class="n">PatientData</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3158,6 +3177,11 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
                   <span class="n">criteria</span><span class="o">=</span><span class="p">{</span><span class="n">c</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]:</span> <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">query</span><span class="p">[</span><span class="s2">"criteria"</span><span class="p">]},</span>
                   <span class="n">types</span><span class="o">=</span><span class="p">{</span><span class="n">t</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">item_types</span><span class="p">(</span><span class="n">extensions</span><span class="p">)})</span>
     <span class="n">applies</span><span class="p">,</span> <span class="n">applies_groups</span> <span class="o">=</span> <span class="n">evaluate_expression</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">query</span><span class="p">[</span><span class="s2">"applies_when"</span><span class="p">])</span>
+    <span class="c1"># A conditional step whose condition no item can document applies to some patients only, so it is uncertain</span>
+    <span class="c1"># for every patient, never applying to the whole population.</span>
+    <span class="n">unexpressed</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">query</span><span class="p">[</span><span class="s2">"conditional"</span><span class="p">])</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">query</span><span class="p">[</span><span class="s2">"applies_when"</span><span class="p">][</span><span class="s2">"all_of"</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">unexpressed</span><span class="p">:</span>
+        <span class="n">applies</span> <span class="o">=</span> <span class="n">MAYBE</span>
     <span class="n">excluded</span><span class="p">,</span> <span class="n">excluded_groups</span> <span class="o">=</span> <span class="p">(</span>
         <span class="n">evaluate_expression</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">query</span><span class="p">[</span><span class="s2">"not_applicable_when"</span><span class="p">])</span>
         <span class="k">if</span> <span class="n">query</span><span class="p">[</span><span class="s2">"not_applicable_when"</span><span class="p">][</span><span class="s2">"all_of"</span><span class="p">]</span> <span class="k">else</span> <span class="p">(</span><span class="n">NO</span><span class="p">,</span> <span class="p">[])</span>
@@ -3172,7 +3196,9 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
         <span class="n">applicability</span> <span class="o">=</span> <span class="s2">"uncertain"</span>
     <span class="n">met</span><span class="p">,</span> <span class="n">groups</span> <span class="o">=</span> <span class="n">evaluate_expression</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">query</span><span class="p">[</span><span class="s2">"requirement"</span><span class="p">])</span>
     <span class="n">notes</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">if</span> <span class="n">applicability</span> <span class="o">==</span> <span class="s2">"uncertain"</span> <span class="ow">and</span> <span class="n">query</span><span class="p">[</span><span class="s2">"applies_when"</span><span class="p">][</span><span class="s2">"all_of"</span><span class="p">]</span> <span class="ow">and</span> <span class="n">applies</span> <span class="o">!=</span> <span class="n">YES</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">applicability</span> <span class="o">==</span> <span class="s2">"uncertain"</span> <span class="ow">and</span> <span class="n">unexpressed</span><span class="p">:</span>
+        <span class="n">notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Applicability uncertain: "</span> <span class="o">+</span> <span class="n">query</span><span class="p">[</span><span class="s2">"condition_not_expressible_reason"</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">"."</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"."</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">applicability</span> <span class="o">==</span> <span class="s2">"uncertain"</span> <span class="ow">and</span> <span class="n">query</span><span class="p">[</span><span class="s2">"applies_when"</span><span class="p">][</span><span class="s2">"all_of"</span><span class="p">]</span> <span class="ow">and</span> <span class="n">applies</span> <span class="o">!=</span> <span class="n">YES</span><span class="p">:</span>
         <span class="n">notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Applicability uncertain: "</span> <span class="o">+</span> <span class="s2">"; "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
             <span class="n">_explain</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">applies_groups</span><span class="p">,</span> <span class="n">MAYBE</span> <span class="k">if</span> <span class="n">applies</span> <span class="o">==</span> <span class="n">MAYBE</span> <span class="k">else</span> <span class="n">NO</span><span class="p">))</span> <span class="o">+</span> <span class="s2">"."</span><span class="p">)</span>
     <span class="k">elif</span> <span class="n">applicability</span> <span class="o">==</span> <span class="s2">"uncertain"</span><span class="p">:</span>
@@ -3247,19 +3273,7 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_queries/language.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">390</span>
-<span class="normal">391</span>
-<span class="normal">392</span>
-<span class="normal">393</span>
-<span class="normal">394</span>
-<span class="normal">395</span>
-<span class="normal">396</span>
-<span class="normal">397</span>
-<span class="normal">398</span>
-<span class="normal">399</span>
-<span class="normal">400</span>
-<span class="normal">401</span>
-<span class="normal">402</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">402</span>
 <span class="normal">403</span>
 <span class="normal">404</span>
 <span class="normal">405</span>
@@ -3372,7 +3386,37 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
 <span class="normal">512</span>
 <span class="normal">513</span>
 <span class="normal">514</span>
-<span class="normal">515</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_workup_query</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">extensions</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="normal">515</span>
+<span class="normal">516</span>
+<span class="normal">517</span>
+<span class="normal">518</span>
+<span class="normal">519</span>
+<span class="normal">520</span>
+<span class="normal">521</span>
+<span class="normal">522</span>
+<span class="normal">523</span>
+<span class="normal">524</span>
+<span class="normal">525</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span>
+<span class="normal">533</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_workup_query</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">extensions</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Every problem of ``query``, as messages a model can act on ([] when valid)."""</span>
     <span class="n">problems</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">_keys</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">_TOP</span><span class="p">,</span> <span class="s2">"query"</span><span class="p">,</span> <span class="n">problems</span><span class="p">):</span>
@@ -3392,6 +3436,24 @@ flattened <code>evidence</code> quotes (note id, note date, quote, character off
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">criteria</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">criteria</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">MAX_CRITERIA</span><span class="p">:</span>
         <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"criteria: must be a list of at most </span><span class="si">{</span><span class="n">MAX_CRITERIA</span><span class="si">}</span><span class="s2"> criteria"</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">problems</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">query</span><span class="p">[</span><span class="s2">"conditional"</span><span class="p">],</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"conditional: must be true or false"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">problems</span>
+    <span class="n">_string</span><span class="p">(</span><span class="n">query</span><span class="p">[</span><span class="s2">"condition_not_expressible_reason"</span><span class="p">],</span> <span class="s2">"condition_not_expressible_reason"</span><span class="p">,</span> <span class="n">problems</span><span class="p">)</span>
+    <span class="n">reason</span> <span class="o">=</span> <span class="n">query</span><span class="p">[</span><span class="s2">"condition_not_expressible_reason"</span><span class="p">]</span>
+    <span class="n">reason</span> <span class="o">=</span> <span class="n">reason</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reason</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="s2">""</span>
+    <span class="n">unconditioned</span> <span class="o">=</span> <span class="n">query</span><span class="p">[</span><span class="s2">"applies_when"</span><span class="p">]</span> <span class="o">==</span> <span class="p">{</span><span class="s2">"all_of"</span><span class="p">:</span> <span class="p">[]}</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">query</span><span class="p">[</span><span class="s2">"conditional"</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">unconditioned</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"applies_when: must be {</span><span class="se">\"</span><span class="s2">all_of</span><span class="se">\"</span><span class="s2">: []} when conditional is false (set conditional true "</span>
+                            <span class="s2">"for a step that applies to only some patients)"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">reason</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"condition_not_expressible_reason: must be '' when conditional is false"</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">unconditioned</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">reason</span><span class="p">:</span>
+        <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"condition_not_expressible_reason: a conditional step needs applies_when, or (when no "</span>
+                        <span class="s2">"item type can document the condition) a reason naming the condition"</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="ow">not</span> <span class="n">unconditioned</span> <span class="ow">and</span> <span class="n">reason</span><span class="p">:</span>
+        <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"condition_not_expressible_reason: must be '' when applies_when encodes the condition"</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">query</span><span class="p">[</span><span class="s2">"expressible"</span><span class="p">]:</span>
         <span class="k">if</span> <span class="n">criteria</span><span class="p">:</span>
             <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"criteria: must be [] when expressible is false"</span><span class="p">)</span>
@@ -3525,14 +3587,7 @@ unique and every reference resolves (:func:<code>validate_workup_query</code>).<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_queries/language.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">211</span>
-<span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span>
-<span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">218</span>
 <span class="normal">219</span>
 <span class="normal">220</span>
 <span class="normal">221</span>
@@ -3571,7 +3626,19 @@ unique and every reference resolves (:func:<code>validate_workup_query</code>).<
 <span class="normal">254</span>
 <span class="normal">255</span>
 <span class="normal">256</span>
-<span class="normal">257</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">query_response_schema</span><span class="p">(</span><span class="n">extensions</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">query_response_schema</span><span class="p">(</span><span class="n">extensions</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The JSON schema of a query, as a model writes it (strict, non-recursive).</span>
 
 <span class="sd">    Code checks what a schema cannot: that a field belongs to its item type, that</span>
@@ -3613,6 +3680,11 @@ unique and every reference resolves (:func:<code>validate_workup_query</code>).<
         <span class="s2">"not_expressible_reason"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">},</span>
         <span class="s2">"approximations"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"array"</span><span class="p">,</span> <span class="s2">"maxItems"</span><span class="p">:</span> <span class="n">MAX_APPROXIMATIONS</span><span class="p">,</span>
                            <span class="s2">"items"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}},</span>
+        <span class="s2">"conditional"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"boolean"</span><span class="p">,</span> <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Whether the step applies to only some patients of the "</span>
+                        <span class="s2">"population (a symptom, finding, stage, treatment or risk the guideline names)."</span><span class="p">},</span>
+        <span class="s2">"condition_not_expressible_reason"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">,</span> <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"For a conditional step whose "</span>
+                                             <span class="s2">"condition no item type can document: what the condition is and "</span>
+                                             <span class="s2">"why; else ''."</span><span class="p">},</span>
         <span class="s2">"criteria"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"array"</span><span class="p">,</span> <span class="s2">"maxItems"</span><span class="p">:</span> <span class="n">MAX_CRITERIA</span><span class="p">,</span> <span class="s2">"items"</span><span class="p">:</span> <span class="n">criterion</span><span class="p">},</span>
         <span class="s2">"applies_when"</span><span class="p">:</span> <span class="n">_expression</span><span class="p">(</span><span class="s2">"Documented facts showing the requirement applies."</span><span class="p">),</span>
         <span class="s2">"not_applicable_when"</span><span class="p">:</span> <span class="n">_expression</span><span class="p">(</span><span class="s2">"Documented facts showing it does not apply."</span><span class="p">),</span>
@@ -3693,15 +3765,7 @@ count says how many patients had the step anyway.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_queries/evaluate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1220</span>
-<span class="normal">1221</span>
-<span class="normal">1222</span>
-<span class="normal">1223</span>
-<span class="normal">1224</span>
-<span class="normal">1225</span>
-<span class="normal">1226</span>
-<span class="normal">1227</span>
-<span class="normal">1228</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1228</span>
 <span class="normal">1229</span>
 <span class="normal">1230</span>
 <span class="normal">1231</span>
@@ -3739,7 +3803,15 @@ count says how many patients had the step anyway.</p>
 <span class="normal">1263</span>
 <span class="normal">1264</span>
 <span class="normal">1265</span>
-<span class="normal">1266</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">aggregate_extraction_workup</span><span class="p">(</span><span class="n">reviews</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">requirements</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="normal">1266</span>
+<span class="normal">1267</span>
+<span class="normal">1268</span>
+<span class="normal">1269</span>
+<span class="normal">1270</span>
+<span class="normal">1271</span>
+<span class="normal">1272</span>
+<span class="normal">1273</span>
+<span class="normal">1274</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">aggregate_extraction_workup</span><span class="p">(</span><span class="n">reviews</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">requirements</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Counts per requirement: statuses, applicability, reasons, and met among applicable.</span>
 
 <span class="sd">    ``completed_applicable / applicable_assessed`` is met / (met + not met) among</span>
