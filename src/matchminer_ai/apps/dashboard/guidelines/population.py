@@ -381,7 +381,28 @@ class PopulationInference:
     def __init__(self, settings):
         self.settings = settings
 
-    def retrieve(self, source, paths, space_id, candidate_k, min_reasonableness, progress):
+    def embed(self, cohort, progress):
+        """The cohort's TrialSpace vectors, made once when it is loaded so every guideline-space search reuses them
+        (None when embedding fails: the search then embeds the patients itself)."""
+        import torch
+
+        torch.set_num_threads(8)
+        from matchminer_ai.matching import embed_guideline_patients
+
+        if cohort.summaries.empty:
+            return None
+        progress(f"Embedding {len(cohort.summaries)} patient summaries with TrialSpace")
+        try:
+            return embed_guideline_patients(cohort.summaries, config=self.settings.inference_config(),
+                                            progress_callback=progress)
+        except InputError:
+            raise
+        except Exception:
+            check_cancelled()  # a stop still stops; an encoder failure leaves the search to embed
+            progress("TrialSpace embedding failed; patients will be embedded when they are searched")
+            return None
+
+    def retrieve(self, source, paths, space_id, candidate_k, min_reasonableness, progress, embeddings=None):
         import torch
 
         torch.set_num_threads(8)
@@ -403,7 +424,7 @@ class PopulationInference:
             min_reasonableness=min_reasonableness,
             config=self.settings.inference_config(),
             progress_callback=progress,
-            patient_embeddings=cache and cache.embeddings,
+            patient_embeddings=cache.embeddings if cache is not None else embeddings,
         )
         ids = selected.patient_id.tolist()
         active = subset_patient_cohort(
@@ -542,14 +563,19 @@ class PopulationSessions:
                 entry["updated"] = time.monotonic()
             return entry
 
-    def save(self, owner, source, active=None, *, expected=None):
+    def save(self, owner, source, active=None, *, expected=None, embeddings=None):
+        """Save the session's source population and active cohort. ``embeddings``: the source's TrialSpace vectors
+        (``PopulationInference.embed``); a later stage of the same source (``expected``) keeps them."""
         with self.lock:
             check_cancelled()
             if expected is not None and self.entries.get(owner) is not expected:
                 raise InputError("The population changed; reload the view before retrying.")
+            if expected is not None and embeddings is None:
+                embeddings = expected.get("embeddings")
             self.entries[owner] = {
                 "source": source,
                 "active": active,
+                "embeddings": embeddings,
                 "updated": time.monotonic(),
                 "version": secrets.token_urlsafe(12),
             }
@@ -570,6 +596,8 @@ class PopulationSessions:
             "source_count": len(source.summaries),
             "source_note_count": source.provenance["note_count"] if on_demand else len(source.notes),
             "notes_on_demand": on_demand,
+            # Searches reuse vectors made at load (a population cache has its own).
+            "embedded": on_demand or entry.get("embeddings") is not None,
             "provenance": source.provenance,
             "active": None
             if active is None

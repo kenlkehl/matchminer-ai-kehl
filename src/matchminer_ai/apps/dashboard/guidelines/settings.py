@@ -109,7 +109,9 @@ CLAUDE_EFFORT = "medium"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
 CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
+# The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
+QUERY_WRITERS = ("workup_query_compile", "workup_sql_agent")
 
 
 def databricks_profile():
@@ -138,6 +140,17 @@ def claude_backends():
     }}
 
 
+def default_task_connections() -> dict:
+    """The app's per-task defaults besides the default connection: query writing with Claude Sonnet 5.5 through the
+    gateway (user, 2026-11-21) when the site config names the gateway and a Sonnet endpoint."""
+    profile = claude_backends()["claude_databricks"]
+    sonnet = profile["models"].get("sonnet")
+    if not (connections.databricks_host() and sonnet):
+        return {}
+    return {SQL_TASK: {"llm_backend": "claude_databricks", "endpoint": profile["endpoint"], "model": sonnet,
+                       "tokenizer": profile["tokenizer"]}}
+
+
 def default_backend() -> str:
     """Claude Haiku 5.5 through the gateway when the site config names the gateway and a Haiku endpoint (user,
     2026-11-21), else Gemini 4 Hydrogen on Vertex."""
@@ -149,7 +162,7 @@ LLM_TASKS = {
     "summarize": "Patient summarization",
     "compress": "Note compression",
     "workup": "Guideline concordance checks",
-    SQL_TASK: "Guideline concordance checks: SQL agent",
+    SQL_TASK: "Guideline concordance checks: query writing (compiled queries and SQL agent)",
     "workup_full_backup": "Guideline concordance checks: Full note backup",
     "workup_agent_backup": "Guideline concordance checks: Agent backup",
     "good_option": "GoodOption checks",
@@ -250,10 +263,12 @@ class Settings:
     def extraction_config(self):
         """The inference configuration for extraction-based workup checks.
 
-        This connection serves the query compile step and on-demand document and
-        patient extraction (their preset sections, with its endpoint, model and
-        thinking switch). The SQL workup agent uses the SQL-agent task's connection,
-        which is this one until set, and may be Claude through Databricks.
+        This connection serves on-demand document and patient extraction (their
+        preset sections, with its endpoint, model and thinking switch). The query
+        writers, the compile step of extraction queries and the SQL workup agent,
+        use the query-writing task's connection (``SQL_TASK``), which is this one
+        until set (the app sets Claude Sonnet 5.5 through the gateway; user,
+        2026-11-21).
         Hosted Vertex models answer free JSON that the package validates and
         retries, instead of vLLM structured outputs; the SQL agent's small action
         schema keeps JSON-schema responses there too.
@@ -261,10 +276,11 @@ class Settings:
         c = self.inference_config()
         # On-demand extraction sends one request per note; let several run at once.
         c.remote["max_concurrent_requests"] = 8
-        for name in ("document_extraction", "patient_extraction", "workup_query_compile"):
+        for name in ("document_extraction", "patient_extraction"):
             self._connect_section(getattr(c, name), name)
-        self.for_task(SQL_TASK)._connect_section(c.workup_sql_agent, "workup_sql_agent",
-                                                 own_connection=True)
+        writer = self.for_task(SQL_TASK)
+        for name in ("workup_query_compile", "workup_sql_agent"):
+            writer._connect_section(getattr(c, name), name, own_connection=True)
         return c
 
     def _connect_section(self, section, name, *, own_connection=False):
@@ -277,7 +293,7 @@ class Settings:
         local = dict(section.get("local", {}))
         if self.llm_backend in CLAUDE_BACKENDS:
             profile = claude_backends()[self.llm_backend]
-            effort = CLAUDE_SQL_EFFORT if name == "workup_sql_agent" else CLAUDE_EFFORT
+            effort = CLAUDE_SQL_EFFORT if name in QUERY_WRITERS else CLAUDE_EFFORT
             remote.update(
                 provider="databricks_anthropic", server_urls=[profile["endpoint"]],
                 databricks_profile=databricks_profile(), model_name=self.model,
@@ -288,6 +304,7 @@ class Settings:
             )
             local["chat_template_kwargs"] = {}
             local["engine"] = {**local.get("engine", {}), "max_model_len": CLAUDE_CONTEXT}
+            local["chat_template_kwargs"] = {}
             # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
             section.update(structured_outputs=True, reasoning_effort=effort, sampling_profile="none")
         elif self.llm_backend in VERTEX_BACKENDS:

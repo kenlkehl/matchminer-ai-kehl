@@ -189,12 +189,12 @@ def guideline_settings(dash: "DashSettings", decision_model: dict | None = None)
     """The guideline features' settings (``guidelines.settings.Settings``) for the app: real mode reads real
     patients; the default model connection is the app's (``--llm-*``); TrialSpace and the decision model run on
     the app's device with the app's decision model (``decision_model``: its preset section)."""
-    from .guidelines.settings import LOCAL, Settings as GuidelineSettings
+    from .guidelines.settings import LOCAL, Settings as GuidelineSettings, default_task_connections
 
     backend = LOCAL if dash.llm_backend == "openai" else dash.llm_backend
     return GuidelineSettings(phi=dash.real, llm_backend=backend, endpoint=dash.llm_endpoint or "http://localhost:8000/v1",
                              model=dash.llm_model, tokenizer=dash.llm_tokenizer or dash.llm_model, device=dash.device,
-                             decision_model=dict(decision_model or {}))
+                             decision_model=dict(decision_model or {}), task_connections=default_task_connections())
 
 
 def default_device() -> tuple[str, str | None]:

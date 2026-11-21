@@ -40,7 +40,11 @@ def tables(client):
 @pytest.fixture
 def harness(tmp_path, monkeypatch, make_client):
     catalog(tmp_path)
-    calls = {"retrieval": [], "compression": [], "review": []}
+    calls = {"retrieval": [], "compression": [], "review": [], "embedded": []}
+
+    def embed(summaries, *, config=None, progress_callback=None, **kwargs):
+        calls["embedded"].append(len(summaries))
+        return "fabricated vectors"
 
     def retrieve(summaries, paths, **kwargs):
         calls["retrieval"].append(kwargs)
@@ -86,6 +90,7 @@ def harness(tmp_path, monkeypatch, make_client):
             "notice": "Synthetic review",
         }
 
+    monkeypatch.setattr("matchminer_ai.matching.embed_guideline_patients", embed)
     monkeypatch.setattr("matchminer_ai.matching.retrieve_guideline_patients", retrieve)
     monkeypatch.setattr("matchminer_ai.patients.compress_patient_notes", compress)
     monkeypatch.setattr("matchminer_ai.patients.review_patient_workup", review)
@@ -117,6 +122,9 @@ def test_full_workflow_restore_drilldown_download_and_isolation(harness):
     other = peer(client)
     loaded = selected(client)
     assert loaded["active"]["patient_count"] == 2
+    # The population is embedded once, when it loads, and the search reuses those vectors.
+    assert calls["embedded"] == [2] and loaded["embedded"]
+    assert calls["retrieval"][-1]["patient_embeddings"] == "fabricated vectors"
 
     def v():
         return {"version": client.get("/api/population").json()["population"]["version"]}
@@ -167,8 +175,8 @@ def test_full_workflow_restore_drilldown_download_and_isolation(harness):
     response = other.post(
         "/api/population/import", files={"file": ("cohort.zip", archive.content)}
     )
-    assert response.status_code == 200, response.text
-    restored = response.json()["population"]
+    assert response.status_code == 202, response.text  # a job: read the archive, then embed its patients
+    restored = wait(other, response.json()["job"]["id"])["result"]
     assert restored["active"]["space"]["cohort_key_criteria"] == SPACE["cohort_key_criteria"]
     assert restored["active"]["report"]["aggregate"] == current["active"]["report"]["aggregate"]
     job(other, "/api/population/review", {"version": restored["version"]})

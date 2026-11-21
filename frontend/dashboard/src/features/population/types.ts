@@ -130,6 +130,8 @@ export interface PopulationView {
   source_count: number;
   source_note_count: number;
   notes_on_demand: boolean;
+  /** Whether the patients are already embedded with TrialSpace (made when the population loads). */
+  embedded?: boolean;
   provenance: { cache?: { name?: string }; database?: { name?: string }; [key: string]: unknown };
   active: ActiveCohort | null;
 }

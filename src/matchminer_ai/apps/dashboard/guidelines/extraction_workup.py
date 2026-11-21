@@ -120,8 +120,14 @@ class QueryCache:
             raise
 
 
-def query_cache(settings):
-    return QueryCache(Path(settings.cache) / "workup_queries")
+def query_cache(settings, config=None):
+    """Compiled extraction queries, cached across sessions, apart for each model that writes them (``config``'s
+    ``workup_query_compile`` model): another writer compiles its own."""
+    root = Path(settings.cache) / "workup_queries"
+    if config is not None:
+        model = str((config.workup_query_compile.get("remote") or {}).get("model_name") or "")
+        root = root / f"writer-{hashlib.sha256(model.encode()).hexdigest()[:16]}"
+    return QueryCache(root)
 
 
 def population_context(space):
@@ -136,7 +142,7 @@ def cached_query_count(space, settings, config):
         workup_query_cache_key,
     )
 
-    cache = query_cache(settings)
+    cache = query_cache(settings, config)
     contract = compile_contract(default_extensions(config))
     keys = {
         workup_query_cache_key(item, population_context(space), contract=contract)
@@ -154,7 +160,7 @@ def compile_space_queries(space, settings, config, progress):
         raise InputError("This space has no cataloged diagnostic/workup items.")
     compiled, metadata = patients.compile_workup_queries(
         items, config=config, population_context=population_context(space),
-        cache=query_cache(settings), return_metadata=True,
+        cache=query_cache(settings, config), return_metadata=True,
         progress_callback=lambda done, total: progress(
             f"Compiling workup queries · {done}/{total} ready"),
     )

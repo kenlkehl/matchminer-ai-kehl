@@ -243,7 +243,7 @@ def test_population_review_with_extraction_queries(population_app, backend, phi)
     # Compiled queries are cached on disk: a second check sends no request.
     job(client, "/api/population/review", {**version, "method": "extraction_queries"})
     assert backend.requests == 1
-    assert list((settings.cache / "workup_queries").glob("*.json"))
+    assert list((settings.cache / "workup_queries").glob("writer-*/*.json"))  # one folder per writing model
     # A full-note review stays available as the other method.
     outside = client.post("/api/population/review", json={
         "version": client.get("/api/population").json()["population"]["version"],

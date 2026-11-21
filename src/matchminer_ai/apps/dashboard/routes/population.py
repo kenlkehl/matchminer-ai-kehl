@@ -1,7 +1,6 @@
 """The Population tab: a browser session's patient population, its guideline-space cohort and the concordance
 review (``guidelines.population``). Real mode adds the population cache and DuckDB sources."""
 
-import asyncio
 import json
 import shutil
 import tempfile
@@ -174,11 +173,13 @@ def router(g: GuidelineState) -> APIRouter:
         if settings.phi:
             resolve_database(settings, database)
 
+        worker = PopulationInference(current_settings(owner))
+
         def run(progress):
             cohort = load_population_sample(
                 settings, body.size, body.seed, progress, database=database
             )
-            return sessions.save(owner, cohort)
+            return sessions.save(owner, cohort, embeddings=worker.embed(cohort, progress))
 
         return submit(owner, "population-sample", run)
 
@@ -197,6 +198,8 @@ def router(g: GuidelineState) -> APIRouter:
         if len(a) + len(b) > settings.population_upload_limit:
             raise InputError("Combined cohort tables exceed the 512 MB upload limit.")
 
+        worker = PopulationInference(current_settings(owner))
+
         def run(progress):
             from matchminer_ai.population import create_patient_cohort
 
@@ -212,41 +215,52 @@ def router(g: GuidelineState) -> APIRouter:
                 raise InputError(
                     "Invalid cohort tables. Check unique patient IDs, matching notes, text and dates."
                 ) from None
-            return sessions.save(owner, cohort)
+            return sessions.save(owner, cohort, embeddings=worker.embed(cohort, progress))
 
         return submit(owner, "population-tables", run)
 
-    @api.post("/api/population/import")
+    @api.post("/api/population/import", status_code=202)
     async def restore(request: Request, file: UploadFile = File(...)):
+        """Restore an exported cohort archive, then embed it (a job; the upload is streamed to a private temporary
+        folder first, which the job removes)."""
         from matchminer_ai.population import load_patient_cohort
 
         owner = session_owner(request)
         idle(owner)
+        folder = Path(tempfile.mkdtemp(prefix="guideline-cohort-import-"))
+        path = folder / "cohort.zip"
         try:
-            with tempfile.TemporaryDirectory(prefix="guideline-cohort-import-") as tmp:
-                path = Path(tmp) / "cohort.zip"
-                size = 0
-                with path.open("wb") as output:
-                    while block := await file.read(1024 * 1024):
-                        size += len(block)
-                        if size > settings.population_archive_limit:
-                            raise InputError(
-                                "Cohort archive exceeds the configured archive upload limit."
-                            )
-                        output.write(block)
-                try:
-                    cohort = await asyncio.to_thread(load_patient_cohort, path)
-                except Exception:
-                    raise InputError(
-                        "Invalid or incompatible cohort archive. Export a fresh cohort file."
-                    ) from None
-            with jobs.lock:
-                idle(owner)
-                return {
-                    "population": sessions.save(owner, cohort, cohort if cohort.space else None)
-                }
+            size = 0
+            with path.open("wb") as output:
+                while block := await file.read(1024 * 1024):
+                    size += len(block)
+                    if size > settings.population_archive_limit:
+                        raise InputError("Cohort archive exceeds the configured archive upload limit.")
+                    output.write(block)
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
         finally:
             await file.close()
+        worker = PopulationInference(current_settings(owner))
+
+        def run(progress):
+            try:
+                progress("Reading the cohort archive")
+                try:
+                    cohort = load_patient_cohort(path)
+                except Exception:
+                    raise InputError("Invalid or incompatible cohort archive. Export a fresh cohort file.") from None
+            finally:
+                shutil.rmtree(folder, ignore_errors=True)
+            embeddings = worker.embed(cohort, progress)
+            return sessions.save(owner, cohort, cohort if cohort.space else None, embeddings=embeddings)
+
+        try:
+            return submit(owner, "population-import", run)
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
 
     @api.post("/api/population/retrieve", status_code=202)
     def retrieve(body: PopulationSearch, request: Request):
@@ -263,6 +277,7 @@ def router(g: GuidelineState) -> APIRouter:
                 body.candidate_k,
                 body.min_reasonableness,
                 progress,
+                embeddings=entry.get("embeddings"),
             )
             return sessions.save(owner, entry["source"], active, expected=entry)
 

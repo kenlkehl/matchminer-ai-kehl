@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, type Mode } from "@/lib/api";
+import type { Mode } from "@/lib/api";
 
 import { BrowseDialog, type BrowseKind } from "./browse-dialog";
 import { CheckStatus, Fold, Helper, LabeledField, Step, usePathCheck } from "./controls";
@@ -334,13 +334,8 @@ function OwnCohort({ pop }: { pop: PopulationController }) {
             pop.setError("Choose an exported cohort ZIP.");
             return;
           }
-          void pop
-            .request(() =>
-              api.upload<{ population: PopulationView }>("/api/population/import", { file }),
-            )
-            .then((imported) => {
-              if (imported) pop.apply(imported.population);
-            });
+          // A job: the archive is read, then its patients are embedded for the searches.
+          void pop.start("/api/population/import", undefined, { file });
         }}
       >
         <LabeledField label="Restore an exported cohort" htmlFor="pop-archive">
