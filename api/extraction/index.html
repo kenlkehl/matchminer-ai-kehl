@@ -1778,6 +1778,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#schema-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema versions
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2416,6 +2427,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#schema-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema versions
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2495,7 +2517,7 @@ stays unknown and an unparseable one is an error. Rows without text are dropped.
 lists each patient's known diagnoses (<code>D1</code>, <code>D2</code>, ...) in its prompts so that
 items can name the cancer they concern (<code>cancer_ids</code>).</p>
 <h2 id="records">Records<a class="headerlink" href="#records" title="Permanent link">&para;</a></h2>
-<p>Every record carries <code>schema_version</code> (<code>mmai-clinical-extraction-v2</code>), its <code>level</code>, <code>patient_id</code>, the selected
+<p>Every record carries <code>schema_version</code> (<code>mmai-clinical-extraction-v3</code>), its <code>level</code>, <code>patient_id</code>, the selected
 <code>extensions</code>, and <code>items</code>: one list per item type. A document record adds <code>note_id</code>, <code>note_date</code>, <code>note_type</code>,
 <code>document_type</code> and <code>document_type_text</code>; a patient record adds <code>note_count</code>, <code>first_note_date</code>,
 <code>last_note_date</code>, <code>chunk_count</code> and <code>failed_chunks</code>, and gives each item an <code>item_id</code> (<code>D1</code>, <code>B2</code>, <code>T3</code>, ...).
@@ -2568,7 +2590,7 @@ checks treat those types as not extracted for such records, so an empty list the
 <td><code>disease_assessments</code></td>
 <td><code>disease_assessment</code></td>
 <td>document</td>
-<td><code>disease_status</code>, <code>disease_sites</code></td>
+<td><code>disease_status</code> (no evidence of disease, response, stable, mixed, progression, present without a comparison, indeterminate), <code>disease_sites</code>, <code>site_groups</code> (coded groups of those sites)</td>
 </tr>
 <tr>
 <td><code>performance_status</code></td>
@@ -2943,8 +2965,7 @@ item-specific validation and returns problem messages.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/matchminer_ai/patients/extraction/schema.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 77</span>
-<span class="normal"> 78</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 78</span>
 <span class="normal"> 79</span>
 <span class="normal"> 80</span>
 <span class="normal"> 81</span>
@@ -2988,7 +3009,8 @@ item-specific validation and returns problem messages.</p>
 <span class="normal">119</span>
 <span class="normal">120</span>
 <span class="normal">121</span>
-<span class="normal">122</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="normal">122</span>
+<span class="normal">123</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">ItemType</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""One kind of extracted item.</span>
 
@@ -3091,8 +3113,7 @@ must name the value when the <code>other</code> code is chosen.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/matchminer_ai/patients/extraction/schema.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">52</span>
-<span class="normal">53</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">53</span>
 <span class="normal">54</span>
 <span class="normal">55</span>
 <span class="normal">56</span>
@@ -3113,7 +3134,8 @@ must name the value when the <code>other</code> code is chosen.</p>
 <span class="normal">71</span>
 <span class="normal">72</span>
 <span class="normal">73</span>
-<span class="normal">74</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="normal">74</span>
+<span class="normal">75</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Field</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""One field of an item type.</span>
 
@@ -5179,17 +5201,7 @@ complete <code>item</code> dict. Failed records (None) contribute no rows.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/schema.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">737</span>
-<span class="normal">738</span>
-<span class="normal">739</span>
-<span class="normal">740</span>
-<span class="normal">741</span>
-<span class="normal">742</span>
-<span class="normal">743</span>
-<span class="normal">744</span>
-<span class="normal">745</span>
-<span class="normal">746</span>
-<span class="normal">747</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">747</span>
 <span class="normal">748</span>
 <span class="normal">749</span>
 <span class="normal">750</span>
@@ -5211,7 +5223,17 @@ complete <code>item</code> dict. Failed records (None) contribute no rows.</p>
 <span class="normal">766</span>
 <span class="normal">767</span>
 <span class="normal">768</span>
-<span class="normal">769</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">record_json_schema</span><span class="p">(</span><span class="n">level</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">extra</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">ItemType</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">record_json_schema</span><span class="p">(</span><span class="n">level</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">extra</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">ItemType</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The JSON schema of the records :func:`extract_document_records` (``level``</span>
 <span class="sd">    ``"document"``) or :func:`extract_patient_records` (``"patient"``) return."""</span>
     <span class="n">items</span> <span class="o">=</span> <span class="p">{</span>
@@ -5268,24 +5290,24 @@ complete <code>item</code> dict. Failed records (None) contribute no rows.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/schema.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">633</span>
-<span class="normal">634</span>
-<span class="normal">635</span>
-<span class="normal">636</span>
-<span class="normal">637</span>
-<span class="normal">638</span>
-<span class="normal">639</span>
-<span class="normal">640</span>
-<span class="normal">641</span>
-<span class="normal">642</span>
-<span class="normal">643</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">643</span>
 <span class="normal">644</span>
 <span class="normal">645</span>
 <span class="normal">646</span>
 <span class="normal">647</span>
 <span class="normal">648</span>
 <span class="normal">649</span>
-<span class="normal">650</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">document_response_schema</span><span class="p">(</span>
+<span class="normal">650</span>
+<span class="normal">651</span>
+<span class="normal">652</span>
+<span class="normal">653</span>
+<span class="normal">654</span>
+<span class="normal">655</span>
+<span class="normal">656</span>
+<span class="normal">657</span>
+<span class="normal">658</span>
+<span class="normal">659</span>
+<span class="normal">660</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">document_response_schema</span><span class="p">(</span>
     <span class="n">extra</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">ItemType</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span> <span class="o">*</span><span class="p">,</span> <span class="n">linking</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The JSON schema of the model's answer for one document."""</span>
@@ -5328,18 +5350,18 @@ the new and changed items, by type.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/schema.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">653</span>
-<span class="normal">654</span>
-<span class="normal">655</span>
-<span class="normal">656</span>
-<span class="normal">657</span>
-<span class="normal">658</span>
-<span class="normal">659</span>
-<span class="normal">660</span>
-<span class="normal">661</span>
-<span class="normal">662</span>
-<span class="normal">663</span>
-<span class="normal">664</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">patient_response_schema</span><span class="p">(</span><span class="n">extra</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">ItemType</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">663</span>
+<span class="normal">664</span>
+<span class="normal">665</span>
+<span class="normal">666</span>
+<span class="normal">667</span>
+<span class="normal">668</span>
+<span class="normal">669</span>
+<span class="normal">670</span>
+<span class="normal">671</span>
+<span class="normal">672</span>
+<span class="normal">673</span>
+<span class="normal">674</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">patient_response_schema</span><span class="p">(</span><span class="n">extra</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">ItemType</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The JSON schema of the model's answer for one part of a patient's notes:</span>
 <span class="sd">    the new and changed items, by type."""</span>
     <span class="n">properties</span> <span class="o">=</span> <span class="p">{</span>
@@ -5409,7 +5431,16 @@ item type's name, list key or id prefix.</p>
 
     </div>
 
-</div>
+</div><h2 id="schema-versions">Schema versions<a class="headerlink" href="#schema-versions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>v2 (2026-11-17):</strong> added lab tests and counseling.</li>
+<li><strong>v3 (2026-11-21):</strong></li>
+<li>Disease assessments gained the <code>present</code> status (cancer present, no comparison with an earlier time) and
+    <code>site_groups</code>, coded groups of the sites with cancer.</li>
+<li>The document prompt asks every imaging report read for cancer, and every oncology clinic or hospital note that
+    assesses it, for an assessment of each cancer.</li>
+<li>Records of earlier versions have neither, so a query on them reads <code>site_groups</code> as not stated.</li>
+</ul>
 
 
 
