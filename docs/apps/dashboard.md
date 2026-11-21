@@ -125,8 +125,12 @@ with `patient_summary` (`mrn`, `patient_summary`, `patient_boilerplate`, `is_cur
   - or Claude through the site's Databricks gateway (`--claude haiku`): the limit starts at 32 and grows to
     `--concurrency` while requests succeed, halving on rate limits or dropped connections. Each request's status and
     token counts (never content) go to `<output>.gateway_requests.jsonl`, totaled in the store's manifest;
-    `python -m matchminer_ai.llm.gateway_usage <log> --rates <input>,<output>` reports tokens, cache reads,
-    throughput, latency, the concurrency over time, when rate limits began, and the cost.
+    `python -m matchminer_ai.llm.gateway_usage <log> --rates <input>,<output> --long-rates <input>,<output>
+    --discount <fraction>` reports tokens, cache reads, throughput, latency, the concurrency over time, when rate limits
+    began, and the cost, each request priced in its own band (prompts over 100,000 tokens at the long rates).
+  - Patient-level prompts through Claude stay under a budget (85,000 tokens for the notes and the record so far): each
+    request takes only the notes that fit beside the record, so long histories need more, smaller requests rather than
+    prompts in Haiku's long-prompt price band. Only a record too large to fit with any note goes over.
 
 Both read `MMAI_SITE_CONFIG` and `MMAI_DATA_ROOT`. `examples/guidelines/` has workup spot checks and benchmarks on
 synthetic notes.

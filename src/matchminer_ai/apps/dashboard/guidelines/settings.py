@@ -107,6 +107,9 @@ CLAUDE_SQL_EFFORT = "high"
 # Every other task: Haiku 5.5's default effort (the OA summarization test of 2026-11-20 ran at it).
 CLAUDE_EFFORT = "medium"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
+#: Patient-level extraction prompts through Claude: their budget and Claude's tokens per chunk-tokenizer token.
+CLAUDE_PATIENT_PROMPT_TOKENS = 85_000
+CLAUDE_TOKEN_RATIO = 1.6
 CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
@@ -314,6 +317,11 @@ class Settings:
             local["chat_template_kwargs"] = {}
             # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
             section.update(structured_outputs=True, reasoning_effort=effort, sampling_profile="none")
+            if name == "patient_extraction":
+                # Haiku 5.5 bills a prompt over 100,000 tokens at five times the rate (user, 2026-11-21: keep
+                # patient-level prompts under it): 85,000 for the notes and record, leaving room for the response
+                # schema (input too, about 8,000), at about 1.6 Claude tokens per chunk-tokenizer token (measured).
+                section.update(prompt_tokens=CLAUDE_PATIENT_PROMPT_TOKENS, prompt_token_ratio=CLAUDE_TOKEN_RATIO)
         elif self.llm_backend in VERTEX_BACKENDS:
             backend = self.llm_backend
             profile = vertex_profiles()[backend]

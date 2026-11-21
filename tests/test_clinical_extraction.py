@@ -545,3 +545,30 @@ def test_remote_extraction_keeps_the_request_cap_in_flight():
     assert shape("patient_extraction", server_urls=[], server_urls_file="/registry.json",
                  max_concurrent_requests=300) == (64, 2)
     assert shape("patient_extraction", enabled=False) == (64, 2)
+
+
+def test_patient_prompt_budget_keeps_every_prompt_under_it(config, monkeypatch, tmp_path):
+    words = WordTokenizer()
+    notes = pd.DataFrame([{"patient_id": "p1", "note_text": " ".join(f"word{n}x{i}" for i in range(150)),
+                           "note_date": f"2024-0{n + 1}-01", "note_type": "Visit"} for n in range(6)])
+    probe = {**config.patient_extraction, "chunk_tokens": 2000, "chunk_overlap_tokens": 10}
+    config.patient_extraction = probe
+    # The fixed prompt without notes, in words, plus room for about two notes per request.
+    from matchminer_ai.llm.prompts import load_prompt_text
+    from matchminer_ai.patients.extraction.common import fill
+
+    template = load_prompt_text("patient.extraction.patient.txt")
+    empty = fill(template, {"field_guide": s.render_field_guide("patient", ()), "extension_guidance": "",
+                            "record": "(none yet)", "part": "1", "parts": "1", "notes": ""})
+    budget = len(words(empty)["input_ids"]) + 400
+    config.patient_extraction = {**probe, "prompt_tokens": budget, "fragment_tokens": 100}
+    backend = FakeBackend({"PART": [_patient_answer()]})
+    install(monkeypatch, backend)
+    result, metadata = extract_patient_records(notes, config=config, return_metadata=True, checkpoint_dir=tmp_path)
+    prompts = ["\n".join(m["content"] for m in p.messages) for call in backend.calls for p in call[0]]
+    assert len(prompts) >= 3 and result.iloc[0]["extraction_status"] == "complete"
+    assert all(len(words(p)["input_ids"]) <= budget for p in prompts)
+    # Every note is in some request, in order, and the last part says so.
+    assert all(any(f"word{n}x0 " in p for p in prompts) for n in range(6))
+    assert metadata["counts"]["over_budget_requests"] == 0 and result.iloc[0]["chunk_count"] == len(prompts)
+    assert f"PART {len(prompts)} OF {len(prompts)}" in prompts[-1]

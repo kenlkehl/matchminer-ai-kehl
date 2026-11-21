@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from collections.abc import Callable
 from functools import lru_cache
@@ -42,7 +43,7 @@ from .common import (
 )
 from .evidence import evidence_entry, locate_quote
 from .extensions import extension_guidance, extension_item_types, resolve_extensions
-from .notes import normalize_notes, note_fragments, pack_fragments, patient_note_list, render_chunk
+from .notes import HEADER_TOKENS, normalize_notes, note_fragments, pack_fragments, patient_note_list, render_chunk
 from .schema import (
     SCHEMA_VERSION,
     Problem,
@@ -291,6 +292,20 @@ def extract_patient_records(
         raise ValueError(f"{SECTION}.chunk_tokens must be an integer of at least 256")
     if type(overlap) is not int or not 0 <= overlap < chunk_tokens // 2:
         raise ValueError(f"{SECTION}.chunk_overlap_tokens must be from 0 to half of chunk_tokens")
+    # A prompt budget (prompt_tokens, in the model's tokens; prompt_token_ratio of them per chunk-tokenizer token):
+    # each request then takes only the next note fragments that fit beside the record so far, so a growing record
+    # does not push prompts past it (Claude Haiku 5.5 costs five times as much above 100,000 prompt tokens).
+    prompt_tokens = values.get("prompt_tokens")
+    ratio = values.get("prompt_token_ratio", 1.0)
+    fragment_tokens = values.get("fragment_tokens", 8000)
+    if prompt_tokens is not None and (type(prompt_tokens) is not int or prompt_tokens < 1024):
+        raise ValueError(f"{SECTION}.prompt_tokens must be null or an integer of at least 1024")
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0.1 <= ratio <= 10:
+        raise ValueError(f"{SECTION}.prompt_token_ratio must be a number from 0.1 to 10")
+    if type(fragment_tokens) is not int or fragment_tokens <= 2 * overlap:
+        raise ValueError(f"{SECTION}.fragment_tokens must be an integer above twice chunk_overlap_tokens")
+    budget = None if prompt_tokens is None else int(prompt_tokens / ratio)
+    fragment_size = chunk_tokens - 64 if budget is None else min(chunk_tokens - 64, fragment_tokens)
     context = values.get("context_tokens")
     if context is None:
         context = values.get("local", {}).get("engine", {}).get("max_model_len")
@@ -320,6 +335,7 @@ def extract_patient_records(
         pid: digest({
             "notes": [[n["note_id"], n["note_date"], n["note_type"], digest(n["text"])] for n in ns],
             "chunk_tokens": chunk_tokens, "overlap": overlap, "tokenizer": tokenizer_name,
+            **({"prompt_budget": budget, "fragment_tokens": fragment_size} if budget is not None else {}),
         })
         for pid, ns in patients.items()
     }
@@ -342,7 +358,8 @@ def extract_patient_records(
                 "state": PatientState.from_json(item_types, saved["state"]),
                 "next_chunk": saved["next_chunk"], "chunk_count": saved["chunk_count"],
                 "failed_chunks": saved["failed_chunks"], "dropped": saved["dropped"],
-                "attempts": saved["attempts"],
+                "attempts": saved["attempts"], "next_fragment": saved.get("next_fragment", 0),
+                "over_budget": saved.get("over_budget", 0),
                 "status": "running" if saved["status"] == "failed" else saved["status"],
                 "error": None, "path": path,
             }
@@ -350,17 +367,31 @@ def extract_patient_records(
             states[pid] = {
                 "state": PatientState(item_types), "next_chunk": 0, "chunk_count": None,
                 "failed_chunks": [], "dropped": 0, "attempts": {}, "status": "running",
-                "error": None, "path": path,
+                "error": None, "path": path, "next_fragment": 0, "over_budget": 0,
             }
     pending = [pid for pid, s in states.items() if s["status"] == "running"]
     chunks: dict[str, list[list[dict]]] = {}
+    # With a prompt budget: each patient's fragments, and the chunk of the request in flight.
+    fragments: dict[str, list[dict]] = {}
+    current: dict[str, list[dict]] = {}
     if pending:
         tokenizer = load_tokenizer(tokenizer_name)
         for pid in pending:
-            chunks[pid] = pack_fragments(
-                note_fragments(patients[pid], tokenizer, chunk_tokens - 64, overlap), chunk_tokens
-            )
-            states[pid]["chunk_count"] = len(chunks[pid])
+            pieces = note_fragments(patients[pid], tokenizer, fragment_size, overlap)
+            if budget is None:
+                chunks[pid] = pack_fragments(pieces, chunk_tokens)
+                states[pid]["chunk_count"] = len(chunks[pid])
+            else:
+                fragments[pid] = pieces
+                left = sum(f["tokens"] + HEADER_TOKENS for f in pieces[states[pid]["next_fragment"]:])
+                states[pid]["chunk_count"] = states[pid]["next_chunk"] + math.ceil(
+                    left / max(1, min(chunk_tokens, budget // 2)))
+
+    def count(text):
+        return len(tokenizer(text, add_special_tokens=False)["input_ids"])
+
+    def chunk_of(pid, index):
+        return chunks[pid][index] if budget is None else current[pid]
 
     def save(pid):
         s = states[pid]
@@ -372,19 +403,38 @@ def extract_patient_records(
             "next_chunk": s["next_chunk"], "failed_chunks": s["failed_chunks"],
             "dropped": s["dropped"], "status": s["status"], "error": s["error"],
             "attempts": s["attempts"], "state": s["state"].to_json(),
+            "next_fragment": s["next_fragment"], "over_budget": s["over_budget"],
         })
 
     def messages(pid):
         s = states[pid]
         index = s["next_chunk"]
-        content = fill(template, {
+        record = s["state"].render()
+        values = {
             "field_guide": guide,
             "extension_guidance": f"\n{guidance}\n" if guidance else "",
-            "record": s["state"].render(),
+            "record": record,
             "part": str(index + 1),
-            "parts": str(s["chunk_count"]),
-            "notes": render_chunk(chunks[pid][index]),
-        })
+        }
+        if budget is None:
+            chunk = chunks[pid][index]
+        else:
+            # The next fragments that fit the budget beside the record so far (at least one).
+            base = count(fill(template, {**values, "parts": str(s["chunk_count"]), "notes": ""}))
+            room = min(chunk_tokens, budget - base)
+            chunk, used = [], 0
+            for fragment in fragments[pid][s["next_fragment"]:]:
+                need = fragment["tokens"] + HEADER_TOKENS
+                if chunk and used + need > room:
+                    break
+                chunk.append(fragment)
+                used += need
+            if base + used > budget:
+                s["over_budget"] += 1
+            current[pid] = chunk
+            left = sum(f["tokens"] + HEADER_TOKENS for f in fragments[pid][s["next_fragment"] + len(chunk):])
+            s["chunk_count"] = index + 1 + (math.ceil(left / max(1, room)) if left else 0)
+        content = fill(template, {**values, "parts": str(s["chunk_count"]), "notes": render_chunk(chunk)})
         if context and max_tokens:
             prompt_tokens = len(tokenizer(content, add_special_tokens=False)["input_ids"])
             if prompt_tokens + max_tokens + 1024 > context:
@@ -408,6 +458,8 @@ def extract_patient_records(
         def start(pid):
             """Queue the patient's next chunk, or finish the patient."""
             s = states[pid]
+            if budget is not None and s["next_fragment"] >= len(fragments[pid]):
+                s["chunk_count"] = s["next_chunk"]
             if s["next_chunk"] >= s["chunk_count"]:
                 finish(pid)
                 return
@@ -440,7 +492,7 @@ def extract_patient_records(
             except ValueError as exc:
                 check, error = None, str(exc)
             else:
-                check, error = check_patient_answer(value, chunks[pid][index], s["state"]), None
+                check, error = check_patient_answer(value, chunk_of(pid, index), s["state"]), None
             problems = [] if check is None else check.problems
             accept = error is None and (not problems or (final and not check.structural))
             if not accept:
@@ -457,6 +509,8 @@ def extract_patient_records(
                     s["dropped"] += len(check.dropped)
                 s["state"].apply(check)
             s["next_chunk"] = index + 1
+            if budget is not None:
+                s["next_fragment"] += len(current[pid])
             save(pid)
             start(pid)
 
@@ -508,6 +562,8 @@ def extract_patient_records(
         "counts": {
             "patients": len(states), "notes": int(len(frame)), "reused": reused,
             "chunks": sum(s["chunk_count"] or 0 for s in states.values()),
+            "prompt_budget": prompt_tokens,
+            "over_budget_requests": sum(s["over_budget"] for s in states.values()),
             **{k: sum(v == k for v in statuses.values()) for k in ("complete", "partial", "failed")},
             **counts,
         },

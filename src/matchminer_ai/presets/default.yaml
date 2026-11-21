@@ -166,6 +166,13 @@ patient_extraction:
   # and returns only new and changed items.
   chunk_tokens: 40000
   chunk_overlap_tokens: 500
+  # A prompt budget in the model's tokens (null: none). With one, each request takes only the next
+  # note fragments (of at most fragment_tokens) that fit beside the record so far, so a growing record
+  # never pushes a prompt past it; prompt_token_ratio is the model's tokens per tokenizer token. The
+  # dashboard sets 85000 and 1.6 for Claude (Haiku 5.5 bills prompts over 100,000 tokens at 5x).
+  prompt_tokens: null
+  prompt_token_ratio: 1.0
+  fragment_tokens: 8000
   # The context a chunk's prompt plus max_tokens must fit; null uses
   # local.engine.max_model_len.
   context_tokens: null
