@@ -46,7 +46,8 @@ TrialSpace model and says so on Data and Models if they differ.
   - *Guidelines:* guideline spaces for the patient's summary, their workup and treatment menus with sources, a
     workup review, and a Markdown report.
   - *Structured data:* the clinical facts extracted from the notes, patient level or note by note, each with its
-    quotes. A corpus patient the mode's extraction store holds shows its stored records; otherwise the notes are
+    quotes and its raw JSON (each item, each note's record, the patient record). **Disease course** lists each
+    cancer's assessments in date order: status, sites with cancer and the note. A corpus patient the mode's extraction store holds shows its stored records; otherwise the notes are
     extracted on request with the guideline concordance connection, and the Guidelines extraction review reuses
     them.
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision

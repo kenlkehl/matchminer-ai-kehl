@@ -23,6 +23,10 @@ def fabricated_extraction(frame, levels, config, progress):
     items = {key: [] for key in ("imaging_studies", "procedures", "diagnoses", "biomarkers", "treatments",
                                  "disease_assessments", "performance_status", "lab_tests", "counseling")}
     items["performance_status"] = [item]
+    items["disease_assessments"] = [{"item_type": "disease_assessment", "disease_status": "progression",
+                                     "disease_sites": ["liver"], "site_groups": ["liver"], "cancer_ids": [],
+                                     "evidence": [{"note_id": first, "note_date": "2026-01-05", "quote": "ECOG",
+                                                   "start": 0, "end": 4}]}]
     record = {"schema_version": "mmai-clinical-extraction-v2", "level": "document", "patient_id": "workspace-patient",
               "note_id": first, "note_date": "2026-01-05", "note_type": "Clinic", "document_type": "clinic_note",
               "document_type_text": "", "extensions": [], "items": items}
@@ -41,9 +45,12 @@ def test_records_extract_view_and_criteria_screen(make_client, monkeypatch):
     assert before["source"] is None and before["estimate"]["document_requests"] == 2
     monkeypatch.setattr("matchminer_ai.apps.dashboard.guidelines.records.extract_on_demand", fabricated_extraction)
     done = job(client, "/api/patient/records/extract", body)["result"]
-    assert done["source"]["kind"] == "session" and done["view"]["counts"]["document_items"] == 1
-    item = done["view"]["documents"][0]["items"][0]
-    assert item["label"].startswith("ECOG") and item["evidence"][0]["note_number"] == 1
+    assert done["source"]["kind"] == "session" and done["view"]["counts"]["document_items"] == 2
+    course = done["view"]["disease_course"]
+    assert course[0]["label"] == "Not linked to a diagnosis" and course[0]["rows"][0]["status"] == "progression"
+    assert done["view"]["documents"][0]["record"]["items"]["disease_assessments"]
+    item = next(i for i in done["view"]["documents"][0]["items"] if i["type"] == "performance_status")
+    assert item["label"].startswith("ECOG") and item["evidence"][0]["note_number"] == 1 and item["raw"]["score"] == 3
     # The session's extraction is the patient's records now (and the Guidelines review's).
     assert client.post("/api/patient/records", json=body).json()["source"]["kind"] == "session"
 

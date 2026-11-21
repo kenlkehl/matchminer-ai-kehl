@@ -572,3 +572,14 @@ def test_patient_prompt_budget_keeps_every_prompt_under_it(config, monkeypatch, 
     assert all(any(f"word{n}x0 " in p for p in prompts) for n in range(6))
     assert metadata["counts"]["over_budget_requests"] == 0 and result.iloc[0]["chunk_count"] == len(prompts)
     assert f"PART {len(prompts)} OF {len(prompts)}" in prompts[-1]
+
+
+def test_disease_assessment_site_groups_and_present_status():
+    item_type = next(t for t in s.CORE_ITEM_TYPES if t.name == "disease_assessment")
+    assert "present" in v.DISEASE_STATUSES.codes and s.SCHEMA_VERSION.endswith("v3")
+    base = {"disease_status": "present", "disease_sites": ["omentum", "liver"],
+            "site_groups": ["other", "liver"], "evidence": [{"quote": "omental implants"}]}
+    assert s.check_item(item_type, "document", base, "x") == []
+    # A site group of other needs the site named in disease_sites (a list).
+    unnamed = {**base, "disease_sites": []}
+    assert any("must name it" in p.message for p in s.check_item(item_type, "document", unnamed, "x"))

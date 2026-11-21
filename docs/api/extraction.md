@@ -47,7 +47,7 @@ items can name the cancer they concern (`cancer_ids`).
 
 ## Records
 
-Every record carries `schema_version` (`mmai-clinical-extraction-v2`), its `level`, `patient_id`, the selected
+Every record carries `schema_version` (`mmai-clinical-extraction-v3`), its `level`, `patient_id`, the selected
 `extensions`, and `items`: one list per item type. A document record adds `note_id`, `note_date`, `note_type`,
 `document_type` and `document_type_text`; a patient record adds `note_count`, `first_note_date`,
 `last_note_date`, `chunk_count` and `failed_chunks`, and gives each item an `item_id` (`D1`, `B2`, `T3`, ...).
@@ -86,7 +86,7 @@ Every item has:
 | `diagnoses` | `diagnosis` | both | `primary_site`, `histology`, `grade`, `diagnosis_date`, `stage_group`, `t_category`, `n_category`, `m_category`, `stage_basis`, `staging_system`, `extent_at_diagnosis` |
 | `biomarkers` | `biomarker` | both | `biomarker`, `biomarker_type`, `result`, `alteration`, `value`, `method`, `assay_name`, `sample_type`, `origin`, `test_date` |
 | `treatments` | `treatment` | both | `treatment_type`, `regimen`, `agents`, `site`, `setting`, `line_of_therapy`, `treatment_status`, `start_date`, `end_date`, `best_response`, `end_reason`, `toxicities` |
-| `disease_assessments` | `disease_assessment` | document | `disease_status`, `disease_sites` |
+| `disease_assessments` | `disease_assessment` | document | `disease_status` (no evidence of disease, response, stable, mixed, progression, present without a comparison, indeterminate), `disease_sites`, `site_groups` (coded groups of those sites) |
 | `performance_status` | `performance_status` | document | `scale` (`ecog`, `karnofsky`), `score` |
 | `lab_tests` | `lab_test` | both | `lab_test` (`cbc`, `cmp`, `bmp`, `liver_function`, `renal_function`, `ldh`, `coagulation`, `pregnancy_test`, ... `other`), `lab_text`, `result_text`, `result_flag`, `collection_date` |
 | `counseling` | `counseling` | both | `topic` (`smoking_cessation`, `genetic_counseling`, `fertility`, `psychosocial_distress`, `palliative_care`, `lymphedema`, ... `other`), `topic_text`, `counseling_kind` (`counseling`, `discussion`, `screening`, `referral`, `consultation`), `provider`, `details`, `counseling_date` |
@@ -263,3 +263,14 @@ item types must not reuse a core name, list key or id prefix.
         - ItemType
         - Field
         - Vocabulary
+
+## Schema versions
+
+- **v2 (2026-11-17):** added lab tests and counseling.
+- **v3 (2026-11-21):**
+  - Disease assessments gained the `present` status (cancer present, no comparison with an earlier time) and
+    `site_groups`, coded groups of the sites with cancer.
+  - The document prompt asks every imaging report read for cancer, and every oncology clinic or hospital note that
+    assesses it, for an assessment of each cancer.
+  - Records of earlier versions have neither, so a query on them reads `site_groups` as not stated.
+

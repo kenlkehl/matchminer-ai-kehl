@@ -152,7 +152,7 @@ def _item(item, *, level, note_id=None, note_date=None, document_type=None, numb
     view = item_view(item, level=level, note_id=note_id, note_date=note_date, document_type=document_type)
     return {"item_id": item.get("item_id"), "type": item["item_type"], "label": describe_item(view),
             "date": view.date_value, "date_text": _date_text(view), "status": view.status,
-            "fields": {k: _plain(v) for k, v in item.items() if k not in _SKIP},
+            "fields": {k: _plain(v) for k, v in item.items() if k not in _SKIP}, "raw": item,
             "evidence": [{k: e.get(k) for k in ("note_id", "note_date", "quote", "start", "end")}
                          | {"note_number": numbers.get(e.get("note_id"))} for e in item.get("evidence") or []]}
 
@@ -187,19 +187,51 @@ def records_view(documents, patients, numbers: dict) -> dict:
                       "note_date": None if row.get("note_date") is None else str(row.get("note_date"))[:10],
                       "note_type": row.get("note_type"),
                       "document_type": (record or {}).get("document_type") if isinstance(record, dict) else None,
-                      "status": row.get("extraction_status"), "items": items})
+                      "status": row.get("extraction_status"), "items": items,
+                      "record": record if isinstance(record, dict) else None})
     order = list(TYPE_LABELS)
     types = [{"type": t, "label": TYPE_LABELS.get(t, t.replace("_", " ").capitalize()), "items": by_type[t]}
              for t in sorted(by_type, key=lambda t: (order.index(t) if t in order else len(order), t))]
     statuses = [r.get("extraction_status") for r in _records(documents)]
+    patient_record = patient_rows[0].get("record") if patient_rows else None
     return {
         "patient": {"available": bool(patient_rows), "types": types,
-                    "status": patient_rows[0].get("extraction_status") if patient_rows else None},
+                    "status": patient_rows[0].get("extraction_status") if patient_rows else None,
+                    "record": patient_record if isinstance(patient_record, dict) else None},
         "documents": notes,
+        "disease_course": disease_course(notes, by_type.get("diagnosis", [])),
         "counts": {"notes": len(notes), "patient_items": sum(len(t["items"]) for t in types),
                    "document_items": sum(len(n["items"]) for n in notes),
                    "failed_notes": statuses.count("failed"), "partial_notes": statuses.count("partial")},
     }
+
+
+def disease_course(notes: list[dict], diagnoses: list[dict]) -> list[dict]:
+    """Each cancer's assessments over time, from the notes' disease_assessment items (no model call).
+
+    An assessment is linked to the patient-level diagnoses its ``cancer_ids`` name; assessments with none are grouped
+    as unlinked. Rows are in note-date order, each with its status, sites, site groups and quotes."""
+    labels = {d["item_id"]: d["label"] for d in diagnoses if d.get("item_id")}
+    groups: dict[tuple, list] = {}
+    for note in notes:
+        for item in note["items"]:
+            if item["type"] != "disease_assessment":
+                continue
+            fields = item["fields"]
+            key = tuple(sorted(fields.get("cancer_ids") or []))
+            groups.setdefault(key, []).append({
+                "date": note["note_date"], "note_id": note["note_id"], "note_number": note["note_number"],
+                "note_type": note["note_type"], "document_type": note["document_type"],
+                "status": fields.get("disease_status"), "sites": fields.get("disease_sites") or [],
+                "site_groups": fields.get("site_groups") or [], "evidence": item["evidence"], "raw": item["raw"],
+            })
+    course = []
+    for key, rows in sorted(groups.items(), key=lambda kv: (not kv[0], kv[0])):
+        rows.sort(key=lambda r: (r["date"] or "", r["note_number"] or 0))
+        course.append({"cancer_ids": list(key),
+                       "label": "; ".join(labels.get(c, c) for c in key) if key else "Not linked to a diagnosis",
+                       "rows": rows})
+    return course
 
 
 # ---------------------------------------------------------------------------

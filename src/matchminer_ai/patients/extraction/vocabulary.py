@@ -497,9 +497,44 @@ DISEASE_STATUSES = _vocabulary(
         ("stable", "Unchanged."),
         ("mixed", "Some sites improved and others worsened."),
         ("progression", "Larger, or new lesions."),
-        ("indeterminate", "The document cannot tell."),
+        (
+            "present",
+            "Cancer is present, and the document makes no comparison with an earlier time (for example a "
+            "staging study or a first visit).",
+        ),
+        ("indeterminate", "The document cannot tell whether cancer is present, or how it changed."),
     ],
     other=None,
+    unknown=None,
+)
+
+DISEASE_SITE_GROUPS = _vocabulary(
+    "disease_site_group",
+    "A group of body sites where a document says cancer is present. An assessment can list several.",
+    [
+        ("brain", "Brain parenchyma (intracranial, including the brainstem and cerebellum)."),
+        ("leptomeninges", "Leptomeninges or cerebrospinal fluid."),
+        ("spinal_cord_or_epidural", "Spinal cord, or epidural or intradural disease."),
+        ("head_and_neck", "Head and neck sites, including the thyroid."),
+        ("lung", "Lung parenchyma."),
+        ("pleura", "Pleura or pleural effusion with cancer."),
+        ("lymph_nodes", "Lymph nodes, any station."),
+        ("breast_or_chest_wall", "Breast or chest wall."),
+        ("heart_or_pericardium", "Heart or pericardium."),
+        ("liver", "Liver."),
+        ("biliary_or_pancreas", "Bile ducts, gallbladder or pancreas."),
+        ("gastrointestinal", "Esophagus, stomach, small bowel, colon, rectum or anus."),
+        ("peritoneum", "Peritoneum, omentum or malignant ascites."),
+        ("adrenal", "Adrenal gland."),
+        ("kidney_or_urinary_tract", "Kidney, ureter or bladder."),
+        ("reproductive", "Prostate, testis, uterus, cervix, ovary or other reproductive organs."),
+        ("bone", "Bone, including the spine's vertebrae."),
+        ("bone_marrow_or_blood", "Bone marrow or blood (circulating disease)."),
+        ("spleen", "Spleen."),
+        ("skin_or_soft_tissue", "Skin, subcutaneous tissue or muscle."),
+        ("other", "Another site; it is named in disease_sites."),
+    ],
+    other="other",
     unknown=None,
 )
 
@@ -701,6 +736,7 @@ __all__ = [
     "COUNSELING_TOPICS",
     "DATE_PRECISIONS",
     "DISEASE_EXTENTS",
+    "DISEASE_SITE_GROUPS",
     "DISEASE_STATUSES",
     "DOCUMENT_RELATIONS",
     "DOCUMENT_TYPES",

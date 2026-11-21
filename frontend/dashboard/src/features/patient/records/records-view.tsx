@@ -2,11 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DatabaseIcon, FileTextIcon, QuoteIcon } from "lucide-react";
 import { useState } from "react";
 
+import { JsonDialog, JsonLink, type JsonView } from "@/components/json-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, type Job, waitForJob } from "@/lib/api";
 import {
+  type CourseCancer,
   describeSource,
   type Levels,
   type RecordEvidence,
@@ -37,7 +39,7 @@ const FIELDS: Record<string, string[]> = {
   imaging_study: ["modality", "body_regions", "contrast", "status"],
   lab_test: ["lab_test", "result_text", "result_flag"],
   performance_status: ["scale", "score"],
-  disease_assessment: ["disease_status", "disease_sites"],
+  disease_assessment: ["disease_status", "disease_sites", "site_groups"],
   event: ["event_type", "description"],
   counseling: ["topic", "details"],
 };
@@ -65,7 +67,8 @@ function fieldText(name: string, value: unknown): string {
 export function RecordsView() {
   const s = usePatient();
   const [levels, setLevels] = useState<Levels>("document_and_patient");
-  const [level, setLevel] = useState<"patient" | "document">("patient");
+  const [level, setLevel] = useState<"patient" | "course" | "document">("patient");
+  const [json, setJson] = useState<JsonView | null>(null);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<NoteView | null>(null);
@@ -180,29 +183,54 @@ export function RecordsView() {
           {view.counts.failed_notes ? ` · ${String(view.counts.failed_notes)} notes failed` : ""}
           {view.counts.partial_notes ? ` · ${String(view.counts.partial_notes)} partial` : ""}
         </p>
-        <Tabs
-          value={level}
-          onValueChange={(value: "patient" | "document") => {
-            setLevel(value);
-          }}
-        >
-          <TabsList>
-            <TabsTrigger value="patient" disabled={!view.patient.available}>
-              Patient level
-            </TabsTrigger>
-            <TabsTrigger value="document">By note</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-3">
+          {view.patient.record ? (
+            <JsonLink
+              label="Patient record JSON"
+              onClick={() => {
+                setJson({
+                  title: "Patient-level record",
+                  name: "patient-record.json",
+                  value: view.patient.record,
+                });
+              }}
+            />
+          ) : null}
+          <Tabs
+            value={level}
+            onValueChange={(value: "patient" | "course" | "document") => {
+              setLevel(value);
+            }}
+          >
+            <TabsList>
+              <TabsTrigger value="patient" disabled={!view.patient.available}>
+                Patient level
+              </TabsTrigger>
+              <TabsTrigger value="course">Disease course</TabsTrigger>
+              <TabsTrigger value="document">By note</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
       <p className="text-xs text-gray-500">
         Extracted by an LLM from the notes for review: check every item against its quoted note. An
         item exists only when a note states it; a missing item does not mean it is absent.
       </p>
-      {level === "patient" && view.patient.available ? (
-        <PatientLevel view={view} show={show} canShow={canShow} />
+      {level === "course" ? (
+        <DiseaseCourse course={view.disease_course} show={show} canShow={canShow} json={setJson} />
+      ) : level === "patient" && view.patient.available ? (
+        <PatientLevel view={view} show={show} canShow={canShow} json={setJson} />
       ) : (
-        <ByNote view={view} show={show} canShow={canShow} />
+        <ByNote view={view} show={show} canShow={canShow} json={setJson} />
       )}
+      {json ? (
+        <JsonDialog
+          view={json}
+          onClose={() => {
+            setJson(null);
+          }}
+        />
+      ) : null}
       {note ? (
         <NoteDialog
           note={note}
@@ -217,8 +245,130 @@ export function RecordsView() {
 
 type Show = (evidence: RecordEvidence) => void;
 type CanShow = (evidence: RecordEvidence) => boolean;
+type ShowJson = (view: JsonView) => void;
 
-function PatientLevel({ view, show, canShow }: { view: Records; show: Show; canShow: CanShow }) {
+const STATUS_TONES: Record<string, string> = {
+  progression: "bg-red-50 text-red-800 ring-red-200",
+  response: "bg-green-50 text-green-800 ring-green-200",
+  no_evidence_of_disease: "bg-green-50 text-green-800 ring-green-200",
+  stable: "bg-sky-50 text-sky-800 ring-sky-200",
+  mixed: "bg-amber-50 text-amber-800 ring-amber-200",
+  present: "bg-gray-100 text-gray-800 ring-gray-300",
+  indeterminate: "bg-white text-gray-500 ring-gray-200",
+};
+
+const first = (row: { evidence: RecordEvidence[] }): RecordEvidence | undefined =>
+  row.evidence.at(0);
+
+/** Each cancer's assessments over time (the notes' disease assessments, in date order). */
+function DiseaseCourse({
+  course,
+  show,
+  canShow,
+  json,
+}: {
+  course: CourseCancer[];
+  show: Show;
+  canShow: CanShow;
+  json: ShowJson;
+}) {
+  if (!course.length) {
+    return (
+      <p className="text-sm text-gray-600">
+        No note in these records assesses the cancer's status.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {course.map((cancer) => (
+        <section key={cancer.cancer_ids.join(",") || "unlinked"}>
+          <h4 className="mb-1 text-sm font-bold">
+            {cancer.label}{" "}
+            <span className="font-normal text-gray-500">({cancer.rows.length} assessments)</span>
+          </h4>
+          <table className="w-full table-fixed border-collapse rounded-md border border-gray-200 text-sm">
+            <thead className="bg-gray-50 text-left text-xs text-gray-500">
+              <tr>
+                <th className="w-28 px-2 py-1 font-medium">Date</th>
+                <th className="w-44 px-2 py-1 font-medium">Status</th>
+                <th className="px-2 py-1 font-medium">Sites with cancer</th>
+                <th className="w-56 px-2 py-1 font-medium">Source</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {cancer.rows.map((row, i) => (
+                <tr key={i} className="align-top">
+                  <td className="px-2 py-1.5 text-gray-700 tabular-nums">{noteDate(row.date)}</td>
+                  <td className="px-2 py-1.5">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${
+                        STATUS_TONES[row.status ?? ""] ?? STATUS_TONES.indeterminate
+                      }`}
+                    >
+                      {(row.status ?? "not stated").replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1.5 text-gray-800">
+                    {row.sites.join(", ") || "—"}
+                    {row.site_groups.length ? (
+                      <div className="text-xs text-gray-500">
+                        {row.site_groups.map((g) => g.replace(/_/g, " ")).join(" · ")}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5 text-xs text-gray-600">
+                    <div>
+                      {row.note_number ? `Note ${String(row.note_number)}` : "Note"}
+                      {[row.note_type, row.document_type?.replace(/_/g, " ")]
+                        .filter(Boolean)
+                        .map((t) => ` · ${t ?? ""}`)
+                        .join("")}
+                    </div>
+                    <div className="flex gap-2">
+                      {first(row) && canShow(first(row) as RecordEvidence) ? (
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => {
+                            show(first(row) as RecordEvidence);
+                          }}
+                        >
+                          show in note
+                        </button>
+                      ) : null}
+                      <JsonLink
+                        onClick={() => {
+                          json({
+                            title: `Disease assessment · ${noteDate(row.date)}`,
+                            name: "disease-assessment.json",
+                            value: row.raw,
+                          });
+                        }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function PatientLevel({
+  view,
+  show,
+  canShow,
+  json,
+}: {
+  view: Records;
+  show: Show;
+  canShow: CanShow;
+  json: ShowJson;
+}) {
   if (!view.patient.types.length) {
     return <p className="text-sm text-gray-600">The patient-level record has no items.</p>;
   }
@@ -231,7 +381,13 @@ function PatientLevel({ view, show, canShow }: { view: Records; show: Show; canS
           </h4>
           <ul className="flex flex-col divide-y divide-gray-100 rounded-md border border-gray-200">
             {group.items.map((item, i) => (
-              <ItemRow key={item.item_id ?? i} item={item} show={show} canShow={canShow} />
+              <ItemRow
+                key={item.item_id ?? i}
+                item={item}
+                show={show}
+                canShow={canShow}
+                json={json}
+              />
             ))}
           </ul>
         </section>
@@ -240,7 +396,17 @@ function PatientLevel({ view, show, canShow }: { view: Records; show: Show; canS
   );
 }
 
-function ByNote({ view, show, canShow }: { view: Records; show: Show; canShow: CanShow }) {
+function ByNote({
+  view,
+  show,
+  canShow,
+  json,
+}: {
+  view: Records;
+  show: Show;
+  canShow: CanShow;
+  json: ShowJson;
+}) {
   return (
     <div className="flex flex-col gap-2">
       {view.documents.map((n) => (
@@ -257,11 +423,23 @@ function ByNote({ view, show, canShow }: { view: Records; show: Show; canShow: C
               {n.items.length} {n.items.length === 1 ? "item" : "items"}
               {n.status && n.status !== "complete" ? ` · ${n.status}` : ""}
             </span>
+            {n.record ? (
+              <JsonLink
+                label="Record JSON"
+                onClick={() => {
+                  json({
+                    title: `Note ${String(n.note_number ?? "")} · ${noteDate(n.note_date)} · document record`,
+                    name: `note-${String(n.note_number ?? "record")}.json`,
+                    value: n.record,
+                  });
+                }}
+              />
+            ) : null}
           </summary>
           {n.items.length ? (
             <ul className="flex flex-col divide-y divide-gray-100 border-t border-gray-100">
               {n.items.map((item, i) => (
-                <ItemRow key={i} item={item} show={show} canShow={canShow} />
+                <ItemRow key={i} item={item} show={show} canShow={canShow} json={json} />
               ))}
             </ul>
           ) : (
@@ -275,7 +453,17 @@ function ByNote({ view, show, canShow }: { view: Records; show: Show; canShow: C
   );
 }
 
-function ItemRow({ item, show, canShow }: { item: RecordItem; show: Show; canShow: CanShow }) {
+function ItemRow({
+  item,
+  show,
+  canShow,
+  json,
+}: {
+  item: RecordItem;
+  show: Show;
+  canShow: CanShow;
+  json: ShowJson;
+}) {
   const fields = (FIELDS[item.type] ?? [])
     .filter((name) => shown(name, item.fields[name]))
     .map((name) => fieldText(name, item.fields[name]));
@@ -284,6 +472,17 @@ function ItemRow({ item, show, canShow }: { item: RecordItem; show: Show; canSho
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="font-medium text-gray-900">{item.label}</span>
         <span className="text-xs text-gray-500">{item.date_text}</span>
+        <span className="ml-auto">
+          <JsonLink
+            onClick={() => {
+              json({
+                title: `${item.label}${item.item_id ? ` (${item.item_id})` : ""}`,
+                name: `${item.item_id ?? item.type}.json`,
+                value: item.raw,
+              });
+            }}
+          />
+        </span>
       </div>
       {fields.length ? <p className="text-xs text-gray-600">{fields.join(" · ")}</p> : null}
       {item.evidence.map((e, i) => (

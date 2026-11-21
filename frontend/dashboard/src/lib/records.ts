@@ -19,6 +19,8 @@ export interface RecordItem {
   status: string;
   fields: Record<string, unknown>;
   evidence: RecordEvidence[];
+  /** The item as extracted (its record's JSON). */
+  raw: unknown;
 }
 
 export interface RecordNote {
@@ -29,6 +31,28 @@ export interface RecordNote {
   document_type: string | null;
   status: string | null;
   items: RecordItem[];
+  /** The note's whole document record, as extracted. */
+  record: unknown;
+}
+
+/** One assessment of a cancer's status in a note (disease_assessment items, in date order). */
+export interface CourseRow {
+  date: string | null;
+  note_id: string | null;
+  note_number: number | null;
+  note_type: string | null;
+  document_type: string | null;
+  status: string | null;
+  sites: string[];
+  site_groups: string[];
+  evidence: RecordEvidence[];
+  raw: unknown;
+}
+
+export interface CourseCancer {
+  cancer_ids: string[];
+  label: string;
+  rows: CourseRow[];
 }
 
 export interface RecordsView {
@@ -36,8 +60,11 @@ export interface RecordsView {
     available: boolean;
     status: string | null;
     types: { type: string; label: string; items: RecordItem[] }[];
+    /** The patient-level record, as extracted. */
+    record: unknown;
   };
   documents: RecordNote[];
+  disease_course: CourseCancer[];
   counts: {
     notes: number;
     patient_items: number;

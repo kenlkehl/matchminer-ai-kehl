@@ -34,9 +34,10 @@ from datetime import date
 from . import vocabulary as v
 from .vocabulary import Vocabulary
 
-SCHEMA_VERSION = "mmai-clinical-extraction-v2"
-#: Schema versions in order. v2 (2026-11-17) added lab tests and counseling.
-SCHEMA_VERSIONS = ("mmai-clinical-extraction-v1", "mmai-clinical-extraction-v2")
+SCHEMA_VERSION = "mmai-clinical-extraction-v3"
+#: Schema versions in order. v2 (2026-11-17) added lab tests and counseling; v3 (2026-11-21) disease assessments'
+#: present status and coded site groups, asked of imaging reports and oncology notes.
+SCHEMA_VERSIONS = ("mmai-clinical-extraction-v1", "mmai-clinical-extraction-v2", "mmai-clinical-extraction-v3")
 LEVELS = ("document", "patient")
 
 #: Longest accepted evidence quote, in characters (the shortest supporting span
@@ -383,13 +384,22 @@ DISEASE_ASSESSMENT = ItemType(
             "Sites where this document says cancer is present ('liver', 'mediastinal "
             "lymph nodes', 'brain'); sites stated to be free of cancer are not listed.",
         ),
+        Field(
+            "site_groups",
+            "choice_list",
+            "The groups of every site in disease_sites (a site can be in one group only; [] when no site is "
+            "listed).",
+            v.DISEASE_SITE_GROUPS,
+            "disease_sites",
+        ),
     ),
     guidance=(
         "progression only when disease is growing or new, stable only when it is "
-        "stated to be unchanged, mixed when some sites improved and others worsened. "
+        "stated to be unchanged, mixed when some sites improved and others worsened, "
+        "present when cancer is present and the document makes no comparison. "
         "Presence of cancer alone is not progression. Use a comparison with an earlier "
         "study only to judge change; findings restated from that earlier study are "
-        "not this document's."
+        "not this document's. List every site with cancer, including the primary tumor."
     ),
 )
 
@@ -925,7 +935,9 @@ def check_item(
         uses_other = item_field.vocabulary.other in (
             chosen if isinstance(chosen, list) else [chosen]
         )
-        if uses_other and not value[item_field.other_text].strip():
+        named = value[item_field.other_text]
+        named = any(str(n).strip() for n in named) if isinstance(named, list) else bool(named.strip())
+        if uses_other and not named:
             reason = f"{item_field.name} is other, so {item_field.other_text} must name it"
             problems.append(Problem(path, f"{path}: {reason}", f"{path}: {reason}"))
     if item_type.occurrence:
