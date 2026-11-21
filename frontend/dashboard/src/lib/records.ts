@@ -19,8 +19,10 @@ export interface RecordItem {
   status: string;
   fields: Record<string, unknown>;
   evidence: RecordEvidence[];
-  /** The item as extracted (its record's JSON). */
+  /** The item as extracted (its record's JSON); for a merged note-level item, every mention. */
   raw: unknown;
+  /** Merged note-level items (imaging, labs, counseling at patient level): how many notes mention it. */
+  mentions?: number;
 }
 
 export interface RecordNote {
@@ -59,7 +61,8 @@ export interface RecordsView {
   patient: {
     available: boolean;
     status: string | null;
-    types: { type: string; label: string; items: RecordItem[] }[];
+    /** merged: note-level items of a type the patient-level record does not hold, merged in code. */
+    types: { type: string; label: string; items: RecordItem[]; merged?: boolean }[];
     /** The patient-level record, as extracted. */
     record: unknown;
   };

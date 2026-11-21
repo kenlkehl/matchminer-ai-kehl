@@ -13,7 +13,7 @@ one data model:
 | Function | One record per | Content |
 | --- | --- | --- |
 | `extract_document_records` | note | The document type; for an imaging report the study that produced it; for a pathology report the procedure that produced its specimen; and the diagnoses, biomarkers, treatments, disease assessments, performance status, lab tests and counseling the note states. |
-| `extract_patient_records` | patient | Cancer diagnoses with site, histology, dates and stage; biomarkers; treatment lines and regimens with agents, dates and best response; tissue procedures; imaging history; lab tests; counseling, screenings and referrals; key dated events. |
+| `extract_patient_records` | patient | What needs reading across notes: cancer diagnoses with site, histology, dates and stage; biomarkers; treatment lines and regimens with agents, dates and best response; tissue procedures; key dated events. It reads every note, but imaging studies, lab tests and counseling are recorded note by note only (schema v4). |
 
 Both accept the note table `summarize_patients` takes: `patient_id`,
 `note_text` and `note_date`, plus optional `note_id` (unique) and `note_type`
@@ -47,7 +47,7 @@ items can name the cancer they concern (`cancer_ids`).
 
 ## Records
 
-Every record carries `schema_version` (`mmai-clinical-extraction-v3`), its `level`, `patient_id`, the selected
+Every record carries `schema_version` (`mmai-clinical-extraction-v4`), its `level`, `patient_id`, the selected
 `extensions`, and `items`: one list per item type. A document record adds `note_id`, `note_date`, `note_type`,
 `document_type` and `document_type_text`; a patient record adds `note_count`, `first_note_date`,
 `last_note_date`, `chunk_count` and `failed_chunks`, and gives each item an `item_id` (`D1`, `B2`, `T3`, ...).
@@ -65,7 +65,7 @@ Every item has:
   `precision` `day`, `month`, `year` or `unknown` (value null). `source` is
   `document_text` (written in the note), `note_date` (a report's own study or
   specimen whose date is not written gets the note's date), `evidence_note_date`
-  (a performed patient-level study, procedure, lab test or counseling item without a written date gets the
+  (a performed patient-level procedure without a written date gets the
   date of the earliest note quoted: it was done on or before then) or `unknown`. Disease assessments and
   performance status have no date field: they are dated by their note.
 - `evidence`: one to four exact quotes, each with the note's `note_id`,
@@ -81,15 +81,15 @@ Every item has:
 
 | List | Item type | Levels | Fields |
 | --- | --- | --- | --- |
-| `imaging_studies` | `imaging_study` | both | `modality`, `modality_text`, `body_regions`, `body_site_text`, `contrast`, `tracer`, `study_date` |
+| `imaging_studies` | `imaging_study` | document | `modality`, `modality_text`, `body_regions`, `body_site_text`, `contrast`, `tracer`, `study_date` |
 | `procedures` | `procedure` | both | `procedure_type`, `procedure_group` (derived), `procedure_text`, `image_guidance`, `specimen_site`, `laterality`, `procedure_date`, `specimen_result`, `result_text` |
 | `diagnoses` | `diagnosis` | both | `primary_site`, `histology`, `grade`, `diagnosis_date`, `stage_group`, `t_category`, `n_category`, `m_category`, `stage_basis`, `staging_system`, `extent_at_diagnosis` |
 | `biomarkers` | `biomarker` | both | `biomarker`, `biomarker_type`, `result`, `alteration`, `value`, `method`, `assay_name`, `sample_type`, `origin`, `test_date` |
 | `treatments` | `treatment` | both | `treatment_type`, `regimen`, `agents`, `site`, `setting`, `line_of_therapy`, `treatment_status`, `start_date`, `end_date`, `best_response`, `end_reason`, `toxicities` |
 | `disease_assessments` | `disease_assessment` | document | `disease_status` (no evidence of disease, response, stable, mixed, progression, present without a comparison, indeterminate), `disease_sites`, `site_groups` (coded groups of those sites) |
 | `performance_status` | `performance_status` | document | `scale` (`ecog`, `karnofsky`), `score` |
-| `lab_tests` | `lab_test` | both | `lab_test` (`cbc`, `cmp`, `bmp`, `liver_function`, `renal_function`, `ldh`, `coagulation`, `pregnancy_test`, ... `other`), `lab_text`, `result_text`, `result_flag`, `collection_date` |
-| `counseling` | `counseling` | both | `topic` (`smoking_cessation`, `genetic_counseling`, `fertility`, `psychosocial_distress`, `palliative_care`, `lymphedema`, ... `other`), `topic_text`, `counseling_kind` (`counseling`, `discussion`, `screening`, `referral`, `consultation`), `provider`, `details`, `counseling_date` |
+| `lab_tests` | `lab_test` | document | `lab_test` (`cbc`, `cmp`, `bmp`, `liver_function`, `renal_function`, `ldh`, `coagulation`, `pregnancy_test`, ... `other`), `lab_text`, `result_text`, `result_flag`, `collection_date` |
+| `counseling` | `counseling` | document | `topic` (`smoking_cessation`, `genetic_counseling`, `fertility`, `psychosocial_distress`, `palliative_care`, `lymphedema`, ... `other`), `topic_text`, `counseling_kind` (`counseling`, `discussion`, `screening`, `referral`, `consultation`), `provider`, `details`, `counseling_date` |
 | `events` | `event` | patient | `event_type`, `description`, `event_date` |
 
 Lab tests cover blood, urine and other fluid tests, one item per test or panel per
@@ -267,6 +267,9 @@ item types must not reuse a core name, list key or id prefix.
 ## Schema versions
 
 - **v2 (2026-11-17):** added lab tests and counseling.
+- **v4 (2026-11-21):** the patient-level record keeps diagnoses, biomarkers, procedures, treatments and events;
+  imaging studies, lab tests and counseling are note level only (they repeated the notes' items). The dashboard's
+  Patient level view lists them merged from the notes, in code.
 - **v3 (2026-11-21):**
   - Disease assessments gained the `present` status (cancer present, no comparison with an earlier time) and
     `site_groups`, coded groups of the sites with cancer.

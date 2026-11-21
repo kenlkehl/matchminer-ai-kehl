@@ -378,6 +378,11 @@ function PatientLevel({
         <section key={group.type}>
           <h4 className="mb-1 text-sm font-bold">
             {group.label} <span className="font-normal text-gray-500">({group.items.length})</span>
+            {group.merged ? (
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                from the notes, the same study or test merged
+              </span>
+            ) : null}
           </h4>
           <ul className="flex flex-col divide-y divide-gray-100 rounded-md border border-gray-200">
             {group.items.map((item, i) => (
@@ -472,6 +477,9 @@ function ItemRow({
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="font-medium text-gray-900">{item.label}</span>
         <span className="text-xs text-gray-500">{item.date_text}</span>
+        {item.mentions && item.mentions > 1 ? (
+          <span className="text-xs text-gray-500">· {item.mentions} mentions</span>
+        ) : null}
         <span className="ml-auto">
           <JsonLink
             onClick={() => {

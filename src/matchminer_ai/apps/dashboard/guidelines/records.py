@@ -38,6 +38,8 @@ TYPE_LABELS = {
     "disease_assessment": "Disease assessments", "event": "Events", "counseling": "Counseling",
 }
 _SKIP = {"evidence", "item_type", "item_id"}
+#: Item types extracted note by note only (schema v4): the Patient level view merges their note items in code.
+NOTE_LEVEL_TYPES = ("imaging_study", "lab_test", "counseling")
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +191,11 @@ def records_view(documents, patients, numbers: dict) -> dict:
                       "document_type": (record or {}).get("document_type") if isinstance(record, dict) else None,
                       "status": row.get("extraction_status"), "items": items,
                       "record": record if isinstance(record, dict) else None})
+    merged = merged_note_items(_records(documents), numbers, skip=set(by_type)) if patient_rows else {}
     order = list(TYPE_LABELS)
-    types = [{"type": t, "label": TYPE_LABELS.get(t, t.replace("_", " ").capitalize()), "items": by_type[t]}
-             for t in sorted(by_type, key=lambda t: (order.index(t) if t in order else len(order), t))]
+    types = [{"type": t, "label": TYPE_LABELS.get(t, t.replace("_", " ").capitalize()),
+              "items": by_type.get(t) or merged[t], "merged": t in merged}
+             for t in sorted({*by_type, *merged}, key=lambda t: (order.index(t) if t in order else len(order), t))]
     statuses = [r.get("extraction_status") for r in _records(documents)]
     patient_record = patient_rows[0].get("record") if patient_rows else None
     return {
@@ -204,6 +208,45 @@ def records_view(documents, patients, numbers: dict) -> dict:
                    "document_items": sum(len(n["items"]) for n in notes),
                    "failed_notes": statuses.count("failed"), "partial_notes": statuses.count("partial")},
     }
+
+
+def merged_note_items(rows, numbers: dict, skip=frozenset()) -> dict[str, list]:
+    """Imaging studies, lab tests and counseling of the notes, one entry per distinct study or test (the same
+    clustering the workup and criteria queries use), for the Patient level view: no model call."""
+    from matchminer_ai.patients.workup_queries.evaluate import cluster_items, item_view
+
+    views: dict[str, list] = {}
+    for row in rows:
+        record = row.get("record")
+        if not isinstance(record, dict):
+            continue
+        for values in record["items"].values():
+            for item in values:
+                if item["item_type"] in NOTE_LEVEL_TYPES and item["item_type"] not in skip:
+                    views.setdefault(item["item_type"], []).append(item_view(
+                        item, level="document", note_id=row.get("note_id"), note_date=row.get("note_date"),
+                        document_type=record.get("document_type")))
+    merged = {}
+    for kind, found in views.items():
+        entries = []
+        for cluster in cluster_items(found):
+            rep = cluster.rep
+            entry = _item(rep.item, level="document", note_id=rep.note_id, note_date=rep.note_date,
+                          document_type=rep.document_type, numbers=numbers)
+            seen, evidence = set(), []
+            for member in cluster.members:
+                for e in member.item.get("evidence") or []:
+                    mark = (e.get("note_id"), e.get("start"), e.get("end"))
+                    if mark not in seen:
+                        seen.add(mark)
+                        evidence.append({k: e.get(k) for k in ("note_id", "note_date", "quote", "start", "end")}
+                                        | {"note_number": numbers.get(e.get("note_id"))})
+            entry.update(evidence=evidence[:8], mentions=len(cluster.members),
+                         raw=[m.item for m in cluster.members])
+            entries.append(entry)
+        entries.sort(key=lambda e: (e["date"] or "", e["label"]))
+        merged[kind] = entries
+    return merged
 
 
 def disease_course(notes: list[dict], diagnoses: list[dict]) -> list[dict]:

@@ -419,22 +419,17 @@ def test_extract_patient_records_merges_chunk_updates(config, monkeypatch, tmp_p
         "stage_group": "", "t_category": "", "n_category": "", "m_category": "",
         "stage_basis": "not_stated", "staging_system": "", "extent_at_diagnosis": "not_stated",
     }
-    study = {
-        "item_id": "I1", "evidence": [{"note": 1, "quote": "CT CHEST WITH IV CONTRAST"}],
-        "status": "performed", "modality": "ct", "modality_text": "CT chest", "body_regions": ["chest"],
-        "body_site_text": "", "contrast": "with_contrast", "tracer": "", "study_date": "",
-    }
     biopsy = {
         "item_id": "P1", "evidence": [{"note": 2, "quote": "CT-guided core needle biopsy"}],
         "status": "performed", "procedure_type": "core_needle_biopsy", "procedure_text": "core biopsy",
         "image_guidance": "ct", "specimen_site": "right upper lobe", "laterality": "right",
-        "procedure_date": "2024-03-08", "specimen_result": "malignant", "result_text": "Adenocarcinoma",
+        "procedure_date": "", "specimen_result": "malignant", "result_text": "Adenocarcinoma",
         "cancer_ids": ["D1"],
     }
     updated = {**diagnosis, "histology": "adenocarcinoma",
                "evidence": [{"note": 2, "quote": "Adenocarcinoma, acinar predominant."}]}
     backend = FakeBackend({
-        "PART 1 OF 2": [_patient_answer(diagnoses=[diagnosis], imaging_studies=[study])],
+        "PART 1 OF 2": [_patient_answer(diagnoses=[diagnosis])],
         "PART 2 OF 2": [_patient_answer(diagnoses=[updated], procedures=[{**biopsy, "cancer_ids": ["D9"]}]),
                         _patient_answer(diagnoses=[updated], procedures=[biopsy])],
     })
@@ -457,10 +452,12 @@ def test_extract_patient_records_merges_chunk_updates(config, monkeypatch, tmp_p
     assert items["diagnoses"][0]["histology"] == "adenocarcinoma"
     assert [e["note_id"] for e in items["diagnoses"][0]["evidence"]] == ["ct", "path"]
     assert items["procedures"][0]["cancer_ids"] == ["D1"]
-    assert items["imaging_studies"][0]["study_date"] == {
-        "value": "2024-03-01", "precision": "day", "source": "evidence_note_date"}
+    # An undated performed item is dated by its earliest evidence note; imaging is note level only (schema v4).
+    assert items["procedures"][0]["procedure_date"] == {
+        "value": "2024-03-12", "precision": "day", "source": "evidence_note_date"}
+    assert "imaging_studies" not in items and "lab_tests" not in items and "counseling" not in items
     table = extraction_items(records)
-    assert set(table.item_id) == {"D1", "I1", "P1"} and table.level.eq("patient").all()
+    assert set(table.item_id) == {"D1", "P1"} and table.level.eq("patient").all()
     assert metadata["counts"]["chunks"] == 2
 
     calls = len(backend.calls)
@@ -576,7 +573,7 @@ def test_patient_prompt_budget_keeps_every_prompt_under_it(config, monkeypatch, 
 
 def test_disease_assessment_site_groups_and_present_status():
     item_type = next(t for t in s.CORE_ITEM_TYPES if t.name == "disease_assessment")
-    assert "present" in v.DISEASE_STATUSES.codes and s.SCHEMA_VERSION.endswith("v3")
+    assert "present" in v.DISEASE_STATUSES.codes and "mmai-clinical-extraction-v3" in s.SCHEMA_VERSIONS
     base = {"disease_status": "present", "disease_sites": ["omentum", "liver"],
             "site_groups": ["other", "liver"], "evidence": [{"quote": "omental implants"}]}
     assert s.check_item(item_type, "document", base, "x") == []

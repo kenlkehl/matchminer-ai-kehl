@@ -34,10 +34,13 @@ from datetime import date
 from . import vocabulary as v
 from .vocabulary import Vocabulary
 
-SCHEMA_VERSION = "mmai-clinical-extraction-v3"
+SCHEMA_VERSION = "mmai-clinical-extraction-v4"
 #: Schema versions in order. v2 (2026-11-17) added lab tests and counseling; v3 (2026-11-21) disease assessments'
-#: present status and coded site groups, asked of imaging reports and oncology notes.
-SCHEMA_VERSIONS = ("mmai-clinical-extraction-v1", "mmai-clinical-extraction-v2", "mmai-clinical-extraction-v3")
+#: present status and coded site groups, asked of imaging reports and oncology notes; v4 (2026-11-21, user) the
+#: patient-level record keeps only what needs reading across notes (diagnoses, biomarkers, procedures, treatments,
+#: events): imaging studies, lab tests and counseling are note level only.
+SCHEMA_VERSIONS = ("mmai-clinical-extraction-v1", "mmai-clinical-extraction-v2", "mmai-clinical-extraction-v3",
+                   "mmai-clinical-extraction-v4")
 LEVELS = ("document", "patient")
 
 #: Longest accepted evidence quote, in characters (the shortest supporting span
@@ -149,7 +152,7 @@ IMAGING_STUDY = ItemType(
     key="imaging_studies",
     id_prefix="I",
     description="An imaging study: one item per study (modality, region and date).",
-    levels=frozenset(LEVELS),
+    levels=frozenset({"document"}),  # v4: note level only
     occurrence=True,
     primary_date="study_date",
     fields=(
@@ -430,7 +433,7 @@ LAB_TEST = ItemType(
         "A laboratory test or panel on blood, urine or another body fluid: one item per "
         "test or panel per collection (or per order, when only ordered)."
     ),
-    levels=frozenset(LEVELS),
+    levels=frozenset({"document"}),  # v4: note level only
     occurrence=True,
     primary_date="collection_date",
     fields=(
@@ -465,7 +468,7 @@ COUNSELING = ItemType(
         "Counseling, education, a care discussion, a supportive-care screening or a "
         "referral for one topic: one item per topic per encounter."
     ),
-    levels=frozenset(LEVELS),
+    levels=frozenset({"document"}),  # v4: note level only
     occurrence=True,
     primary_date="counseling_date",
     fields=(

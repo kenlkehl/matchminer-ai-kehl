@@ -200,11 +200,11 @@ def population_app(tmp_path, monkeypatch, make_client, backend):
 def active_cohort(client):
     loaded = client.post("/api/population/tables", files={
         "summaries": ("summaries.csv", SUMMARY_CSV), "notes": ("notes.csv", NOTE_CSV)})
-    loaded = wait(client, loaded.json()["job"]["id"])["result"]
+    loaded = wait(client, loaded.json()["job"]["id"], timeout=60)["result"]
     catalog_id = client.get("/api/guidelines/catalogs").json()["catalogs"][0]["id"]
     return job(client, "/api/population/retrieve", dict(
         version=loaded["version"], catalog_id=catalog_id, space_trial_id="s", candidate_k=7,
-        min_reasonableness=0.75))["result"]
+        min_reasonableness=0.75), timeout=60)["result"]
 
 
 @pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
@@ -219,8 +219,8 @@ def test_population_review_with_extraction_queries(population_app, backend, phi)
     response = client.post("/api/population/review", json={
         **version, "method": "extraction_queries", "note_source": "compressed"})
     assert response.status_code == 400
-    done = job(client, "/api/population/review", {**version,
-                                                   "method": "extraction_queries"})
+    done = job(client, "/api/population/review", {**version, "method": "extraction_queries"},
+               timeout=60)  # a loaded host takes longer than the default 15 s
     report = done["result"]["active"]["report"]
     assert report["method"] == "extraction_queries"
     assert report["extraction_store"]["name"] == "records"
@@ -241,7 +241,7 @@ def test_population_review_with_extraction_queries(population_app, backend, phi)
     csv = client.get("/api/population/results", params={**version, "format": "csv"})
     assert csv.status_code == 200 and "not_met" in csv.text
     # Compiled queries are cached on disk: a second check sends no request.
-    job(client, "/api/population/review", {**version, "method": "extraction_queries"})
+    job(client, "/api/population/review", {**version, "method": "extraction_queries"}, timeout=60)
     assert backend.requests == 1
     assert list((settings.cache / "workup_queries").glob("writer-*/*.json"))  # one folder per writing model
     # A full-note review stays available as the other method.
