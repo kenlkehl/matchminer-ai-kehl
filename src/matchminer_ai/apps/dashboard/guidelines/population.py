@@ -140,9 +140,9 @@ def clean_notes(notes):
 
 
 def require_phi(settings):
-    """Real-patient databases and caches are available only in PHI mode (mmai-guideline-fetcher --phi)."""
+    """Real-patient databases and caches are available only in real mode (mmai-dashboard --mode real)."""
     if not settings.phi:
-        raise InputError("DuckDB populations and population caches need the PHI app (mmai-guideline-fetcher --phi).")
+        raise InputError("DuckDB populations and population caches need real mode (mmai-dashboard --mode real).")
 
 
 def _inside(path, roots):
@@ -297,7 +297,7 @@ def load_population_sample(settings, size, seed, progress, database=None):
     if settings.phi:
         return load_duckdb_sample(settings, size, seed, progress, database)
     if database is not None:
-        raise InputError("DuckDB populations need the PHI app (mmai-guideline-fetcher --phi).")
+        raise InputError("DuckDB populations need real mode (mmai-dashboard --mode real).")
     return load_synthetic_sample(settings, size, seed, progress)
 
 

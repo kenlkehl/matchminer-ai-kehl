@@ -1,7 +1,7 @@
 """Compare frontend workup methods on fabricated records using Gemini or vLLM.
 
-Run from guideline-fetcher with the inference package available:
-  python examples/benchmark_workup_methods.py --output /tmp/workup-benchmark.json
+Run from the repository root:
+  python examples/guidelines/benchmark_workup_methods.py --output /tmp/workup-benchmark.json
 No real patient input is accepted. No raw model responses or reasoning are logged.
 """
 
@@ -17,8 +17,8 @@ from urllib.request import urlopen
 
 
 from matchminer_ai.llm.structured import StructuredClient  # noqa: E402
-from matchminer_ai.apps.guideline_fetcher.services import Inference  # noqa: E402
-from matchminer_ai.apps.guideline_fetcher.settings import GEMINI_PROFILE, Settings, normalize_endpoint  # noqa: E402
+from matchminer_ai.apps.dashboard.guidelines.services import Inference  # noqa: E402
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings, normalize_endpoint, vertex_profiles  # noqa: E402
 
 
 ITEMS = [
@@ -104,14 +104,15 @@ def main():
         if args.model or "agentic_off" in args.methods:
             parser.error("--model and agentic_off require an explicit --endpoint.")
         settings = Settings(llm_backend="gemini_vertex", device="cpu")
-        endpoint, model = GEMINI_PROFILE["endpoint"], GEMINI_PROFILE["model"]
+        gemini = vertex_profiles()["gemini_vertex"]
+        endpoint, model = gemini["endpoint"], gemini["model"]
         context_window = 1048576
     if "full_notes" in args.methods:
         from transformers import AutoTokenizer
 
         # Exclude initial tokenizer loading from the first timed method.
         print("Preparing the full-note workflow's existing chunk tokenizer", flush=True)
-        AutoTokenizer.from_pretrained(GEMINI_PROFILE["tokenizer"], use_fast=True)
+        AutoTokenizer.from_pretrained(vertex_profiles()["gemini_vertex"]["tokenizer"], use_fast=True)
     worker = Inference(settings)
 
     def assessment_effort(method):

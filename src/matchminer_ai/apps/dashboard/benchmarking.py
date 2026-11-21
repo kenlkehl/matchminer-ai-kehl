@@ -1,0 +1,231 @@
+"""The Benchmarking tab: finished and running evaluation runs, read from disk, and adjudication of judge runs.
+
+- **Distillation fidelity** (``matchminer_ai.evaluation.retro_fidelity``): a run directory with ``run_status.json``.
+  The tab shows its stage states, the stage receipts' counts and ``metrics/metrics.json`` (retrieval P@20 and mean
+  teacher score with intervals; the decision model's discrimination and calibration per question family).
+- **LLM as judge** (``matchminer_ai.evaluation.dual_judge``): a run directory with ``build.json`` and ``items/``.
+  The tab shows what was built, each judge's answers and cost, ``compare/summary.json`` and ``metrics/metrics.json``,
+  reruns compare and metrics (standard-library steps, in a subprocess that keeps files owner-only), and adjudicates
+  the queued units (``dual_judge.adjudication.Store``).
+
+Runs are found under the mode's roots (site config ``dashboard.<mode>.benchmark_roots``), up to ``DEPTH`` folders
+down. Real mode's runs hold PHI (patients, notes, judge answers quoting them); synthetic mode never reads a ``phi``
+folder. Everything returned here is counts, ids and metrics, except an adjudication item, which shows the item the
+judges read. Fidelity and judge runs themselves are started from the command line.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import threading
+import time
+
+from matchminer_ai.site import load_site_config
+
+from .core.cache import text_key
+from .core.errors import InputError
+from .core.jobs import JobManager
+from .settings import mode_side_error
+
+DEPTH = 3
+DISCOVERY_SECONDS = 60
+# retro_fidelity's stages (run.py), in pipeline order; each writes stage_receipt.json last.
+FIDELITY_STAGES = ("extraction", "patients", "cohort_table", "corpus", "retrieval", "lists_ab", "lists_c",
+                   "decide/match", "decide/boilerplate", "decide/criteria", "labels/match_ab", "labels/match_c",
+                   "labels/boilerplate_ab", "labels/boilerplate_c", "labels/criteria_ab", "labels/criteria_c",
+                   "metrics")
+RECOMPUTE_STEPS = ("compare", "metrics")
+
+
+def benchmark_roots(mode: str) -> list[Path]:
+    values = load_site_config().get(f"dashboard.{mode}.benchmark_roots") or []
+    return [Path(v).expanduser() for v in (values if isinstance(values, list) else [values])]
+
+
+def read_json(path: Path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def kind_of(directory: Path) -> str | None:
+    if (directory / "run_status.json").is_file():
+        return "fidelity"
+    if (directory / "build.json").is_file() and (directory / "items").is_dir():
+        return "judge"
+    return None
+
+
+def updated_at(directory: Path, names: tuple[str, ...]) -> float | None:
+    stamps = [p.stat().st_mtime for p in (directory / n for n in names) if p.exists()]
+    return max(stamps) if stamps else None
+
+
+class Benchmarks:
+    def __init__(self, mode: str, roots: list[Path] | None = None, user: str | None = None):
+        self.mode = mode
+        self.roots = [Path(r) for r in (roots if roots is not None else benchmark_roots(mode))]
+        for root in self.roots:
+            error = mode_side_error(mode, root)
+            if error:
+                raise ValueError(f"{error} (benchmark root {root})")
+        self.user = user if user is not None else os.environ.get("USER", "")
+        self.jobs = JobManager(name="mmai-benchmarks")
+        self.lock = threading.Lock()
+        self._found: tuple[float, dict[str, Path]] | None = None
+        self._stores: dict[str, tuple[float | None, object]] = {}
+
+    # ------------------------------------------------------------------ finding runs
+
+    def _discover(self) -> dict[str, Path]:
+        found: dict[str, Path] = {}
+
+        def visit(directory: Path, depth: int):
+            if kind_of(directory):
+                found[text_key("benchmark-run", str(directory.resolve()))[:16]] = directory
+                return
+            if depth >= DEPTH:
+                return
+            try:
+                children = sorted(e.path for e in os.scandir(directory) if e.is_dir(follow_symlinks=False)
+                                  and not e.name.startswith("."))
+            except OSError:
+                return
+            for child in children:
+                visit(Path(child), depth + 1)
+
+        for root in self.roots:
+            if root.is_dir():
+                visit(root, 0)
+        return found
+
+    def found(self) -> dict[str, Path]:
+        with self.lock:
+            if self._found is None or time.monotonic() - self._found[0] > DISCOVERY_SECONDS:
+                self._found = (time.monotonic(), self._discover())
+            return self._found[1]
+
+    def available(self) -> bool:
+        return bool(self.roots) and bool(self.found())
+
+    def run(self, run_id: str, kind: str | None = None) -> Path:
+        directory = self.found().get(run_id)
+        if directory is None or (kind and kind_of(directory) != kind):
+            raise InputError("That benchmark run is not available.")
+        return directory
+
+    def runs(self) -> list[dict]:
+        rows = []
+        for run_id, directory in self.found().items():
+            kind = kind_of(directory)
+            row = {"id": run_id, "kind": kind, "name": directory.name, "folder": directory.parent.name}
+            if kind == "fidelity":
+                status = read_json(directory / "run_status.json") or {}
+                states: dict[str, int] = {}
+                for job in (status.get("jobs") or {}).values():
+                    states[job.get("state", "unknown")] = states.get(job.get("state", "unknown"), 0) + 1
+                row.update(jobs=states, has_metrics=(directory / "metrics" / "metrics.json").is_file(),
+                           updated=updated_at(directory, ("run_status.json", "metrics/metrics.json")))
+            else:
+                build = read_json(directory / "build.json") or {}
+                row.update(components={c: (v or {}).get("items") for c, v in (build.get("components") or {}).items()},
+                           judges=sorted(p.name for p in (directory / "responses").iterdir() if p.is_dir())
+                           if (directory / "responses").is_dir() else [],
+                           compared=(directory / "compare" / "summary.json").is_file(),
+                           has_metrics=(directory / "metrics" / "metrics.json").is_file(),
+                           adjudications=self._decision_count(directory),
+                           updated=updated_at(directory, ("build.json", "compare/summary.json", "metrics/metrics.json",
+                                                          "adjudications.jsonl")))
+            rows.append(row)
+        return sorted(rows, key=lambda r: -(r.get("updated") or 0))
+
+    @staticmethod
+    def _decision_count(directory: Path) -> int:
+        from matchminer_ai.evaluation.dual_judge.judging import latest_decisions, read_jsonl
+
+        return len(latest_decisions(read_jsonl(directory / "adjudications.jsonl")))
+
+    # ------------------------------------------------------------------ fidelity runs
+
+    def fidelity(self, run_id: str) -> dict:
+        directory = self.run(run_id, "fidelity")
+        status = read_json(directory / "run_status.json") or {}
+        stages = {}
+        for name in FIDELITY_STAGES:
+            receipt = read_json(directory / name / "stage_receipt.json")
+            if receipt is not None:
+                stages[name] = {"content": receipt.get("content"),
+                                "finished_at": (receipt.get("provenance") or {}).get("finished_at"),
+                                "commit": ((receipt.get("provenance") or {}).get("repository") or {}).get("commit")}
+        lists = read_json(directory / "lists_c" / "lists.json") or {}
+        return {"id": run_id, "name": directory.name, "jobs": status.get("jobs") or {},
+                "updated": status.get("updated_at"), "released": status.get("released"),
+                "design_notes": read_json(directory / "design_notes.json") or [], "stages": stages,
+                "k_binding": lists.get("k_binding"), "metrics": read_json(directory / "metrics" / "metrics.json")}
+
+    # ------------------------------------------------------------------ judge runs
+
+    def judge(self, run_id: str) -> dict:
+        directory = self.run(run_id, "judge")
+        build = read_json(directory / "build.json") or {}
+        components = {}
+        for name, value in (build.get("components") or {}).items():
+            value = value or {}
+            components[name] = {k: value.get(k) for k in ("items", "requests", "request_chars", "max_request_chars",
+                                                          "built_at", "seconds")}
+        responses = {}
+        root = directory / "responses"
+        for judge in sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+            responses[judge] = {f.stem: sum(1 for _ in f.open(encoding="utf-8")) for f in sorted((root / judge).glob("*.jsonl"))}
+        return {"id": run_id, "name": directory.name, "version": build.get("version"), "components": components,
+                "responses": responses, "compare": read_json(directory / "compare" / "summary.json"),
+                "metrics": read_json(directory / "metrics" / "metrics.json"),
+                "adjudications": self._decision_count(directory),
+                "recompute": [j.describe(with_result=True) for j in self.jobs.jobs.values()
+                              if (j.restore or {}).get("run_id") == run_id][-3:]}
+
+    def recompute(self, run_id: str, steps: tuple[str, ...]):
+        """Rerun compare and/or metrics in a subprocess (they set their own owner-only umask); a background job."""
+        directory = self.run(run_id, "judge")
+        if not steps or any(s not in RECOMPUTE_STEPS for s in steps):
+            raise InputError(f"steps must be among {RECOMPUTE_STEPS}")
+
+        def run(progress):
+            out = {}
+            for n, step in enumerate(steps):
+                progress(n, len(steps), f"running {step}")
+                done = subprocess.run([sys.executable, "-m", f"matchminer_ai.evaluation.dual_judge.{step}",
+                                       "--run-dir", str(directory)], capture_output=True, text=True, timeout=1800)
+                # The steps log counts only; the last lines say what they did.
+                out[step] = {"returncode": done.returncode, "log": done.stdout.strip().splitlines()[-6:]}
+                if done.returncode != 0:
+                    raise InputError(f"{step} failed (exit {done.returncode}); run it from the command line to see why.")
+            with self.lock:
+                self._stores.pop(run_id, None)
+            return out
+
+        return self.jobs.submit("recompute", f"{'+'.join(steps)} for {directory.name}", run,
+                                restore={"run_id": run_id, "steps": list(steps)})
+
+    # ------------------------------------------------------------------ adjudication
+
+    def store(self, run_id: str):
+        from matchminer_ai.evaluation.dual_judge.adjudication import Store
+
+        directory = self.run(run_id, "judge")
+        if not (directory / "compare" / "units.jsonl").is_file():
+            raise InputError("Run compare first: this run has no units to adjudicate yet.")
+        items_stamp = updated_at(directory, ("items",))
+        with self.lock:
+            cached = self._stores.get(run_id)
+            if cached is None or cached[0] != items_stamp:  # rebuilt items: a new store
+                cached = (items_stamp, Store(directory, user=self.user))
+                self._stores[run_id] = cached
+            return cached[1]
+
+    def describe(self) -> dict:
+        return {"roots": [str(r) for r in self.roots], "runs": len(self.found()) if self.roots else 0}

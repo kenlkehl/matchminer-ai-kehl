@@ -8,7 +8,8 @@ A run directory is self-contained:
   items/<component>.jsonl           the frozen items (PHI for summary and decision)
   requests/<component>.jsonl        one provider-neutral request per item, the same bytes for both judges
   responses/<judge>/<component>.jsonl   the judges' answers, append-only (latest final attempt per request wins)
-  compare/units.jsonl, compare/summary.json   every unit with both judges' values and its status
+  compare/units.jsonl, compare/summary.json   every unit with both judges' values and its status (the summary
+                                    names the two judges compared)
   adjudications.jsonl               the user's decisions, append-only (latest per unit wins)
   metrics/metrics.json, metrics/report.md
 Everything is created under umask 077 (files 600, directories 700); logs carry counts only.
@@ -22,7 +23,10 @@ import threading
 import time
 
 COMPONENTS = ('extraction', 'summary', 'decision')
-JUDGES = ('vertex', 'azure')  # Claude Opus 5.5 on Vertex AI; GPT-6.1 Sol on Azure
+# The judges a run can have (judge_worker --judge); a run compares the two whose answers it holds (run_judges).
+KNOWN_JUDGES = ('vertex', 'databricks', 'azure')
+JUDGE_NAMES = dict(vertex='Claude Opus 5.5 (Vertex)', databricks='Claude Opus 5.5 (Databricks)',
+                   azure='GPT-6.1 Sol (Azure)')
 HERE = Path(__file__).resolve().parent
 
 
@@ -50,6 +54,39 @@ def log(message):
 
 
 # --- files ---------------------------------------------------------------------------------------------------------
+
+DEFAULT_PAIR = ('vertex', 'azure')
+
+
+def run_judges(run_dir, chosen=None):
+    """The two judges a run compares: ``chosen``, else those with an answer journal under ``responses/`` (in
+    ``KNOWN_JUDGES`` order). While only one has answered, the other is the first of ``DEFAULT_PAIR`` not already
+    taken, so its units wait for it ("awaiting"). More than two need ``chosen``."""
+    if chosen:
+        return tuple(chosen)
+    root = Path(run_dir) / 'responses'
+    present = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    judges = [j for j in KNOWN_JUDGES if j in present] + [j for j in present if j not in KNOWN_JUDGES]
+    if len(judges) > 2:
+        raise ValueError(f'the run has answers from {judges}; name the two to compare')
+    judges += [j for j in DEFAULT_PAIR if j not in judges][:2 - len(judges)]
+    return tuple(judges)
+
+
+def compared_judges(run_dir):
+    """The two judges compare.py compared: those ``compare/summary.json`` names, else the judges of its units
+    (a comparison written before the summary named them)."""
+    path = Path(run_dir) / 'compare' / 'summary.json'
+    judges = json.loads(path.read_text()).get('judges') if path.exists() else None
+    if not judges:
+        units = Path(run_dir) / 'compare' / 'units.jsonl'
+        with units.open(encoding='utf-8') if units.exists() else open(os.devnull) as handle:
+            first = next((json.loads(line) for line in handle if line.strip()), None)
+        judges = list((first or {}).get('values') or {})
+    if len(judges) != 2:
+        raise ValueError('run compare.py first: there is no comparison of two judges')
+    return tuple(judges)
+
 
 def read_jsonl(path):
     path = Path(path)
@@ -86,11 +123,15 @@ class Journal:
         self.lock = threading.Lock()
 
     def append(self, row):
-        line = json.dumps(row, ensure_ascii=False) + '\n'
-        with self.lock, self.path.open('a') as handle:
-            handle.write(line)
-            handle.flush()
-            os.fsync(handle.fileno())
+        line = (json.dumps(row, ensure_ascii=False) + '\n').encode()
+        with self.lock:
+            # Owner-only whatever the process's umask (the dashboard writes adjudications too).
+            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                os.write(fd, line)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
 
 def sha256(value):
@@ -289,7 +330,7 @@ def component_module(name):
     return importlib.import_module(f'matchminer_ai.evaluation.dual_judge.rubric_{name}')
 
 
-__all__ = ['COMPONENTS', 'HERE', 'JUDGES', 'Journal', 'check_enums', 'cohen_kappa', 'component_module', 'compared',
+__all__ = ['COMPONENTS', 'HERE', 'JUDGE_NAMES', 'KNOWN_JUDGES', 'compared_judges', 'run_judges', 'Journal', 'check_enums', 'cohen_kappa', 'component_module', 'compared',
            'gold', 'latest_decisions', 'log', 'make_request', 'mask', 'parse_answer', 'PRICES', 'private', 'private_dir',
            'prompt_text', 'quote_found', 'read_jsonl', 'sha256', 'strict_schema', 'unit_status', 'usage_cost', 'write_json',
            'write_jsonl']

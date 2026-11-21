@@ -15,10 +15,10 @@ from .settings import parse_settings
 def main(argv=None):
     settings = parse_settings(argv)
     if settings.command == "build":
-        from .pipeline import Builder, Sources, write_store
+        from .pipeline import write_store
+        from .state import make_builder
 
-        store = Builder(Sources(settings.trial_data, settings.oa_db, settings.grouping,
-                                settings.good_options_catalog)).build()
+        store = make_builder(settings).build()
         write_store(store, settings.store_path)
         print(f"{store['counts']} -> {settings.store_path} ({store['build_seconds']} s)")
         return

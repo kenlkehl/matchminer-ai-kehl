@@ -1,13 +1,13 @@
+"""Population workflows: tables, samples and archives, guideline-space retrieval, compression and review, per-task
+connections, and real mode's DuckDB sampling and browsing (synthetic mode never opens DuckDB)."""
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
-from matchminer_ai.apps.guideline_fetcher.app import create_app
-from .conftest import phi_settings
-from matchminer_ai.apps.guideline_fetcher.population import adapt_tables, load_population_sample
-from matchminer_ai.apps.guideline_fetcher.services import InputError
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
-from .test_app import catalog, wait
+from matchminer_ai.apps.dashboard.guidelines.population import adapt_tables, load_population_sample
+from matchminer_ai.apps.dashboard.guidelines.services import InputError
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings
+
+from .conftest import catalog, job, peer, wait
 
 SPACE = {
     "space_trial_id": "s",
@@ -26,27 +26,19 @@ SUMMARY_CSV = "patient_id,cancer_history_summary\na,Fabricated cancer A\nb,Fabri
 NOTE_CSV = "patient_id,note_text,note_date,note_type\na,CT completed.,2026-01-01,Imaging\nb,CT planned.,,Visit\n"
 
 
-def job(client, route, body):
-    response = client.post(route, json=body)
-    assert response.status_code == 202, response.text
-    result = wait(client, response.json()["job_id"]).json()
-    assert result["status"] == "complete", result
-    return result
-
-
 def tables(client):
     response = client.post(
         "/api/population/tables",
         files={"summaries": ("summaries.csv", SUMMARY_CSV), "notes": ("notes.csv", NOTE_CSV)},
     )
     assert response.status_code == 202
-    loaded = wait(client, response.json()["job_id"]).json()
-    assert loaded["status"] == "complete", loaded
+    loaded = wait(client, response.json()["job"]["id"])
+    assert loaded["status"] == "done", loaded
     return loaded["result"]
 
 
 @pytest.fixture
-def harness(tmp_path, monkeypatch):
+def harness(tmp_path, monkeypatch, make_client):
     catalog(tmp_path)
     calls = {"retrieval": [], "compression": [], "review": []}
 
@@ -101,12 +93,12 @@ def harness(tmp_path, monkeypatch):
         "matchminer_ai.trials.load_guideline_catalog", lambda *a, **kw: pd.DataFrame([SPACE])
     )
     settings = Settings(catalog_root=tmp_path, device="cpu", llm_backend="local")
-    return create_app(settings), calls
+    return make_client(settings), calls
 
 
 def selected(client):
     loaded = tables(client)
-    catalog_id = client.get("/api/catalogs").json()["catalogs"][0]["id"]
+    catalog_id = client.get("/api/guidelines/catalogs").json()["catalogs"][0]["id"]
     return job(
         client,
         "/api/population/retrieve",
@@ -121,114 +113,113 @@ def selected(client):
 
 
 def test_full_workflow_restore_drilldown_download_and_isolation(harness):
-    api, calls = harness
-    with TestClient(api) as client, TestClient(api) as other:
-        loaded = selected(client)
-        assert loaded["active"]["patient_count"] == 2
+    client, calls = harness
+    other = peer(client)
+    loaded = selected(client)
+    assert loaded["active"]["patient_count"] == 2
 
-        def v():
-            return {"version": client.get("/api/population").json()["population"]["version"]}
+    def v():
+        return {"version": client.get("/api/population").json()["population"]["version"]}
 
-        assert client.get("/api/session").json()["job"] is None
-        assert other.get("/api/population").json()["population"] is None
+    assert client.get("/api/patient/session").json()["job"] is None
+    assert other.get("/api/population").json()["population"] is None
+    assert (
+        other.get("/api/population/patient", params={**v(), "patient_id": "a"}).status_code
+        == 400
+    )
+    job(client, "/api/population/compress", v())
+    job(
+        client,
+        "/api/population/review",
+        {**v(), "note_source": "compressed", "max_concurrent_patients": 3},
+    )
+    assert sorted(text for text, _ in calls["review"]) == [
+        "CT completed. Compact.", "CT planned. Compact."
+    ]
+    assert all(
+        kw["population_context"] == SPACE["cohort_key_criteria"]
+        and kw["backup_config"] is None
+        for _, kw in calls["review"]
+    )
+    current = client.get("/api/population").json()["population"]
+    assert current["active"]["report"]["max_concurrent_patients"] == 3
+    assert current["active"]["report"]["method"] == "full_notes"
+    row = current["active"]["report"]["aggregate"][0]
+    assert row["statuses"]["completed"] == 1 and row["statuses"]["not_documented"] == 1
+    assert row["documented_completion_fraction"] == 0.5
+    item = client.get("/api/population/items/0", params=v()).json()
+    assert len(item["patients"]) == 2 and "evidence" not in item["patients"][0]
+    patient = client.get("/api/population/patient", params={**v(), "patient_id": "a"}).json()
+    assert patient["notes"][0]["note_text"] == "CT completed."
+    assert (
+        patient["review"]["assessments"][0]["evidence"][0]["quote"] == "CT completed. Compact."
+    )
+    assert patient["review"]["metadata"]["note_source"] == "compressed"
+    assert patient["review"]["metadata"]["evidence_source"] == "llm_compressed_notes"
+    for format in ["json", "csv"]:
+        response = client.get("/api/population/results", params={**v(), "format": format})
         assert (
-            other.get("/api/population/patient", params={**v(), "patient_id": "a"}).status_code
-            == 400
+            response.status_code == 200
+            and "attachment" in response.headers["content-disposition"]
         )
-        job(client, "/api/population/compress", v())
-        job(
-            client,
-            "/api/population/review",
-            {**v(), "note_source": "compressed", "max_concurrent_patients": 3},
-        )
-        assert sorted(text for text, _ in calls["review"]) == [
-            "CT completed. Compact.", "CT planned. Compact."
-        ]
-        assert all(
-            kw["population_context"] == SPACE["cohort_key_criteria"]
-            and kw["backup_config"] is None
-            for _, kw in calls["review"]
-        )
-        current = client.get("/api/population").json()["population"]
-        assert current["active"]["report"]["max_concurrent_patients"] == 3
-        assert current["active"]["report"]["method"] == "full_notes"
-        row = current["active"]["report"]["aggregate"][0]
-        assert row["statuses"]["completed"] == 1 and row["statuses"]["not_documented"] == 1
-        assert row["documented_completion_fraction"] == 0.5
-        item = client.get("/api/population/items/0", params=v()).json()
-        assert len(item["patients"]) == 2 and "evidence" not in item["patients"][0]
-        patient = client.get("/api/population/patient", params={**v(), "patient_id": "a"}).json()
-        assert patient["notes"][0]["note_text"] == "CT completed."
-        assert (
-            patient["review"]["assessments"][0]["evidence"][0]["quote"] == "CT completed. Compact."
-        )
-        assert patient["review"]["metadata"]["note_source"] == "compressed"
-        assert patient["review"]["metadata"]["evidence_source"] == "llm_compressed_notes"
-        for format in ["json", "csv"]:
-            response = client.get("/api/population/results", params={**v(), "format": format})
-            assert (
-                response.status_code == 200
-                and "attachment" in response.headers["content-disposition"]
-            )
-        archive = client.get("/api/population/export", params=v())
-        assert archive.status_code == 200
-        response = other.post(
-            "/api/population/import", files={"file": ("cohort.zip", archive.content)}
-        )
-        assert response.status_code == 200, response.text
-        restored = response.json()["population"]
-        assert restored["active"]["space"]["cohort_key_criteria"] == SPACE["cohort_key_criteria"]
-        assert restored["active"]["report"]["aggregate"] == current["active"]["report"]["aggregate"]
-        job(other, "/api/population/review", {"version": restored["version"]})
-        assert sorted(text for text, _ in calls["review"][2:]) == ["CT completed.", "CT planned."]
-        assert client.delete("/api/population").status_code == 204
-        assert client.get("/api/population").json()["population"] is None
-        assert other.get("/api/population").json()["population"] is not None
+    archive = client.get("/api/population/export", params=v())
+    assert archive.status_code == 200
+    response = other.post(
+        "/api/population/import", files={"file": ("cohort.zip", archive.content)}
+    )
+    assert response.status_code == 200, response.text
+    restored = response.json()["population"]
+    assert restored["active"]["space"]["cohort_key_criteria"] == SPACE["cohort_key_criteria"]
+    assert restored["active"]["report"]["aggregate"] == current["active"]["report"]["aggregate"]
+    job(other, "/api/population/review", {"version": restored["version"]})
+    assert sorted(text for text, _ in calls["review"][2:]) == ["CT completed.", "CT planned."]
+    assert client.delete("/api/population").status_code == 204
+    assert client.get("/api/population").json()["population"] is None
+    assert other.get("/api/population").json()["population"] is not None
 
 
 def test_stale_version_and_unavailable_compressed_notes_rejected(harness):
-    api, calls = harness
-    with TestClient(api) as client:
-        loaded = selected(client)
-        old = {"version": loaded["version"]}
-        response = client.post("/api/population/review", json={**old, "note_source": "compressed"})
-        assert response.status_code == 400 and "Compress the cohort" in response.json()["detail"]
-        job(client, "/api/population/compress", old)
-        assert client.post("/api/population/review", json=old).status_code == 400
-        assert calls["review"] == []
-        # ColBERT encoding and its retrieval controls were removed with ColBERT.
-        assert client.post("/api/population/encode", json=old).status_code in {404, 405}
-        for route, change in [
-            ("review", {"top_n": 20}),
-            ("review", {"chunk_size": 64}),
-            ("review", {"note_source": "summary"}),
-            ("review", {"max_concurrent_patients": 0}),
-            ("review", {"max_concurrent_patients": 33}),
-            ("review", {"max_concurrent_patients": True}),
-            ("sample", {"size": 0}),
-        ]:
-            body = change if route == "sample" else {**old, **change}
-            assert client.post("/api/population/" + route, json=body).status_code == 422
+    client, calls = harness
+    loaded = selected(client)
+    old = {"version": loaded["version"]}
+    response = client.post("/api/population/review", json={**old, "note_source": "compressed"})
+    assert response.status_code == 400 and "Compress the cohort" in response.json()["error"]
+    job(client, "/api/population/compress", old)
+    assert client.post("/api/population/review", json=old).status_code == 400
+    assert calls["review"] == []
+    # ColBERT encoding and its retrieval controls were removed with ColBERT.
+    assert client.post("/api/population/encode", json=old).status_code in {404, 405}
+    for route, change in [
+        ("review", {"top_n": 20}),
+        ("review", {"chunk_size": 64}),
+        ("review", {"note_source": "summary"}),
+        ("review", {"max_concurrent_patients": 0}),
+        ("review", {"max_concurrent_patients": 33}),
+        ("review", {"max_concurrent_patients": True}),
+        ("sample", {"size": 0}),
+    ]:
+        body = change if route == "sample" else {**old, **change}
+        assert client.post("/api/population/" + route, json=body).status_code == 422
 
 
 def test_clear_workspace_also_clears_population(harness):
-    with TestClient(harness[0]) as client:
-        selected(client)
-        assert client.delete("/api/session").status_code == 204
-        assert client.get("/api/population").json()["population"] is None
+    client = harness[0]
+    selected(client)
+    assert client.delete("/api/patient/session").status_code == 204
+    assert client.get("/api/population").json()["population"] is None
 
 
 def test_population_catalog_uses_readable_names_and_rejects_unknown_catalog(harness):
-    with TestClient(harness[0]) as client:
-        catalog_id = client.get("/api/catalogs").json()["catalogs"][0]["id"]
-        response = client.get("/api/population/spaces", params={"catalog_id": catalog_id})
-        assert response.status_code == 200
-        assert response.json()["spaces"][0]["name"] == SPACE["name"]
-        assert response.json()["spaces"][0]["cohort_key_criteria"] == SPACE["cohort_key_criteria"]
-        assert (
-            client.get("/api/population/spaces", params={"catalog_id": "unknown"}).status_code
-            == 400
-        )
+    client = harness[0]
+    catalog_id = client.get("/api/guidelines/catalogs").json()["catalogs"][0]["id"]
+    response = client.get("/api/population/spaces", params={"catalog_id": catalog_id})
+    assert response.status_code == 200
+    assert response.json()["spaces"][0]["name"] == SPACE["name"]
+    assert response.json()["spaces"][0]["cohort_key_criteria"] == SPACE["cohort_key_criteria"]
+    assert (
+        client.get("/api/population/spaces", params={"catalog_id": "unknown"}).status_code
+        == 400
+    )
 
 
 def test_training_ids_join_on_pseudo_mrn_and_sample_is_reproducible(tmp_path):
@@ -309,7 +300,7 @@ def database(tmp_path):
 
 
 def database_settings(tmp_path, database, **values):
-    return phi_settings(device="cpu", population_duckdb=database, duckdb_roots=[tmp_path], **values)
+    return Settings(phi=True, device="cpu", population_duckdb=database, duckdb_roots=[tmp_path], **values)
 
 
 def test_duckdb_sample_reads_current_summaries_and_original_notes(tmp_path, database):
@@ -376,7 +367,7 @@ def test_duckdb_selection_is_validated(tmp_path, database):
 
 
 def test_database_browse_lists_only_folders_and_duckdb_files(tmp_path, database):
-    from matchminer_ai.apps.guideline_fetcher.population import browse_databases
+    from matchminer_ai.apps.dashboard.guidelines.population import browse_databases
 
     (tmp_path / "nested").mkdir()
     (tmp_path / ".hidden").mkdir()
@@ -398,39 +389,39 @@ def test_database_browse_lists_only_folders_and_duckdb_files(tmp_path, database)
     inner = database_settings(tmp_path, tmp_path / "nested" / "copy.duckdb")
     assert browse_databases(inner)["parent"] == str(tmp_path.resolve())
     # A default outside the roots stays selectable.
-    outer = phi_settings(device="cpu", population_duckdb=database,
-                         duckdb_roots=[tmp_path / "nested"])
+    outer = Settings(phi=True, device="cpu", population_duckdb=database, duckdb_roots=[tmp_path / "nested"])
     assert browse_databases(outer)["path"] == str(tmp_path.resolve())
 
 
-def test_population_database_routes(tmp_path, database, monkeypatch):
+def test_population_database_routes(tmp_path, make_client):
     catalog(tmp_path / "catalogs")
-    api = create_app(database_settings(tmp_path, database, catalog_root=tmp_path / "catalogs",
-                                       llm_backend="local"))
-    with TestClient(api) as client:
-        state = client.get("/api/population").json()
-        assert state["defaults"]["database"] == str(database)
-        listing = client.get("/api/population/databases").json()
-        assert [f["path"] for f in listing["files"]] == [str(database.resolve())]
-        checked = client.get("/api/population/database", params={"path": str(database)})
-        assert checked.json()["name"] == "oa_fabricated.duckdb"
-        assert client.get("/api/population/database",
-                          params={"path": "/etc/passwd"}).status_code == 400
-        rejected = client.post("/api/population/sample",
-                               json={"size": 1, "seed": 1, "database": "/etc/hosts"})
-        assert rejected.status_code == 400
-        loaded = job(client, "/api/population/sample",
-                     {"size": 4, "seed": 7, "database": str(database)})["result"]
-        assert loaded["source_count"] == 2
-        assert loaded["provenance"]["database"]["name"] == "oa_fabricated.duckdb"
-        assert client.get("/api/population").json()["population"]["version"] == loaded["version"]
+    root = tmp_path / "databases"  # apart from the app's own fixture files
+    root.mkdir()
+    database = fabricated_database(root / "oa_fabricated.duckdb")
+    client = make_client(database_settings(root, database, catalog_root=tmp_path / "catalogs", llm_backend="local"))
+    state = client.get("/api/population").json()
+    assert state["defaults"]["database"] == str(database)
+    listing = client.get("/api/population/databases").json()
+    assert [f["path"] for f in listing["files"]] == [str(database.resolve())]
+    checked = client.get("/api/population/database", params={"path": str(database)})
+    assert checked.json()["name"] == "oa_fabricated.duckdb"
+    assert client.get("/api/population/database",
+                      params={"path": "/etc/passwd"}).status_code == 400
+    rejected = client.post("/api/population/sample",
+                           json={"size": 1, "seed": 1, "database": "/etc/hosts"})
+    assert rejected.status_code == 400
+    loaded = job(client, "/api/population/sample",
+                 {"size": 4, "seed": 7, "database": str(database)})["result"]
+    assert loaded["source_count"] == 2
+    assert loaded["provenance"]["database"]["name"] == "oa_fabricated.duckdb"
+    assert client.get("/api/population").json()["population"]["version"] == loaded["version"]
 
 
-def test_non_phi_app_never_opens_a_duckdb_database(tmp_path, database, monkeypatch):
+def test_synthetic_mode_never_opens_a_duckdb_database(tmp_path, database, monkeypatch):
     import duckdb
 
-    from matchminer_ai.apps.guideline_fetcher.population import browse_databases, inspect_database
-    from matchminer_ai.apps.guideline_fetcher.population_cache import inspect_cache
+    from matchminer_ai.apps.dashboard.guidelines.population import browse_databases, inspect_database
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import inspect_cache
 
     def refuse(*args, **kwargs):
         raise AssertionError("The non-PHI app opened a DuckDB database")
@@ -444,45 +435,42 @@ def test_non_phi_app_never_opens_a_duckdb_database(tmp_path, database, monkeypat
         lambda: browse_databases(settings),
         lambda: inspect_cache(settings, str(tmp_path)),
     ):
-        with pytest.raises(InputError, match="PHI app"):
+        with pytest.raises(InputError, match="real mode"):
             call()
 
 
-
-
 def test_task_specific_model_connections(harness):
-    api, calls = harness
-    with TestClient(api) as client:
-        for task in ["compress", "workup", "workup_full_backup"]:
-            response = client.post(
-                "/api/config",
-                json={
-                    "task": task,
-                    "llm_backend": "local",
-                    "endpoint": f'http://{task.replace("_","-")}:8000/v1',
-                    "model": "Qwen/Qwen3.5-4B",
-                    "tokenizer": "Qwen/Qwen3.5-4B",
-                    "backup_enabled": task.endswith("backup"),
-                    "failure_threshold": 4,
-                },
-            )
-            assert response.status_code == 200
-        selected(client)
+    client, calls = harness
+    for task in ["compress", "workup", "workup_full_backup"]:
+        response = client.post(
+            "/api/models",
+            json={
+                "task": task,
+                "llm_backend": "local",
+                "endpoint": f'http://{task.replace("_","-")}:8000/v1',
+                "model": "Qwen/Qwen3.5-4B",
+                "tokenizer": "Qwen/Qwen3.5-4B",
+                "backup_enabled": task.endswith("backup"),
+                "failure_threshold": 4,
+            },
+        )
+        assert response.status_code == 200
+    selected(client)
 
-        def v():
-            return {"version": client.get("/api/population").json()["population"]["version"]}
+    def v():
+        return {"version": client.get("/api/population").json()["population"]["version"]}
 
-        job(client, "/api/population/compress", v())
-        job(client, "/api/population/review", v())
-        assert calls["compression"][0]["config"].remote["server_urls"] == [
-            "http://compress:8000/v1"
-        ]
-        options = calls["review"][0][1]
-        assert options["config"].remote["server_urls"] == ["http://workup:8000/v1"]
-        assert options["backup_config"].remote["server_urls"] == [
-            "http://workup-full-backup:8000/v1"
-        ]
-        assert options["max_consecutive_failures"] == 4
+    job(client, "/api/population/compress", v())
+    job(client, "/api/population/review", v())
+    assert calls["compression"][0]["config"].remote["server_urls"] == [
+        "http://compress:8000/v1"
+    ]
+    options = calls["review"][0][1]
+    assert options["config"].remote["server_urls"] == ["http://workup:8000/v1"]
+    assert options["backup_config"].remote["server_urls"] == [
+        "http://workup-full-backup:8000/v1"
+    ]
+    assert options["max_consecutive_failures"] == 4
 
 
 def test_stop_interrupts_a_long_database_query():
@@ -494,7 +482,7 @@ def test_stop_interrupts_a_long_database_query():
     from matchminer_ai.cancellation import (
         CancellationToken, InferenceCancelled, cancellation_scope,
     )
-    from matchminer_ai.apps.guideline_fetcher.population import _interruptible
+    from matchminer_ai.apps.dashboard.guidelines.population import _interruptible
 
     con = duckdb.connect()
     token, messages = CancellationToken(), []

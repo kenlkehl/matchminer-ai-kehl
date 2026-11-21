@@ -4,7 +4,7 @@
 isolated Python REPL, instead of reading every note chunk for every question. The notes can be a DataFrame,
 concatenated text, or both, with an optional existing summary as navigation context.
 `answer_patient_question_batch` runs the same loop across patients and questions concurrently, and
-`review_patient_workup_with_note_search` applies it to guideline workup items; the guideline fetcher offers it as its
+`review_patient_workup_with_note_search` applies it to guideline workup items; the dashboard offers it as its
 agentic workup method, beside the default full-note review.
 
 The feature is experimental. Answers are research documentation-review results for human review, not guideline
@@ -301,7 +301,7 @@ The result's `assessments` add `name`, `recommendation_index`, `recommendation`,
 `evidence_selection="automatic_reviewed_excerpts"`, the follow-up settings, `incomplete_review_items`,
 `failed_items`, `requests`, note and undated-note counts, and which input supplied the notes. Endpoint or worker
 failures are `status="error"` and never imply missing documentation. "Not documented" means nothing was located in
-the searched excerpts, not that every note was clinically reviewed. The guideline fetcher runs every item at once (it
+the searched excerpts, not that every note was clinically reviewed. The dashboard runs every item at once (it
 raises the endpoint's request cap to the item count) and labels the attached text "Reviewed patient-note excerpts".
 
 ### Follow-up review

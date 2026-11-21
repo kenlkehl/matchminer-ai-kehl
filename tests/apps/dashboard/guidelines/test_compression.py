@@ -5,14 +5,12 @@ import re
 from threading import Barrier, Event
 
 import pytest
-from fastapi.testclient import TestClient
-from .test_app import catalog, wait
-from .test_stop import stopped
-from .test_workup import WorkupInference
 
-from matchminer_ai.apps.guideline_fetcher.app import create_app
-from matchminer_ai.apps.guideline_fetcher.services import Inference
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
+from matchminer_ai.apps.dashboard.guidelines.services import Inference
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings
+
+from .conftest import WorkupInference, catalog, wait
+from .test_stop import stopped
 
 
 @pytest.mark.parametrize("dated", [False, True])
@@ -21,7 +19,7 @@ from matchminer_ai.apps.guideline_fetcher.settings import Settings
     ("Qwen/Qwen3.5-4B", False),
     ("Qwen/Qwen3.5-4B", True),
 ])
-def test_compression_and_full_review_through_app_jobs(tmp_path, monkeypatch, dated, model, thinking):
+def test_compression_and_full_review_through_app_jobs(tmp_path, monkeypatch, dated, model, thinking, make_client):
     from matchminer_ai.llm.structured import StructuredClient
     from transformers import AutoTokenizer
 
@@ -104,61 +102,59 @@ def test_compression_and_full_review_through_app_jobs(tmp_path, monkeypatch, dat
         if dated
         else None
     )
-    with TestClient(create_app(settings)) as client:
-        assert client.get("/api/config").json()["note_compression_available"]
-        compression = client.post("/api/compress", json={"text": original_text, "notes": notes})
-        compressed = wait(client, compression.json()["job_id"]).json()
-        assert compressed["status"] == "complete", compressed["progress"]
-        assert compressed["kind"] == "compress"
-        assert len(calls) == (2 if dated else 1)
-        retrieval = client.post("/api/retrieve", json={"summary": "Fabricated summary"}).json()[
-            "job_id"
-        ]
-        wait(client, retrieval)
-        response = client.post(
-            "/api/workup",
-            json={
-                "text": original_text,
-                "notes": notes,
-                "retrieval_job_id": retrieval,
-                "space_index": 0,
-                "method": "full_notes",
-                "note_source": "compressed",
-            },
-        )
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-        done = wait(client, job_id).json()
-        assert done["status"] == "complete", done["progress"]
-        result = done["result"]
-        assert result["notes_input"] == {"text": original_text, "notes": notes}
-        assert result["method"] == "full_notes" and result["note_source"] == "compressed"
-        assert client.get("/api/session").json()["job"]["result"] == result
-        assert done["restore"]["notes_input"] == result["notes_input"]
-        assert (
-            done["restore"]["method"] == "full_notes"
-            and done["restore"]["note_source"] == "compressed"
-        )
-        review = result["review"]
-        assert review["metadata"]["method"] == "full_notes"
-        assert review["metadata"]["evidence_selection"] == "automatic_reviewed_excerpts"
-        assert review["metadata"]["scope"] == "all_supplied_compressed_notes"
-        assert review["metadata"]["compression"]["thinking"] == ("on" if thinking else "off")
-        assert review["metadata"]["compression"]["losslessness_verified"] is False
-        assert review["metadata"]["compression"]["output_characters"] == (17 if dated else 8)
-        assert review["metadata"]["note_count"] == (2 if dated else 1)
-        evidence = review["assessments"][0]["evidence"][0]
-        assert evidence["quote"] == "CT done." and evidence["quote"] not in original_text
-        assert evidence["note_date"] == ("2026-01-01T00:00:00+00:00" if dated else None)
-        assert [e["quote"] for e in review["assessments"][0]["evidence"]] == (
-            ["CT done.", "No fever."] if dated else ["CT done."]
-        )
-        assert "may differ from the original notes" in review["notice"]
-        assert len(calls) == (3 if dated else 2)
+    client = make_client(settings)
+    assert client.get("/api/models").json()["note_compression_available"]
+    compression = client.post("/api/patient/compress", json={"text": original_text, "notes": notes})
+    compressed = wait(client, compression.json()["job"]["id"])
+    assert compressed["status"] == "done", compressed
+    assert compressed["kind"] == "compress"
+    assert len(calls) == (2 if dated else 1)
+    retrieval = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
+    wait(client, retrieval)
+    response = client.post(
+        "/api/guidelines/workup",
+        json={
+            "text": original_text,
+            "notes": notes,
+            "retrieval_job_id": retrieval,
+            "space_index": 0,
+            "method": "full_notes",
+            "note_source": "compressed",
+        },
+    )
+    assert response.status_code == 202
+    job_id = response.json()["job"]["id"]
+    done = wait(client, job_id)
+    assert done["status"] == "done", done
+    result = done["result"]
+    assert result["notes_input"] == {"text": original_text, "notes": notes}
+    assert result["method"] == "full_notes" and result["note_source"] == "compressed"
+    assert client.get("/api/patient/session").json()["job"]["result"] == result
+    assert done["restore"]["notes_input"] == result["notes_input"]
+    assert (
+        done["restore"]["method"] == "full_notes"
+        and done["restore"]["note_source"] == "compressed"
+    )
+    review = result["review"]
+    assert review["metadata"]["method"] == "full_notes"
+    assert review["metadata"]["evidence_selection"] == "automatic_reviewed_excerpts"
+    assert review["metadata"]["scope"] == "all_supplied_compressed_notes"
+    assert review["metadata"]["compression"]["thinking"] == ("on" if thinking else "off")
+    assert review["metadata"]["compression"]["losslessness_verified"] is False
+    assert review["metadata"]["compression"]["output_characters"] == (17 if dated else 8)
+    assert review["metadata"]["note_count"] == (2 if dated else 1)
+    evidence = review["assessments"][0]["evidence"][0]
+    assert evidence["quote"] == "CT done." and evidence["quote"] not in original_text
+    assert evidence["note_date"] == ("2026-01-01T00:00:00+00:00" if dated else None)
+    assert [e["quote"] for e in review["assessments"][0]["evidence"]] == (
+        ["CT done.", "No fever."] if dated else ["CT done."]
+    )
+    assert "may differ from the original notes" in review["notice"]
+    assert len(calls) == (3 if dated else 2)
 
 
 @pytest.mark.parametrize("workflow", ["summarize", "full_notes", "agentic"])
-def test_gemini_compression_runs_without_thinking_switch(tmp_path, monkeypatch, workflow):
+def test_gemini_compression_runs_without_thinking_switch(tmp_path, monkeypatch, workflow, make_client):
     import matchminer_ai.patients
     import pandas as pd
     from matchminer_ai.llm.structured import StructuredClient
@@ -211,42 +207,38 @@ def test_gemini_compression_runs_without_thinking_switch(tmp_path, monkeypatch, 
     monkeypatch.setattr(matchminer_ai.patients, "review_patient_workup", review)
     monkeypatch.setattr(matchminer_ai.patients, "review_patient_workup_with_note_search", review)
     settings = Settings(catalog_root=tmp_path, llm_backend="gemini_vertex", device="cpu")
-    with TestClient(create_app(settings)) as client:
-        assert client.get("/api/config").json()["note_compression_available"] is True
-        payload = {"text": "Fabricated CT completed.", "note_source": "compressed"}
-        compression = client.post("/api/compress", json={"text": payload["text"]}).json()["job_id"]
-        assert wait(client, compression).json()["status"] == "complete"
-        assert len(calls) == 1 and downstream == []
-        route = "/api/summarize"
-        if workflow != "summarize":
-            key = client.post("/api/retrieve", json={"summary": "Fabricated summary"}).json()[
-                "job_id"
-            ]
-            wait(client, key)
-            payload.update(retrieval_job_id=key, space_index=0, method=workflow)
-            route = "/api/workup"
-        response = client.post(route, json=payload)
-        assert response.status_code == 202
-        done = wait(client, response.json()["job_id"]).json()
-        assert done["status"] == "complete", done["progress"]
-        result = done["result"]
-        metadata = (
-            result["compression"]
-            if workflow == "summarize"
-            else result["review"]["metadata"]["compression"]
-        )
-        assert metadata["thinking_requested"] == "off"
-        assert metadata["thinking"] == "default"
-        assert len(calls) == 1
-        assert downstream[0].note_text.tolist() == ["CT done."]
-        assert result["notes_input"]["text"] == payload["text"]
+    client = make_client(settings)
+    assert client.get("/api/models").json()["note_compression_available"] is True
+    payload = {"text": "Fabricated CT completed.", "note_source": "compressed"}
+    compression = client.post("/api/patient/compress", json={"text": payload["text"]}).json()["job"]["id"]
+    assert wait(client, compression)["status"] == "done"
+    assert len(calls) == 1 and downstream == []
+    route = "/api/patient/summarize"
+    if workflow != "summarize":
+        key = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
+        wait(client, key)
+        payload.update(retrieval_job_id=key, space_index=0, method=workflow)
+        route = "/api/guidelines/workup"
+    response = client.post(route, json=payload)
+    assert response.status_code == 202
+    done = wait(client, response.json()["job"]["id"])
+    assert done["status"] == "done", done
+    result = done["result"]
+    metadata = (
+        result["compression"]
+        if workflow == "summarize"
+        else result["review"]["metadata"]["compression"]
+    )
+    assert metadata["thinking_requested"] == "off"
+    assert metadata["thinking"] == "default"
+    assert len(calls) == 1
+    assert downstream[0].note_text.tolist() == ["CT done."]
+    assert result["notes_input"]["text"] == payload["text"]
 
 
 @pytest.mark.parametrize("workflow", ["summarize", "full_notes", "agentic"])
 @pytest.mark.parametrize("enabled", [False, True])
-def test_selected_source_never_compresses_inside_the_clinical_workflow(
-    tmp_path, monkeypatch, workflow, enabled
-):
+def test_selected_source_never_compresses_inside_the_clinical_workflow(tmp_path, monkeypatch, workflow, enabled, make_client):
     import matchminer_ai.patients
     import pandas as pd
 
@@ -297,52 +289,48 @@ def test_selected_source_never_compresses_inside_the_clinical_workflow(
     )
     monkeypatch.setattr(matchminer_ai.patients, api_name, review)
     settings = Settings(catalog_root=tmp_path, llm_backend="local", device="cpu")
-    with TestClient(create_app(settings)) as client:
-        client.post("/api/config", json={"endpoint": "selected.invalid", "model": "fabricated"})
-        payload = {
-            "text": "Original concatenated text",
-            "notes": source,
-            "note_source": "compressed" if enabled else "original",
-        }
-        if enabled:
-            compression = client.post(
-                "/api/compress", json={"text": payload["text"], "notes": source}
-            ).json()["job_id"]
-            assert wait(client, compression).json()["status"] == "complete"
-            assert received == [] and compression_calls == [1]
-        route = "/api/summarize"
-        if workflow != "summarize":
-            key = client.post("/api/retrieve", json={"summary": "Fabricated summary"}).json()[
-                "job_id"
-            ]
-            wait(client, key)
-            payload.update(retrieval_job_id=key, space_index=0, method=workflow)
-            route = "/api/workup"
-        key = client.post(route, json=payload).json()["job_id"]
-        done = wait(client, key).json()
-        assert done["status"] == "complete", done["progress"]
-        result = done["result"]
-        assert result["notes_input"] == {"text": payload["text"], "notes": source}
-        assert result["note_source"] == payload["note_source"]
-        assert client.get("/api/session").json()["job"]["result"] == result
-        assert done["restore"]["note_source"] == payload["note_source"]
-        metadata = (
-            result.get("compression")
-            if workflow == "summarize"
-            else result["review"]["metadata"].get("compression")
-        )
-        assert bool(metadata) is enabled
-        assert received[0]["note_text"].tolist() == (
-            ["CT done."] if enabled else [source[0]["note_text"]]
-        )
-        assert received[0]["note_type"].tolist() == ["Radiology"]
-        assert compression_calls == ([1] if enabled else [])
+    client = make_client(settings)
+    client.post("/api/models", json={"endpoint": "selected.invalid", "model": "fabricated"})
+    payload = {
+        "text": "Original concatenated text",
+        "notes": source,
+        "note_source": "compressed" if enabled else "original",
+    }
+    if enabled:
+        compression = client.post(
+            "/api/patient/compress", json={"text": payload["text"], "notes": source}
+        ).json()["job"]["id"]
+        assert wait(client, compression)["status"] == "done"
+        assert received == [] and compression_calls == [1]
+    route = "/api/patient/summarize"
+    if workflow != "summarize":
+        key = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
+        wait(client, key)
+        payload.update(retrieval_job_id=key, space_index=0, method=workflow)
+        route = "/api/guidelines/workup"
+    key = client.post(route, json=payload).json()["job"]["id"]
+    done = wait(client, key)
+    assert done["status"] == "done", done
+    result = done["result"]
+    assert result["notes_input"] == {"text": payload["text"], "notes": source}
+    assert result["note_source"] == payload["note_source"]
+    assert client.get("/api/patient/session").json()["job"]["result"] == result
+    assert done["restore"]["note_source"] == payload["note_source"]
+    metadata = (
+        result.get("compression")
+        if workflow == "summarize"
+        else result["review"]["metadata"].get("compression")
+    )
+    assert bool(metadata) is enabled
+    assert received[0]["note_text"].tolist() == (
+        ["CT done."] if enabled else [source[0]["note_text"]]
+    )
+    assert received[0]["note_type"].tolist() == ["Radiology"]
+    assert compression_calls == ([1] if enabled else [])
 
 
 @pytest.mark.parametrize("cancel", [False, True])
-def test_failed_or_stopped_standalone_compression_never_starts_review(
-    tmp_path, monkeypatch, cancel
-):
+def test_failed_or_stopped_standalone_compression_never_starts_review(tmp_path, monkeypatch, cancel, make_client):
     import matchminer_ai.patients
     from matchminer_ai.cancellation import cancel_sleep
     from matchminer_ai.patients import NoteCompressionError
@@ -364,29 +352,29 @@ def test_failed_or_stopped_standalone_compression_never_starts_review(
 
     monkeypatch.setattr(matchminer_ai.patients, "compress_patient_notes", compress)
     settings = Settings(catalog_root=tmp_path, llm_backend="local", device="cpu")
-    with TestClient(create_app(settings)) as client:
-        key = client.post("/api/retrieve", json={"summary": "Fabricated summary"}).json()["job_id"]
-        wait(client, key)
-        job = client.post(
-            "/api/compress",
-            json={
-                "text": "Fabricated note.",
-                "retrieval_job_id": key,
-                "summary": "Fabricated edited summary",
-            },
-        ).json()["job_id"]
-        assert entered.wait(3)
-        if cancel:
-            assert client.post(f"/api/jobs/{job}/stop").status_code == 200
-            result = stopped(client, job)
-        else:
-            result = wait(client, job).json()
-            assert result["status"] == "failed"
-        assert result["result"] is None
-        assert "private" not in result["progress"]
-        assert result["restore"]["notes_input"]["text"] == "Fabricated note."
-        assert result["restore"]["summary"] == "Fabricated edited summary"
-        assert result["restore"]["retrieval_job_id"] == key
-        assert result["restore"]["retrieval"]["spaces"]
-        assert review_calls == []
-        assert client.get("/api/note-compression").json()["note_compression"] is None
+    client = make_client(settings)
+    key = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
+    wait(client, key)
+    job = client.post(
+        "/api/patient/compress",
+        json={
+            "text": "Fabricated note.",
+            "retrieval_job_id": key,
+            "summary": "Fabricated edited summary",
+        },
+    ).json()["job"]["id"]
+    assert entered.wait(3)
+    if cancel:
+        assert client.post(f"/api/jobs/{job}/stop").status_code == 200
+        result = stopped(client, job)
+    else:
+        result = wait(client, job)
+        assert result["status"] == "error"
+    assert result["result"] is None
+    assert "private" not in json.dumps(result)
+    assert result["restore"]["notes_input"]["text"] == "Fabricated note."
+    assert result["restore"]["summary"] == "Fabricated edited summary"
+    assert result["restore"]["retrieval_job_id"] == key
+    assert result["restore"]["retrieval"]["spaces"]
+    assert review_calls == []
+    assert client.get("/api/patient/note-compression").json()["note_compression"] is None

@@ -24,7 +24,7 @@ The base install covers the matching workflow. Optional parts are extras:
 | --- | --- |
 | `training` | The training pipeline (`mmai-train`) |
 | `evaluation` | The evaluations (install together with `training`) |
-| `apps` | The dashboard and the guideline fetcher |
+| `apps` | The dashboard (`mmai-dashboard`) |
 | `sql` | SQL-agent workup checks over extraction records |
 | `databricks` | Claude through a Databricks AI Gateway |
 | `guideline-conversion` | PDF guideline conversion |

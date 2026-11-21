@@ -33,7 +33,6 @@ nav:
   - Evaluation: evaluation/index.md
   - Apps:
       - Dashboard: apps/dashboard.md
-      - Guideline fetcher: apps/guideline-fetcher.md
   - Reference:
       - Configuration: reference/configuration.md
       - Site configuration: reference/site-config.md

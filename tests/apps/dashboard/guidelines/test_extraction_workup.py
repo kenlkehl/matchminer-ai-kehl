@@ -1,19 +1,18 @@
-"""Extraction-based workup checks in both modes. Fabricated notes and records only."""
+"""Extraction-based workup checks in both modes: stores, compiled queries, the SQL agent (Claude only there) and the
+offline build command. Fabricated notes and records only."""
 
 import json
 import stat
 
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
-from matchminer_ai.apps.guideline_fetcher.app import create_app
-from .conftest import mode_settings, phi_settings
-from matchminer_ai.apps.guideline_fetcher.extraction_workup import QueryCache, inspect_store, open_store, write_store
-from matchminer_ai.apps.guideline_fetcher.services import InputError, Inference
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
-from .test_app import catalog, wait
-from .test_population import NOTE_CSV, SPACE, SUMMARY_CSV, job
+from matchminer_ai.apps.dashboard.guidelines.extraction_workup import QueryCache, inspect_store, open_store, write_store
+from matchminer_ai.apps.dashboard.guidelines.services import InputError, Inference
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings, claude_backends
+
+from .conftest import DATABRICKS_HOST, catalog, job, wait
+from .test_population_workflows import NOTE_CSV, SPACE, SUMMARY_CSV
 
 from matchminer_ai.llm.backends import LLMGenerationResult
 from matchminer_ai.patients.extraction.notes import note_ids
@@ -110,9 +109,9 @@ def build_store(settings, notes=None):
 # Stores -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("phi", [False, True], ids=["standard", "phi"])
+@pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
 def test_store_is_written_atomically_on_its_mode_side(tmp_path, phi):
-    settings = mode_settings(phi, catalog_root=tmp_path, **paths(tmp_path, phi))
+    settings = Settings(phi=phi, catalog_root=tmp_path, **paths(tmp_path, phi))
     manifest = build_store(settings)
     assert manifest["mode"] == settings.mode and manifest["counts"]["patients"] == 2
     store = open_store(settings)
@@ -130,25 +129,17 @@ def test_store_is_written_atomically_on_its_mode_side(tmp_path, phi):
         write_store(settings, other, document_rows(fabricated_notes()), source={},
                     extraction={})
     # A store built for the other mode is refused.
-    flipped = mode_settings(not phi, catalog_root=tmp_path,
-                            cache=tmp_path / "neutral" / "cache",
-                            extraction_records=tmp_path / "neutral" / "records")
+    flipped = Settings(phi=not phi, catalog_root=tmp_path, cache=tmp_path / "neutral" / "cache",
+                       extraction_records=tmp_path / "neutral" / "records")
     write_store(flipped, flipped.extraction_records, document_rows(fabricated_notes()),
                 source={}, extraction={})
     with pytest.raises(InputError):
         open_store(settings, str(flipped.extraction_records))
-
-
-def test_settings_keep_extraction_records_on_their_mode_side(tmp_path, monkeypatch):
-    monkeypatch.setenv("GUIDELINE_EXTRACTION_RECORDS", str(tmp_path / "data/no_phi/records"))
-    assert Settings().extraction_records == tmp_path / "data/no_phi/records"
-    with pytest.raises(ValueError, match="no_phi"):
-        Settings(phi=True, cache=tmp_path / "phi/cache")
-    monkeypatch.setenv("GUIDELINE_EXTRACTION_RECORDS", str(tmp_path / "data/phi/records"))
-    with pytest.raises(ValueError, match="phi folder"):
-        Settings()
-    assert Settings(phi=True, cache=tmp_path / "phi/cache").extraction_records == \
-        tmp_path / "data/phi/records"
+    # Stores the former guideline fetcher built name its modes "phi" and "standard".
+    manifest_file = settings.extraction_records / "manifest.json"
+    manifest_file.write_text(json.dumps({**json.loads(manifest_file.read_text()),
+                                         "mode": "phi" if phi else "standard"}))
+    assert inspect_store(settings)["counts"]["patients"] == 2
 
 
 def test_query_cache_round_trips_and_rejects_unsafe_keys(tmp_path):
@@ -179,7 +170,7 @@ def test_extraction_config_maps_the_connection_onto_extraction_sections(tmp_path
 
 
 @pytest.fixture
-def population_app(tmp_path, monkeypatch, backend):
+def population_app(tmp_path, monkeypatch, make_client, backend):
     catalog(tmp_path)
 
     def retrieve(summaries, paths, **kwargs):
@@ -198,10 +189,10 @@ def population_app(tmp_path, monkeypatch, backend):
                         lambda *a, **kw: pd.DataFrame([SPACE]))
 
     def make(phi):
-        settings = mode_settings(phi, catalog_root=tmp_path, device="cpu", llm_backend="local",
-                                 **paths(tmp_path, phi))
+        settings = Settings(phi=phi, catalog_root=tmp_path, device="cpu", llm_backend="local",
+                            **paths(tmp_path, phi))
         build_store(settings)
-        return create_app(settings), settings
+        return make_client(settings), settings
 
     return make
 
@@ -209,71 +200,68 @@ def population_app(tmp_path, monkeypatch, backend):
 def active_cohort(client):
     loaded = client.post("/api/population/tables", files={
         "summaries": ("summaries.csv", SUMMARY_CSV), "notes": ("notes.csv", NOTE_CSV)})
-    loaded = wait(client, loaded.json()["job_id"]).json()["result"]
-    catalog_id = client.get("/api/catalogs").json()["catalogs"][0]["id"]
+    loaded = wait(client, loaded.json()["job"]["id"])["result"]
+    catalog_id = client.get("/api/guidelines/catalogs").json()["catalogs"][0]["id"]
     return job(client, "/api/population/retrieve", dict(
         version=loaded["version"], catalog_id=catalog_id, space_trial_id="s", candidate_k=7,
         min_reasonableness=0.75))["result"]
 
 
-@pytest.mark.parametrize("phi", [False, True], ids=["standard", "phi"])
+@pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
 def test_population_review_with_extraction_queries(population_app, backend, phi):
-    api, settings = population_app(phi)
-    with TestClient(api) as client:
-        state = client.get("/api/population").json()
-        assert state["defaults"]["extraction_records"] == str(settings.extraction_records)
-        info = client.get("/api/population/extractions").json()
-        assert info["counts"]["patients"] == 2 and info["levels"] == ["document"]
-        cohort = active_cohort(client)
-        version = {"version": cohort["version"]}
-        response = client.post("/api/population/review", json={
-            **version, "method": "extraction_queries", "note_source": "compressed"})
-        assert response.status_code == 400
-        done = job(client, "/api/population/review", {**version,
-                                                       "method": "extraction_queries"})
-        report = done["result"]["active"]["report"]
-        assert report["method"] == "extraction_queries"
-        assert report["extraction_store"]["name"] == "records"
-        assert report["compile"]["requests"] == 1 and backend.requests == 1
-        row = report["aggregate"][0]
-        assert row["statuses"] == {"met": 1, "not_met": 1, "unknown": 0, "not_applicable": 0,
-                                 "done_not_recommended": 0}
-        assert row["reasons"]["planned_only"] == 1
-        assert row["documented_completion_fraction"] == 0.5
-        version = {"version": client.get("/api/population").json()["population"]["version"]}
-        patient = client.get("/api/population/patient", params={**version,
-                                                                 "patient_id": "a"}).json()
-        assessment = patient["review"]["assessments"][0]
-        assert assessment["status"] == "met"
-        assert assessment["evidence"][0]["note_id"] == patient["notes"][0]["note_id"]
-        items = client.get("/api/population/items/0", params=version).json()["patients"]
-        assert {p["patient_id"]: p["status"] for p in items} == {"a": "met", "b": "not_met"}
-        csv = client.get("/api/population/results", params={**version, "format": "csv"})
-        assert csv.status_code == 200 and "not_met" in csv.text
-        # Compiled queries are cached on disk: a second check sends no request.
-        job(client, "/api/population/review", {**version, "method": "extraction_queries"})
-        assert backend.requests == 1
-        assert list((settings.cache / "workup_queries").glob("*.json"))
-        # A full-note review stays available as the other method.
-        outside = client.post("/api/population/review", json={
-            "version": client.get("/api/population").json()["population"]["version"],
-            "method": "extraction_queries", "extraction_records": "/elsewhere/records"})
-        assert outside.status_code == 400
+    client, settings = population_app(phi)
+    state = client.get("/api/population").json()
+    assert state["defaults"]["extraction_records"] == str(settings.extraction_records)
+    info = client.get("/api/population/extractions").json()
+    assert info["counts"]["patients"] == 2 and info["levels"] == ["document"]
+    cohort = active_cohort(client)
+    version = {"version": cohort["version"]}
+    response = client.post("/api/population/review", json={
+        **version, "method": "extraction_queries", "note_source": "compressed"})
+    assert response.status_code == 400
+    done = job(client, "/api/population/review", {**version,
+                                                   "method": "extraction_queries"})
+    report = done["result"]["active"]["report"]
+    assert report["method"] == "extraction_queries"
+    assert report["extraction_store"]["name"] == "records"
+    assert report["compile"]["requests"] == 1 and backend.requests == 1
+    row = report["aggregate"][0]
+    assert row["statuses"] == {"met": 1, "not_met": 1, "unknown": 0, "not_applicable": 0,
+                             "done_not_recommended": 0}
+    assert row["reasons"]["planned_only"] == 1
+    assert row["documented_completion_fraction"] == 0.5
+    version = {"version": client.get("/api/population").json()["population"]["version"]}
+    patient = client.get("/api/population/patient", params={**version,
+                                                             "patient_id": "a"}).json()
+    assessment = patient["review"]["assessments"][0]
+    assert assessment["status"] == "met"
+    assert assessment["evidence"][0]["note_id"] == patient["notes"][0]["note_id"]
+    items = client.get("/api/population/items/0", params=version).json()["patients"]
+    assert {p["patient_id"]: p["status"] for p in items} == {"a": "met", "b": "not_met"}
+    csv = client.get("/api/population/results", params={**version, "format": "csv"})
+    assert csv.status_code == 200 and "not_met" in csv.text
+    # Compiled queries are cached on disk: a second check sends no request.
+    job(client, "/api/population/review", {**version, "method": "extraction_queries"})
+    assert backend.requests == 1
+    assert list((settings.cache / "workup_queries").glob("*.json"))
+    # A full-note review stays available as the other method.
+    outside = client.post("/api/population/review", json={
+        "version": client.get("/api/population").json()["population"]["version"],
+        "method": "extraction_queries", "extraction_records": "/elsewhere/records"})
+    assert outside.status_code == 400
 
 
 def test_population_extraction_paths_stay_on_the_mode_side(population_app, tmp_path):
-    api, settings = population_app(False)
-    with TestClient(api) as client:
-        phi_path = tmp_path / "phi" / "extractions" / "records"
-        response = client.get("/api/population/extractions", params={"path": str(phi_path)})
-        assert response.status_code == 400 and "phi folder" in response.json()["detail"]
-        response = client.get("/api/population/extractions", params={"path": "relative/path"})
-        assert response.status_code == 400
-    api, settings = population_app(True)
-    with TestClient(api) as client:
-        no_phi = tmp_path / "no_phi" / "extractions" / "records"
-        response = client.get("/api/population/extractions", params={"path": str(no_phi)})
-        assert response.status_code == 400 and "no_phi" in response.json()["detail"]
+    client, settings = population_app(False)
+    phi_path = tmp_path / "phi" / "extractions" / "records"
+    response = client.get("/api/population/extractions", params={"path": str(phi_path)})
+    assert response.status_code == 400 and "phi folder" in response.json()["error"]
+    response = client.get("/api/population/extractions", params={"path": "relative/path"})
+    assert response.status_code == 400
+    client, settings = population_app(True)
+    no_phi = tmp_path / "no_phi" / "extractions" / "records"
+    response = client.get("/api/population/extractions", params={"path": str(no_phi)})
+    assert response.status_code == 400 and "no_phi" in response.json()["error"]
 
 
 # Patient view -------------------------------------------------------------------
@@ -288,9 +276,9 @@ class ExtractionInference(Inference):
                                     "category": "2A"}]}]}
 
 
-@pytest.mark.parametrize("phi", [False, True], ids=["standard", "phi"])
+@pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
 def test_patient_view_extracts_on_demand_and_reuses_session_records(
-        tmp_path, monkeypatch, backend, phi):
+        tmp_path, monkeypatch, backend, phi, make_client):
     catalog(tmp_path)
     calls = []
 
@@ -304,43 +292,42 @@ def test_patient_view_extracts_on_demand_and_reuses_session_records(
                       "documents": {n: {"attempts": [{"attempt": 1}]} for n in rows.note_id}}
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
-    settings = mode_settings(phi, catalog_root=tmp_path, llm_backend="local",
-                             **paths(tmp_path, phi))
-    with TestClient(create_app(settings, ExtractionInference(settings))) as client:
-        key = client.post("/api/retrieve", json={"summary": "Synthetic summary"}).json()["job_id"]
-        wait(client, key)
-        notes = [{"note_text": "Clinic visit.", "note_date": "2026-01-01T00:00:00"},
-                 {"note_text": "CT completed.", "note_date": "2026-01-05T00:00:00",
-                  "note_type": "Imaging"}]
-        body = {"text": "Synthetic notes", "notes": notes, "retrieval_job_id": key,
-                "space_index": 0}
-        cost = client.post("/api/workup/extraction-cost", json=body).json()
-        assert cost["document_requests"] == 2 and cost["compile_requests"] == 1
-        assert cost["reused_extraction"] is False and backend.requests == 0
-        assert client.post("/api/workup", json={**body, "method": "extractions",
-                                                "note_source": "compressed"}).status_code == 400
-        response = client.post("/api/workup", json={**body, "method": "extractions"})
-        done = wait(client, response.json()["job_id"]).json()
-        assert done["status"] == "complete", done
-        review = done["result"]["review"]
-        assert review["metadata"]["method"] == "extraction_queries"
-        assessment = review["assessments"][0]
-        assert assessment["status"] == "met" and assessment["recommendation"]["name"] == "CT chest"
-        assert assessment["evidence"][0]["note_number"] == 2
-        assert "server memory" in review["notice"]
-        assert review["metadata"]["requests"] == 3 and calls == [2]
-        again = client.post("/api/workup", json={**body, "method": "extractions"})
-        review = wait(client, again.json()["job_id"]).json()["result"]["review"]
-        assert calls == [2] and backend.requests == 1
-        assert review["metadata"]["extraction"]["reused"] is True
-        assert review["metadata"]["requests"] == 0
-        cost = client.post("/api/workup/extraction-cost", json=body).json()
-        assert cost["reused_extraction"] and cost["requests"] == 0
-        client.delete("/api/session")
-        assert not client.app.state.session_extractions.entries
+    settings = Settings(phi=phi, catalog_root=tmp_path, llm_backend="local", **paths(tmp_path, phi))
+    client = make_client(settings, ExtractionInference(settings))
+    key = client.post("/api/guidelines/retrieve", json={"summary": "Synthetic summary"}).json()["job"]["id"]
+    wait(client, key)
+    notes = [{"note_text": "Clinic visit.", "note_date": "2026-01-01T00:00:00"},
+             {"note_text": "CT completed.", "note_date": "2026-01-05T00:00:00",
+              "note_type": "Imaging"}]
+    body = {"text": "Synthetic notes", "notes": notes, "retrieval_job_id": key,
+            "space_index": 0}
+    cost = client.post("/api/guidelines/workup/extraction-cost", json=body).json()
+    assert cost["document_requests"] == 2 and cost["compile_requests"] == 1
+    assert cost["reused_extraction"] is False and backend.requests == 0
+    assert client.post("/api/guidelines/workup", json={**body, "method": "extractions",
+                                            "note_source": "compressed"}).status_code == 400
+    response = client.post("/api/guidelines/workup", json={**body, "method": "extractions"})
+    done = wait(client, response.json()["job"]["id"])
+    assert done["status"] == "done", done
+    review = done["result"]["review"]
+    assert review["metadata"]["method"] == "extraction_queries"
+    assessment = review["assessments"][0]
+    assert assessment["status"] == "met" and assessment["recommendation"]["name"] == "CT chest"
+    assert assessment["evidence"][0]["note_number"] == 2
+    assert "server memory" in review["notice"]
+    assert review["metadata"]["requests"] == 3 and calls == [2]
+    again = client.post("/api/guidelines/workup", json={**body, "method": "extractions"})
+    review = wait(client, again.json()["job"]["id"])["result"]["review"]
+    assert calls == [2] and backend.requests == 1
+    assert review["metadata"]["extraction"]["reused"] is True
+    assert review["metadata"]["requests"] == 0
+    cost = client.post("/api/guidelines/workup/extraction-cost", json=body).json()
+    assert cost["reused_extraction"] and cost["requests"] == 0
+    client.delete("/api/patient/session")
+    assert not client.app.state.mmai.guidelines.session_extractions.entries
 
 
-def test_free_text_notes_are_one_undated_note(tmp_path, monkeypatch, backend):
+def test_free_text_notes_are_one_undated_note(tmp_path, monkeypatch, backend, make_client):
     catalog(tmp_path)
     seen = []
 
@@ -352,32 +339,33 @@ def test_free_text_notes_are_one_undated_note(tmp_path, monkeypatch, backend):
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
     settings = Settings(catalog_root=tmp_path, llm_backend="local", **paths(tmp_path, False))
-    with TestClient(create_app(settings, ExtractionInference(settings))) as client:
-        key = client.post("/api/retrieve", json={"summary": "Synthetic"}).json()["job_id"]
-        wait(client, key)
-        response = client.post("/api/workup", json={
-            "text": "CT completed.", "retrieval_job_id": key, "space_index": 0,
-            "method": "extractions"})
-        done = wait(client, response.json()["job_id"]).json()
-        assert done["status"] == "complete", done
-        assert seen[0][0]["note_date"] is None
-        assert done["result"]["review"]["metadata"]["undated_notes"] == 1
-        assert done["result"]["review"]["assessments"][0]["status"] == "met"
+    client = make_client(settings, ExtractionInference(settings))
+    key = client.post("/api/guidelines/retrieve", json={"summary": "Synthetic"}).json()["job"]["id"]
+    wait(client, key)
+    response = client.post("/api/guidelines/workup", json={
+        "text": "CT completed.", "retrieval_job_id": key, "space_index": 0,
+        "method": "extractions"})
+    done = wait(client, response.json()["job"]["id"])
+    assert done["status"] == "done", done
+    assert seen[0][0]["note_date"] is None
+    assert done["result"]["review"]["metadata"]["undated_notes"] == 1
+    assert done["result"]["review"]["assessments"][0]["status"] == "met"
 
 
 # Offline build script -------------------------------------------------------------
 
 
 def test_preprocess_extractions_builds_a_synthetic_store(tmp_path, monkeypatch):
-    from matchminer_ai.apps.guideline_fetcher import preprocess_extractions
+    from matchminer_ai.apps.dashboard.guidelines import preprocess_extractions
     notes = pd.DataFrame({
         "pseudo_mrn": [1, 1, 2, 3], "synthetic_note": ["CT completed.", "Visit.", "CT planned.",
                                                        "Visit."],
         "date": ["2026-01-01", "2026-01-02", "2026-01-03", None],
         "event_type": ["Imaging", "Visit", "Visit", "Visit"],
     })
-    source = tmp_path / "no_phi" / "notes.parquet"
-    source.parent.mkdir()
+    root = tmp_path / "data"  # the data root: the command's default folders are under it
+    source = root / "no_phi" / "notes.parquet"
+    source.parent.mkdir(parents=True)
     notes.to_parquet(source)
     seen = {}
 
@@ -389,28 +377,27 @@ def test_preprocess_extractions_builds_a_synthetic_store(tmp_path, monkeypatch):
                                       "counts": {"complete": len(frame)}}
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
-    monkeypatch.setenv("GUIDELINE_EXTRACTION_RECORDS", str(tmp_path / "no_phi/ex/default"))
-    monkeypatch.setenv("GUIDELINE_CACHE", str(tmp_path / "no_phi/cache"))
-    output = tmp_path / "no_phi/ex/built"
+    output = root / "no_phi/ex/built"
     preprocess_extractions.main(["--notes", str(source), "--output", str(output),
                                  "--limit", "2", "--endpoint", "http://example.invalid/v1"])
     assert len(seen["patients"]) == 2 and seen["timeout"] == 14400
     manifest = json.loads((output / "manifest.json").read_text())
-    assert manifest["mode"] == "standard" and manifest["source"]["patients"] == 2
+    assert manifest["mode"] == "synthetic" and manifest["source"]["patients"] == 2
     assert manifest["source"]["kind"] == "synthetic_notes"
     assert seen["checkpoints"] == output.parent / ".built.checkpoints"
     with pytest.raises(SystemExit, match="exists"):
         preprocess_extractions.main(["--notes", str(source), "--output", str(output)])
     with pytest.raises(SystemExit, match="phi folder"):
-        preprocess_extractions.main(["--notes", str(tmp_path / "phi/notes.parquet"),
-                                     "--output", str(tmp_path / "no_phi/ex/other")])
+        preprocess_extractions.main(["--notes", str(root / "phi/notes.parquet"),
+                                     "--output", str(root / "no_phi/ex/other")])
 
 
 def test_preprocess_extractions_phi_reads_a_population_cache_privately(tmp_path, monkeypatch):
-    from matchminer_ai.apps.guideline_fetcher import preprocess_extractions
-    from matchminer_ai.apps.guideline_fetcher.population_cache import FORMAT, VERSION
+    from matchminer_ai.apps.dashboard.guidelines import preprocess_extractions
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import FORMAT, VERSION
 
-    cache = tmp_path / "phi" / "population_cache"
+    root = tmp_path / "data"  # the data root: the command's default folders are under it
+    cache = root / "phi" / "population_cache"
     cache.mkdir(parents=True)
     notes = pd.DataFrame({"patient_id": ["11", "12"], "note_text": ["CT completed.", "Visit."],
                           "note_date": pd.to_datetime(["2026-01-01", "2026-01-02"]),
@@ -434,24 +421,21 @@ def test_preprocess_extractions_phi_reads_a_population_cache_privately(tmp_path,
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
     monkeypatch.setattr("matchminer_ai.patients.extract_patient_records", patient_extract)
-    monkeypatch.setenv("GUIDELINE_DUCKDB_ROOTS", str(tmp_path / "phi"))
-    monkeypatch.setenv("GUIDELINE_CACHE", str(tmp_path / "phi/app_cache"))
-    monkeypatch.setenv("GUIDELINE_EXTRACTION_RECORDS", str(tmp_path / "phi/ex/default"))
-    output = tmp_path / "phi" / "ex" / "records"
+    output = root / "phi" / "ex" / "records"
     preprocess_extractions.main(["--phi", "--cache", str(cache), "--output", str(output),
                                  "--levels", "document_and_patient"])
     manifest = json.loads((output / "manifest.json").read_text())
-    assert manifest["mode"] == "phi" and manifest["levels"] == ["document", "patient"]
+    assert manifest["mode"] == "real" and manifest["levels"] == ["document", "patient"]
     for name in ("manifest.json", "document_records.parquet", "patient_records.parquet"):
         assert stat.S_IMODE((output / name).stat().st_mode) == 0o600
     assert stat.S_IMODE(output.stat().st_mode) == 0o700
-    settings = phi_settings(cache=tmp_path / "phi/app_cache")
+    settings = Settings(phi=True, device="cpu")
     _, patients = open_store(settings, str(output)).records(["11"])
     assert patients.note_ids[0] == note_ids(notes.iloc[:1].assign(
         note_date=notes.note_date.iloc[:1]))
     with pytest.raises(SystemExit, match="no_phi"):
         preprocess_extractions.main(["--phi", "--cache", str(cache), "--output",
-                                     str(tmp_path / "no_phi/records")])
+                                     str(root / "no_phi/records")])
 
 
 # SQL agent ----------------------------------------------------------------------
@@ -474,25 +458,9 @@ LEFT JOIN (SELECT patient_key, list(item_key) AS k FROM imaging_studies
 """
 
 
-def wait_long(client, key, seconds=60):
-    """SQL-agent jobs start isolated DuckDB workers: allow more than the shared second."""
-    import time
-
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        response = client.get(f"/api/jobs/{key}")
-        if response.json()["status"] in {"complete", "failed"}:
-            return response
-        time.sleep(0.05)
-    pytest.fail("Job did not finish")
-
-
 def job_long(client, route, body):
-    response = client.post(route, json=body)
-    assert response.status_code == 202, response.text
-    result = wait_long(client, response.json()["job_id"]).json()
-    assert result["status"] == "complete", result
-    return result
+    """SQL-agent jobs start isolated DuckDB workers: allow more than the usual wait."""
+    return job(client, route, body, timeout=60)
 
 
 class Agent:
@@ -535,52 +503,51 @@ def agent(monkeypatch):
     return fake
 
 
-@pytest.mark.parametrize("phi", [False, True], ids=["standard", "phi"])
+@pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
 def test_population_review_with_the_sql_agent(population_app, agent, phi):
-    api, settings = population_app(phi)
-    with TestClient(api) as client:
-        cohort = active_cohort(client)
-        version = {"version": cohort["version"]}
-        assert client.post("/api/population/review", json={
-            **version, "method": "extraction_sql", "note_source": "compressed"}).status_code == 400
-        done = job_long(client, "/api/population/review", {**version, "method": "extraction_sql"})
-        report = done["result"]["active"]["report"]
-        assert report["method"] == "extraction_sql" and report["extraction_store"]["name"] == "records"
-        assert report["compile"]["requests"] == 3 and agent.requests == 3
-        assert report["compile"]["exploration"]["patients"] == 2
-        row = report["aggregate"][0]
-        assert row["statuses"] == {"met": 1, "not_met": 1, "unknown": 0, "not_applicable": 0,
-                                 "done_not_recommended": 0}
-        assert row["reasons"]["planned_only"] == 1
-        assert report["queries"][0]["sql"].startswith("SELECT p.patient_key")
-        assert report["queries"][0]["cohort_run"]["status"] == "ran"
-        # The agent saw extracted values, never patient ids or note text.
-        seen = json.dumps(agent.payloads)
-        assert "CT completed" not in seen and '"a"' not in seen
-        version = {"version": client.get("/api/population").json()["population"]["version"]}
-        patient = client.get("/api/population/patient", params={**version,
-                                                                 "patient_id": "a"}).json()
-        assessment = patient["review"]["assessments"][0]
-        assert assessment["status"] == "met" and assessment["sql"]
-        assert assessment["evidence"][0]["note_id"] == patient["notes"][0]["note_id"]
-        assert patient["review"]["metadata"]["method"] == "extraction_sql"
-        csv = client.get("/api/population/results", params={**version, "format": "csv"})
-        assert "extraction_sql" in csv.text
-        # The exploration database and the accepted query are cached on the mode's side.
-        databases = list((settings.cache / "extraction_databases").glob("*.duckdb"))
-        queries = list((settings.cache / "workup_sql").glob("*.json"))
-        assert len(databases) == 1 and len(queries) == 1
-        if phi:
-            assert stat.S_IMODE(databases[0].stat().st_mode) == 0o600
-            assert stat.S_IMODE(databases[0].parent.stat().st_mode) == 0o700
-        cached = json.loads(queries[0].read_text())
-        assert "CT completed" not in json.dumps(cached) and cached["sql"]
-        job_long(client, "/api/population/review", {**version, "method": "extraction_sql"})
-        assert agent.requests == 3
+    client, settings = population_app(phi)
+    cohort = active_cohort(client)
+    version = {"version": cohort["version"]}
+    assert client.post("/api/population/review", json={
+        **version, "method": "extraction_sql", "note_source": "compressed"}).status_code == 400
+    done = job_long(client, "/api/population/review", {**version, "method": "extraction_sql"})
+    report = done["result"]["active"]["report"]
+    assert report["method"] == "extraction_sql" and report["extraction_store"]["name"] == "records"
+    assert report["compile"]["requests"] == 3 and agent.requests == 3
+    assert report["compile"]["exploration"]["patients"] == 2
+    row = report["aggregate"][0]
+    assert row["statuses"] == {"met": 1, "not_met": 1, "unknown": 0, "not_applicable": 0,
+                             "done_not_recommended": 0}
+    assert row["reasons"]["planned_only"] == 1
+    assert report["queries"][0]["sql"].startswith("SELECT p.patient_key")
+    assert report["queries"][0]["cohort_run"]["status"] == "ran"
+    # The agent saw extracted values, never patient ids or note text.
+    seen = json.dumps(agent.payloads)
+    assert "CT completed" not in seen and '"a"' not in seen
+    version = {"version": client.get("/api/population").json()["population"]["version"]}
+    patient = client.get("/api/population/patient", params={**version,
+                                                             "patient_id": "a"}).json()
+    assessment = patient["review"]["assessments"][0]
+    assert assessment["status"] == "met" and assessment["sql"]
+    assert assessment["evidence"][0]["note_id"] == patient["notes"][0]["note_id"]
+    assert patient["review"]["metadata"]["method"] == "extraction_sql"
+    csv = client.get("/api/population/results", params={**version, "format": "csv"})
+    assert "extraction_sql" in csv.text
+    # The exploration database and the accepted query are cached on the mode's side.
+    databases = list((settings.cache / "extraction_databases").glob("*.duckdb"))
+    queries = list((settings.cache / "workup_sql").glob("*.json"))
+    assert len(databases) == 1 and len(queries) == 1
+    if phi:
+        assert stat.S_IMODE(databases[0].stat().st_mode) == 0o600
+        assert stat.S_IMODE(databases[0].parent.stat().st_mode) == 0o700
+    cached = json.loads(queries[0].read_text())
+    assert "CT completed" not in json.dumps(cached) and cached["sql"]
+    job_long(client, "/api/population/review", {**version, "method": "extraction_sql"})
+    assert agent.requests == 3
 
 
-@pytest.mark.parametrize("phi", [False, True], ids=["standard", "phi"])
-def test_patient_view_sql_agent_explores_the_default_store(tmp_path, monkeypatch, agent, phi):
+@pytest.mark.parametrize("phi", [False, True], ids=["synthetic", "real"])
+def test_patient_view_sql_agent_explores_the_default_store(tmp_path, monkeypatch, agent, phi, make_client):
     catalog(tmp_path)
 
     def extract(notes, *, config, patient_records=None, return_metadata=False,
@@ -591,47 +558,46 @@ def test_patient_view_sql_agent_explores_the_default_store(tmp_path, monkeypatch
                       "documents": {n: {"attempts": [{"attempt": 1}]} for n in rows.note_id}}
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
-    settings = mode_settings(phi, catalog_root=tmp_path, llm_backend="local",
-                             **paths(tmp_path, phi))
-    with TestClient(create_app(settings, ExtractionInference(settings))) as client:
-        key = client.post("/api/retrieve", json={"summary": "Synthetic summary"}).json()["job_id"]
-        wait(client, key)
-        notes = [{"note_text": "Clinic visit.", "note_date": "2026-01-01T00:00:00"},
-                 {"note_text": "CT completed.", "note_date": "2026-01-05T00:00:00"}]
-        body = {"text": "Synthetic notes", "notes": notes, "retrieval_job_id": key,
-                "space_index": 0}
-        # Without a default store the SQL agent has nothing to explore.
-        missing = client.post("/api/workup/extraction-cost",
-                              json={**body, "method": "extraction_sql"})
-        assert missing.status_code == 400 and "preprocess_extractions" in missing.text
-        build_store(settings)
-        cost = client.post("/api/workup/extraction-cost",
-                           json={**body, "method": "extraction_sql"}).json()
-        assert cost["sql_agent"]["store"] == "records" and cost["sql_agent"]["patients"] == 2
-        assert cost["sql_agent"]["items_to_explore"] == 1 and not cost["sql_agent"]["database_built"]
-        assert cost["compile_requests"] == agent_limits(settings.extraction_config()).max_actions
-        assert agent.requests == 0
-        response = client.post("/api/workup", json={**body, "method": "extraction_sql"})
-        done = wait_long(client, response.json()["job_id"]).json()
-        assert done["status"] == "complete", done
-        review = done["result"]["review"]
-        assert review["metadata"]["method"] == "extraction_sql"
-        assert review["metadata"]["queries"]["queries"][0]["sql"].startswith("SELECT")
-        assessment = review["assessments"][0]
-        assert assessment["status"] == "met" and assessment["evidence"][0]["note_number"] == 2
-        assert "SQL agent explored the extraction records of records" in review["notice"]
-        cost = client.post("/api/workup/extraction-cost",
-                           json={**body, "method": "extraction_sql"}).json()
-        assert cost["sql_agent"]["items_to_explore"] == 0 and cost["sql_agent"]["database_built"]
-        assert cost["requests"] == 0 and cost["reused_extraction"]
-        # A failed run saved for diagnosis is explored again, so it is not counted cached.
-        from matchminer_ai.apps.guideline_fetcher.extraction_workup import sql_cache
+    settings = Settings(phi=phi, catalog_root=tmp_path, llm_backend="local", **paths(tmp_path, phi))
+    client = make_client(settings, ExtractionInference(settings))
+    key = client.post("/api/guidelines/retrieve", json={"summary": "Synthetic summary"}).json()["job"]["id"]
+    wait(client, key)
+    notes = [{"note_text": "Clinic visit.", "note_date": "2026-01-01T00:00:00"},
+             {"note_text": "CT completed.", "note_date": "2026-01-05T00:00:00"}]
+    body = {"text": "Synthetic notes", "notes": notes, "retrieval_job_id": key,
+            "space_index": 0}
+    # Without a default store the SQL agent has nothing to explore.
+    missing = client.post("/api/guidelines/workup/extraction-cost",
+                          json={**body, "method": "extraction_sql"})
+    assert missing.status_code == 400 and "preprocess_extractions" in missing.text
+    build_store(settings)
+    cost = client.post("/api/guidelines/workup/extraction-cost",
+                       json={**body, "method": "extraction_sql"}).json()
+    assert cost["sql_agent"]["store"] == "records" and cost["sql_agent"]["patients"] == 2
+    assert cost["sql_agent"]["items_to_explore"] == 1 and not cost["sql_agent"]["database_built"]
+    assert cost["compile_requests"] == agent_limits(settings.extraction_config()).max_actions
+    assert agent.requests == 0
+    response = client.post("/api/guidelines/workup", json={**body, "method": "extraction_sql"})
+    done = wait(client, response.json()["job"]["id"], 60)
+    assert done["status"] == "done", done
+    review = done["result"]["review"]
+    assert review["metadata"]["method"] == "extraction_sql"
+    assert review["metadata"]["queries"]["queries"][0]["sql"].startswith("SELECT")
+    assessment = review["assessments"][0]
+    assert assessment["status"] == "met" and assessment["evidence"][0]["note_number"] == 2
+    assert "SQL agent explored the extraction records of records" in review["notice"]
+    cost = client.post("/api/guidelines/workup/extraction-cost",
+                       json={**body, "method": "extraction_sql"}).json()
+    assert cost["sql_agent"]["items_to_explore"] == 0 and cost["sql_agent"]["database_built"]
+    assert cost["requests"] == 0 and cost["reused_extraction"]
+    # A failed run saved for diagnosis is explored again, so it is not counted cached.
+    from matchminer_ai.apps.dashboard.guidelines.extraction_workup import sql_cache
 
-        cache, key = sql_cache(settings), review["metadata"]["queries"]["queries"][0]["cache_key"]
-        cache[key] = {**cache[key], "status": "failed", "sql": None}
-        cost = client.post("/api/workup/extraction-cost",
-                           json={**body, "method": "extraction_sql"}).json()
-        assert cost["sql_agent"]["items_to_explore"] == 1
+    cache, key = sql_cache(settings), review["metadata"]["queries"]["queries"][0]["cache_key"]
+    cache[key] = {**cache[key], "status": "failed", "sql": None}
+    cost = client.post("/api/guidelines/workup/extraction-cost",
+                       json={**body, "method": "extraction_sql"}).json()
+    assert cost["sql_agent"]["items_to_explore"] == 1
 
 
 def test_extraction_config_maps_the_sql_agent_section(tmp_path):
@@ -653,7 +619,7 @@ def test_extraction_config_maps_the_sql_agent_section(tmp_path):
 
 def test_history_and_physical_items_are_left_out_of_workup_checks(population_app, agent,
                                                                   monkeypatch):
-    from matchminer_ai.apps.guideline_fetcher.services import display_considerations, is_history_and_physical
+    from matchminer_ai.apps.dashboard.guidelines.services import display_considerations, is_history_and_physical
 
     for name in ("History and physical examination", "History and physical (H&P)",
                  "Physical examination and performance status",
@@ -683,19 +649,19 @@ def test_history_and_physical_items_are_left_out_of_workup_checks(population_app
                        "min_reasonableness": kwargs["min_reasonableness"]}
 
     monkeypatch.setattr("matchminer_ai.matching.retrieve_guideline_patients", retrieve)
-    api, _ = population_app(False)
-    with TestClient(api) as client:
-        cohort = active_cohort(client)
-        assert [i["name"] for i in cohort["active"]["space"]["diagnostic_workup"]] == ["Chest CT"]
+    client, _ = population_app(False)
+    cohort = active_cohort(client)
+    assert [i["name"] for i in cohort["active"]["space"]["diagnostic_workup"]] == ["Chest CT"]
 
 
 def test_preprocess_extractions_spreads_a_build_over_a_server_registry(tmp_path, monkeypatch):
     """Two servers with different builds of a model: each request names its server's model."""
-    from matchminer_ai.apps.guideline_fetcher import preprocess_extractions
+    from matchminer_ai.apps.dashboard.guidelines import preprocess_extractions
     notes = pd.DataFrame({"pseudo_mrn": [1, 2], "synthetic_note": ["CT completed.", "Visit."],
                           "date": ["2026-01-01", "2026-01-02"], "event_type": ["Imaging", "Visit"]})
-    source = tmp_path / "no_phi" / "notes.parquet"
-    source.parent.mkdir()
+    root = tmp_path / "data"
+    source = root / "no_phi" / "notes.parquet"
+    source.parent.mkdir(parents=True)
     notes.to_parquet(source)
     registry = tmp_path / "servers.json"
     servers = [{"url": "http://a.invalid:8000/v1", "model": "fabricated/model-NVFP4",
@@ -718,9 +684,7 @@ def test_preprocess_extractions_spreads_a_build_over_a_server_registry(tmp_path,
                                       "counts": {"complete": len(frame)}}
 
     monkeypatch.setattr("matchminer_ai.patients.extract_document_records", extract)
-    monkeypatch.setenv("GUIDELINE_EXTRACTION_RECORDS", str(tmp_path / "no_phi/ex/default"))
-    monkeypatch.setenv("GUIDELINE_CACHE", str(tmp_path / "no_phi/cache"))
-    output = tmp_path / "no_phi/ex/built"
+    output = root / "no_phi/ex/built"
     preprocess_extractions.main(["--notes", str(source), "--output", str(output),
                                  "--server-registry", str(registry)])
     assert seen["remote"]["server_urls_file"] == str(registry.resolve())
@@ -764,7 +728,7 @@ def test_preprocess_extractions_spreads_a_build_over_a_server_registry(tmp_path,
 
 
 def test_sql_progress_names_each_item_being_explored_and_its_turn():
-    from matchminer_ai.apps.guideline_fetcher.extraction_workup import sql_progress_message
+    from matchminer_ai.apps.dashboard.guidelines.extraction_workup import sql_progress_message
 
     assert sql_progress_message(3, 14, [], 65) == "SQL agent · 3/14 workup queries ready · 1:05 elapsed"
     exploring = [{"name": "DPYD genotyping consideration before fluoropyrimidine therapy",
@@ -783,7 +747,7 @@ CLAUDE_MODEL = "ai_gateway_model_services_prod.team_project.team_project-claude-
 
 def claude_sql(**values):
     return {"llm_backend": "claude_databricks", "model": CLAUDE_MODEL,
-            "endpoint": "https://workspace.example.cloud.databricks.com/ai-gateway/anthropic",
+            "endpoint": f"{DATABRICKS_HOST}/ai-gateway/anthropic",
             "tokenizer": "unused", **values}
 
 
@@ -822,10 +786,8 @@ def test_the_sql_agent_task_has_its_own_connection(tmp_path):
         Settings(catalog_root=tmp_path, **claude_sql()).inference_config()
 
 
-def test_connection_routes_keep_claude_to_the_sql_agent(tmp_path, monkeypatch):
+def test_connection_routes_keep_claude_to_the_sql_agent(tmp_path, monkeypatch, make_client):
     import matchminer_ai.llm.anthropic_messages as anthropic_messages
-
-    from matchminer_ai.apps.guideline_fetcher.settings import CLAUDE_PROFILE
 
     checks = []
 
@@ -835,27 +797,27 @@ def test_connection_routes_keep_claude_to_the_sql_agent(tmp_path, monkeypatch):
 
     monkeypatch.setattr(anthropic_messages, "check_gateway", check)
     settings = Settings(catalog_root=tmp_path, llm_backend="gemini4_vertex", device="cpu")
-    with TestClient(create_app(settings)) as client:
-        config = client.get("/api/config").json()
-        assert config["claude_profiles"]["claude_databricks"]["task"] == "workup_sql"
-        assert config["tasks"]["workup_sql"]["llm_backend"] == "gemini4_vertex"
-        for body in (claude_sql(task="workup"), claude_sql(task="workup_sql", apply_to_all=True),
-                     claude_sql(task="workup_sql", model="claude-sonnet-5-5")):
-            assert client.post("/api/config", json=body).status_code == 422
-        # The browser picks only the endpoint name; the server fixes the gateway URL.
-        saved = client.post("/api/config", json=claude_sql(
-            task="workup_sql", endpoint="http://untrusted.test/v1")).json()
-        assert saved["tasks"]["workup_sql"]["endpoint"] == CLAUDE_PROFILE["endpoint"]
-        assert saved["tasks"]["workup_sql"]["model"] == CLAUDE_MODEL
-        assert saved["tasks"]["workup"]["llm_backend"] == "gemini4_vertex"
-        result = client.post("/api/endpoint-check", json={
-            "task": "workup_sql", "llm_backend": "claude_databricks",
-            "endpoint": "http://untrusted.test/v1", "model": CLAUDE_MODEL}).json()
-        assert result["available"] and result["models"] == [CLAUDE_MODEL]
-        assert checks == [(CLAUDE_PROFILE["endpoint"], CLAUDE_MODEL, "unity-gateway")]
-        bad = client.post("/api/endpoint-check", json={
-            "task": "workup_sql", "llm_backend": "claude_databricks", "model": "x"}).json()
-        assert not bad["available"] and "three-part" in bad["error"] and len(checks) == 1
+    client = make_client(settings)
+    config = client.get("/api/models").json()
+    assert config["claude_profiles"]["claude_databricks"]["task"] == "workup_sql"
+    assert config["tasks"]["workup_sql"]["llm_backend"] == "gemini4_vertex"
+    for body in (claude_sql(task="workup"), claude_sql(task="workup_sql", apply_to_all=True),
+                 claude_sql(task="workup_sql", model="claude-sonnet-5-5")):
+        assert client.post("/api/models", json=body).status_code == 422
+    # The browser picks only the endpoint name; the server fixes the gateway URL.
+    saved = client.post("/api/models", json=claude_sql(
+        task="workup_sql", endpoint="http://untrusted.test/v1")).json()
+    assert saved["tasks"]["workup_sql"]["endpoint"] == claude_backends()["claude_databricks"]["endpoint"]
+    assert saved["tasks"]["workup_sql"]["model"] == CLAUDE_MODEL
+    assert saved["tasks"]["workup"]["llm_backend"] == "gemini4_vertex"
+    result = client.post("/api/models/check", json={
+        "task": "workup_sql", "llm_backend": "claude_databricks",
+        "endpoint": "http://untrusted.test/v1", "model": CLAUDE_MODEL}).json()
+    assert result["available"] and result["models"] == [CLAUDE_MODEL]
+    assert checks == [(claude_backends()["claude_databricks"]["endpoint"], CLAUDE_MODEL, "unity-gateway")]
+    bad = client.post("/api/models/check", json={
+        "task": "workup_sql", "llm_backend": "claude_databricks", "model": "x"}).json()
+    assert not bad["available"] and "three-part" in bad["error"] and len(checks) == 1
 
 
 def test_population_sql_review_reports_the_sql_agents_connection(population_app, agent,
@@ -871,13 +833,12 @@ def test_population_sql_review_reports_the_sql_agents_connection(population_app,
                                 tokenizer_mode="bytes", response_format="json_schema", attempts=1)
 
     monkeypatch.setattr("matchminer_ai.patients.workup_sql.agent.resolve_agent_llm", resolve)
-    api, settings = population_app(False)
-    with TestClient(api) as client:
-        assert client.post("/api/config", json=claude_sql(task="workup_sql")).status_code == 200
-        cohort = active_cohort(client)
-        done = job_long(client, "/api/population/review",
-                        {"version": cohort["version"], "method": "extraction_sql"})
-        report = done["result"]["active"]["report"]
-        assert report["connection"]["provider"] == "claude_databricks"
-        assert report["connection"]["model"] == CLAUDE_MODEL
+    client, settings = population_app(False)
+    assert client.post("/api/models", json=claude_sql(task="workup_sql")).status_code == 200
+    cohort = active_cohort(client)
+    done = job_long(client, "/api/population/review",
+                    {"version": cohort["version"], "method": "extraction_sql"})
+    report = done["result"]["active"]["report"]
+    assert report["connection"]["provider"] == "claude_databricks"
+    assert report["connection"]["model"] == CLAUDE_MODEL
     assert resolve_agent_llm(seen[0]).provider == "databricks_anthropic"

@@ -17,8 +17,8 @@ decision model, taken from a Trainer checkpoint while it trains, comes before th
 runs on ``cuda:0`` when CUDA is available. Each trial's drugs and mechanisms come from the GoodOption catalog
 (``good_options_catalog``), read in place.
 
-Defaults come from the site config's ``dashboard.<mode>`` section, then its shared ``dashboard`` keys, else folders
-under the data root (``matchminer_ai.site``); ``--site-config`` and ``--data-root`` name them.
+A mode's own data paths come from the site config's ``dashboard.<mode>`` section, shared values from its
+``dashboard`` keys, else folders under the data root (``matchminer_ai.site``); ``--site-config`` and ``--data-root`` name them.
 """
 from __future__ import annotations
 
@@ -45,17 +45,11 @@ MODE_PORTS = {"real": 8781, "synthetic": 8034}
 ANY_HOST = "0.0.0.0"
 
 
-def site_value(mode: str, key: str):
-    """The site config's ``dashboard.<mode>.<key>``, else its shared ``dashboard.<key>``."""
-    site = load_site_config()
-    value = site.get(f"dashboard.{mode}.{key}")
-    return value if value is not None else site.get(f"dashboard.{key}")
-
-
 def site_default(mode: str, key: str, relative: str | None) -> Path | None:
-    """The site config's value for ``key`` in ``mode``, else ``relative`` under the mode's folder of the data root
-    (None when the mode has no default)."""
-    value = site_value(mode, key)
+    """A mode's own data path: the site config's ``dashboard.<mode>.<key>``, else ``relative`` under the mode's
+    folder of the data root (None when the mode has no default). Shared values (``dashboard.grouping``,
+    ``dashboard.synthetic_run``, the branding and trial table) stay directly under ``dashboard``."""
+    value = load_site_config().get(f"dashboard.{mode}.{key}")
     if value:
         return Path(value).expanduser()
     return data_root() / MODE_FOLDERS[mode] / relative if relative else None

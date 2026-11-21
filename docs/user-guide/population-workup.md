@@ -22,7 +22,7 @@ population:
 4. **Export and archive** the results.
 
 Nothing here samples patients, chooses data paths or writes files except an explicit `save_patient_cohort`. The
-[guideline fetcher](../apps/guideline-fetcher.md)'s population view runs the same steps, and leaves workup items
+[dashboard](../apps/dashboard.md)'s Population tab runs the same steps, and leaves workup items
 that ask only for a history and physical out of every check.
 
 ## Retrieve a cohort
@@ -73,7 +73,7 @@ active = subset_patient_cohort(
 - The `candidate_k` most similar patients (capped at the population size) get the decision model's match
   questions. A patient is selected when its reasonableness answer, the model's P(yes) that the patient is
   potentially eligible (`match_quality_reasonableness`), is at least `min_reasonableness` (default 0.75); `None`
-  keeps every candidate. Selected patients are ranked by `match_quality_score`. The guideline fetcher's
+  keeps every candidate. Selected patients are ranked by `match_quality_score`. The dashboard's
   **Minimum reasonableness** field sets the same threshold.
 - Embedding and scoring run in batches of 32, with progress and cancellation checks between batches. Both sides
   must use the same embedding model. Raw notes never enter retrieval.

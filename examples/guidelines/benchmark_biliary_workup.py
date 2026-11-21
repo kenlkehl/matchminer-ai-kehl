@@ -20,8 +20,13 @@ import time
 from matchminer_ai.llm.structured import EndpointError, StructuredClient  # noqa: E402
 from matchminer_ai.llm import structured  # noqa: E402
 from matchminer_ai.trials import load_guideline_catalog  # noqa: E402
-from matchminer_ai.apps.guideline_fetcher.services import Inference, synthetic_notes  # noqa: E402
-from matchminer_ai.apps.guideline_fetcher.settings import GEMMA_PROFILE, Settings, data_path  # noqa: E402
+from matchminer_ai.apps.dashboard.guidelines.services import Inference, synthetic_notes  # noqa: E402
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings, data_path, vertex_profiles  # noqa: E402
+
+
+def gemma_profile():
+    """The Gemma MaaS profile the benchmark runs (its project is the site config's vertex.project)."""
+    return vertex_profiles()["gemma_vertex"]
 
 
 def synthetic_source():
@@ -111,7 +116,7 @@ def reused_summary(path, gold):
     saved = json.loads(path.read_text())
     if (
         saved.get("synthetic_only") is not True
-        or saved.get("model") != GEMMA_PROFILE["model"]
+        or saved.get("model") != gemma_profile()["model"]
         or type(saved.get("thinking")) is not bool
         or any(
             saved.get(k) != gold[k] for k in ("notes_sha256", "catalog_sha256", "space_trial_id")
@@ -143,7 +148,7 @@ def main():
     from transformers import AutoTokenizer
 
     # Both preparation and tokenizer loading are excluded from review latency.
-    AutoTokenizer.from_pretrained(GEMMA_PROFILE["tokenizer"], use_fast=True)
+    AutoTokenizer.from_pretrained(gemma_profile()["tokenizer"], use_fast=True)
     if args.reuse_summary:
         summary = reused_summary(args.reuse_summary, gold)
         preparation_seconds = 0
@@ -158,8 +163,8 @@ def main():
     runtime = settings.inference_config().remote
     output = {
         "synthetic_only": True,
-        "model": GEMMA_PROFILE["model"],
-        "endpoint": GEMMA_PROFILE["endpoint"],
+        "model": gemma_profile()["model"],
+        "endpoint": gemma_profile()["endpoint"],
         "thinking": False,
         "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
         "context_window": 262144,
@@ -306,7 +311,7 @@ def main():
                     "http_429": sum(m.get("http_status") == 429 for m in measurements),
                 }
                 assert all(
-                    m["model"] == GEMMA_PROFILE["model"]
+                    m["model"] == gemma_profile()["model"]
                     and m["thinking"] is output["thinking"]
                     and not m["reasoning_replayed"]
                     for m in measurements

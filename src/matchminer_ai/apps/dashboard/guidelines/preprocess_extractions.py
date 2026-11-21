@@ -27,7 +27,7 @@ must report its model at ``/v1/models``; each takes at most its
 record the model, so a build can move between servers and resume.
 
 Example (synthetic, 20 patients):
-  python -m matchminer_ai.apps.guideline_fetcher.preprocess_extractions --limit 20 --endpoint http://localhost:8000/v1
+  python -m matchminer_ai.apps.dashboard.guidelines.preprocess_extractions --limit 20 --endpoint http://localhost:8000/v1
 """
 
 import argparse
@@ -165,14 +165,14 @@ def main(argv=None):
     parser.add_argument("--cache", help="PHI mode: population cache folder (default: the app's)")
     parser.add_argument("--notes", help="non-PHI mode: synthetic notes Parquet (default: the app's)")
     parser.add_argument("--output", help="store folder to create (default: the mode's "
-                        "GUIDELINE_EXTRACTION_RECORDS)")
+                        "site config dashboard.<mode>.extraction_records)")
     parser.add_argument("--levels", choices=["document", "document_and_patient"],
                         default="document", help="document records only, or also patient "
                         "records (default: %(default)s)")
     parser.add_argument("--patients", help="a file of patient ids, one per line")
     parser.add_argument("--limit", type=int, help="a seeded sample of this many patients")
     parser.add_argument("--seed", type=int, default=23)
-    parser.add_argument("--endpoint", help="OpenAI-compatible /v1 URL (default: MMAI_ENDPOINT)")
+    parser.add_argument("--endpoint", help="OpenAI-compatible /v1 URL (default: http://localhost:8000/v1)")
     parser.add_argument("--server-registry", metavar="FILE",
                         help="JSON registry of several servers and the model each serves "
                         "(instead of --endpoint); see above")

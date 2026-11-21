@@ -202,7 +202,7 @@ def dash_settings(dataset, trial_data, tmp_path):
 def dash(dash_settings, fake_model, fake_ncit):
     from matchminer_ai.apps.dashboard.state import DashState
 
-    state = DashState(dash_settings, encoder=FakeEncoder(), log=lambda *_: None)
+    state = DashState(dash_settings, encoder=FakeEncoder(), patient_source="training", log=lambda *_: None)
     job = state.embed_cohorts()
     while job is not None and job.status not in ("done", "error"):
         time.sleep(0.01)

@@ -87,7 +87,7 @@ Optional parts are extras:
 | --- | --- |
 | `training` | The training pipeline (`mmai-train`) |
 | `evaluation` | The evaluations (install together with `training`) |
-| `apps` | The dashboard and the guideline fetcher |
+| `apps` | The dashboard (`mmai-dashboard`) |
 | `sql` | SQL-agent workup checks over extraction records |
 | `databricks` | Claude through a Databricks AI Gateway |
 | `guideline-conversion` | PDF guideline conversion |
@@ -202,12 +202,12 @@ See [Evaluations](docs/evaluation/index.md).
 
 ## Apps
 
-- **Dashboard** (`mmai-dashboard`): a per-disease-center view of a site's trial cohorts. It finds synthetic
-  patients for a cohort and trials for a patient summary. FastAPI with a React frontend in `frontend/dashboard/`, built with
-  `pnpm build`. See [Dashboard](docs/apps/dashboard.md).
-- **Guideline fetcher** (`mmai-guideline-fetcher`): turns a patient summary into cited guideline considerations,
-  with patient-evaluation and population views. A PHI mode listens on loopback only and requires an access token.
-  See [Guideline fetcher](docs/apps/guideline-fetcher.md).
+- **Dashboard** (`mmai-dashboard --mode real|synthetic`): one app with four tabs. **Trials** shows a site's trial
+  cohorts and finds patients for a cohort; **Population** checks a patient population's guideline concordance;
+  **Patient** finds trials and guideline considerations for one patient; **Benchmarking** shows evaluation runs and
+  adjudicates LLM-judge disagreements. Real mode reads real trials and patients, listens on loopback only and
+  requires an access token; synthetic mode reads the synthetic run only. FastAPI with a React frontend in
+  `frontend/dashboard/`, built with `pnpm build`. See [Dashboard](docs/apps/dashboard.md).
 
 ## Repository layout
 

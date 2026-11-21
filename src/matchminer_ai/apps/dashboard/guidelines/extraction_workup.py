@@ -58,6 +58,8 @@ from .settings import data_path, mode_side_error
 
 FORMAT = "guideline-fetcher extraction records"
 VERSION = 1
+# Stores built by the former guideline fetcher record its mode names, for the same sides of data/.
+FORMER_MODES = {"phi": "real", "standard": "synthetic"}
 DOCUMENT_FILE = "document_records.parquet"
 PATIENT_FILE = "patient_records.parquet"
 ROW_GROUP = 2000
@@ -222,7 +224,7 @@ def _manifest(path, settings):
         raise InputError("This extraction record manifest cannot be read.") from None
     if manifest.get("format") != FORMAT or manifest.get("version") != VERSION:
         raise InputError("Unsupported extraction record format. Rebuild the records.")
-    if manifest.get("mode") != settings.mode:
+    if FORMER_MODES.get(manifest.get("mode"), manifest.get("mode")) != settings.mode:
         raise InputError("These extraction records were built for the other app mode.")
     for name, size in manifest["files"].items():
         if not (path / name).is_file() or (path / name).stat().st_size != size:

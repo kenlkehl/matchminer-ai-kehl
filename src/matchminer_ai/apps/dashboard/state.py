@@ -1,5 +1,15 @@
-"""What the dashboard server holds: the trial store (rebuilt as extractions land), the synthetic patients and the
-round's vectors, the real cohorts' vectors, the encoder, the decision model and background jobs."""
+"""What the app holds: the trial store (rebuilt as its sources change), the patient corpus and its vectors, the
+trial cohorts' vectors, the encoder, the decision model, the guideline features and the background jobs.
+
+The mode picks the sources (``settings``):
+
+- **real:** the OA trials (``pipeline.Builder``) and real patients, the population cache
+  (``core.population_corpus``);
+- **synthetic:** the synthetic run's trials (``synthetic_trials``) and its synthetic patients (``core.corpus``).
+
+The TrialSpace round and its encoder come from the synthetic run in both modes; its rounds are validated against
+the run's corpus (``training_corpus``), which real mode loads for that only and never shows.
+"""
 from __future__ import annotations
 
 import threading
@@ -21,16 +31,30 @@ from .guidelines.state import GuidelineState
 from .llm import Connection
 from .llm_checks import LLMChecks
 from .pipeline import Builder, Sources, read_store, write_store
-from .vectors import CohortVectors
+from .vectors import CohortVectors, cohort_text_key
+
+PATIENT_SOURCES = ("population", "training")
 
 
 class NotFound(KeyError):
     pass
 
 
+def make_builder(settings):
+    """The mode's trial store builder."""
+    if settings.real:
+        return Builder(Sources(settings.trial_data, settings.oa_db, settings.grouping, settings.good_options_catalog))
+    from .synthetic_trials import SyntheticBuilder, SyntheticSources
+
+    return SyntheticBuilder(SyntheticSources(settings.path("corpus"), settings.path("trials"), settings.grouping,
+                                             settings.good_options_catalog))
+
+
 class DashState:
-    def __init__(self, settings, *, decisions=None, encoder=None, guideline_inference=None,
-                 verify_digests: bool = True, log=print):
+    def __init__(self, settings, *, decisions=None, encoder=None, guideline_settings=None, guideline_inference=None,
+                 patient_source: str | None = None, benchmarks=None, verify_digests: bool = True, log=print):
+        """``patient_source``: "population" (real mode's default: the population cache) or "training" (synthetic
+        mode's: the synthetic run's patients); tests choose it."""
         started = time.monotonic()
         self.settings, self.log = settings, log
         settings.store_dir.mkdir(parents=True, exist_ok=True)
@@ -40,24 +64,23 @@ class DashState:
         self.jobs = JobManager()  # the decision model: one job at a time
         self.background = JobManager()  # store rebuilds and cohort embedding
         # ---- trials
-        self.builder = Builder(Sources(settings.trial_data, settings.oa_db, settings.grouping,
-                                       settings.good_options_catalog))
+        self.builder = make_builder(settings)
         self.store_lock = threading.RLock()
         self.store = read_store(settings.store_path)
         self.store_error: str | None = None
         self.last_check: float | None = None
         if self.store is None:
-            log(f"Building the dashboard from {settings.trial_data} ...")
+            log(f"Building the {settings.mode} trial store ...")
             self.store = self.builder.build()
             write_store(self.store, settings.store_path)
         log(f"  {self.store['counts']['trials']} trials, {self.store['counts']['dashboard_cohorts']} dashboard cohorts "
-            f"in {len(self.store['centers'])} disease centers")
-        # ---- synthetic patients and the round
+            f"in {len(self.store['centers'])} {'disease centers' if settings.real else 'cancer-type groups'}")
+        # ---- the synthetic run's corpus and the round
         log(f"Loading the synthetic corpus from {settings.path('corpus')} ...")
-        self.corpus = Corpus(settings.path("corpus"), settings.path("patient_metadata"), self.cache, verify=verify_digests)
-        log(f"  {len(self.corpus.patients):,} patients ({self.corpus.load_seconds} s)")
+        self.training_corpus = Corpus(settings.path("corpus"), settings.path("patient_metadata"), self.cache,
+                                      verify=verify_digests)
         self.round_lock = threading.RLock()
-        self.round, self.skipped_rounds = select_round(settings.path("trialspace"), self.corpus)
+        self.round, self.skipped_rounds = select_round(settings.path("trialspace"), self.training_corpus)
         self.round_switched_at: float | None = None
         self.vectors = VectorStore(self.round) if self.round else None
         log(f"  vectors: round {self.round.number if self.round else None}")
@@ -65,28 +88,95 @@ class DashState:
                               (lambda info: EncoderClient(info, settings, settings.cache_dir / "encoder_worker.log")))
         self.encoder = self._make_encoder(self.round)
         self.cohort_vectors = CohortVectors(settings.store_dir / "vectors", self.round.encoder if self.round else None)
-        self.patient_cancer_types = self._patient_cancer_types()
-        self.patient_classes = np.array([self.corpus.meta.get(r["id"], {}).get("cls") or "" for r in self.corpus.patients])
-        self._masks: dict[str, np.ndarray] = {}
         self.decisions = decisions or DecisionService(settings, ScoreCache(settings.cache_dir / "scores.sqlite"),
                                                       settings.cache_dir)
-        self.notes = NotesIndex(settings.path("notes"), self.cache)
+        # ---- the guideline features (Patient tab's Guidelines, Population tab) and every session's model
+        # connections, scoring with this app's decision model
+        from .settings import guideline_settings as default_guideline_settings
+
+        config = getattr(self.decisions, "config", None)
+        section = config.raw.get("decision_model") if config is not None else None
+        self.guidelines = GuidelineState(guideline_settings or default_guideline_settings(settings, section),
+                                         inference=guideline_inference)
+        # ---- patients
+        self.patient_source = patient_source or ("population" if settings.real else "training")
+        if self.patient_source not in PATIENT_SOURCES:
+            raise ValueError(f"patient_source must be one of {PATIENT_SOURCES}")
+        self.patients_error: str | None = None
+        self._load_patients()
+        log(f"  {len(self.corpus.patients):,} patients ({self.patient_source}; {self.corpus.load_seconds} s)"
+            + (f": {self.patients_error}" if self.patients_error else ""))
         self.evidence = CatalogEvidence(settings.good_options_catalog)  # read on demand (evidence dialogs)
         self.llm = LLMChecks(settings, Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
                                                        settings.llm_tokenizer),
                              ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
         self.custom: dict[str, dict] = {}
-        # The guideline features (Patient tab's Guidelines, Population tab) and every session's model connections,
-        # scoring with this app's decision model.
-        from .settings import guideline_settings
+        self.seed_cohort_vectors()
+        # ---- benchmarks: evaluation runs under the mode's roots (Benchmarking tab)
+        from .benchmarking import Benchmarks
 
-        config = getattr(self.decisions, "config", None)
-        section = config.raw.get("decision_model") if config is not None else None
-        self.guidelines = GuidelineState(guideline_settings(settings, section), inference=guideline_inference)
+        self.benchmarks = benchmarks if benchmarks is not None else Benchmarks(settings.mode)
         # Every job manager, so one route finds and stops any job (core.jobs).
         self.registry = JobRegistry(model=self.jobs, background=self.background, llm=self.llm.jobs,
-                                    guidelines=self.guidelines.jobs)
+                                    guidelines=self.guidelines.jobs, benchmarks=self.benchmarks.jobs)
         self.startup_seconds = round(time.monotonic() - started, 1)
+
+    # ------------------------------------------------------------------ the patient corpus
+
+    def _load_patients(self) -> None:
+        """The corpus the patient routes read: the population cache (real) or the synthetic run's patients."""
+        if self.patient_source == "training":
+            self.corpus, self.patient_vectors = self.training_corpus, self.vectors
+            self.notes = NotesIndex(self.settings.path("notes"), self.cache)
+        else:
+            from .core.population_corpus import CacheNotes, CacheVectors, PopulationCorpus
+            from .guidelines.population_cache import open_cache
+
+            try:
+                cache = open_cache(self.guidelines.settings)
+                self.require_same_encoder()
+                self.corpus = PopulationCorpus(cache)
+                self.patient_vectors = CacheVectors(cache.embeddings.vectors)
+                self.notes = CacheNotes(cache)
+            except Exception as exc:  # no cache yet, or another encoder: the Trials tab says so
+                self.patients_error = (str(exc) if isinstance(exc, ValueError) else
+                                       f"The population cache could not be loaded ({type(exc).__name__}).")
+                self.corpus, self.patient_vectors, self.notes = PopulationCorpus(error=self.patients_error), None, CacheNotes()
+        self.patient_cancer_types = self._patient_cancer_types()
+        self.patient_classes = np.array([self.corpus.meta.get(r["id"], {}).get("cls") or "" for r in self.corpus.patients])
+        self._masks: dict[str, np.ndarray] = {}
+
+    def require_same_encoder(self) -> None:
+        """Real mode compares the population cache's vectors with cohorts the round's encoder embeds, so both must be
+        the same TrialSpace model (the population cache's is the inference preset's, ``paths.trialspace_model``)."""
+        from pathlib import Path
+
+        if self.round is None:
+            return
+        preset = self.guidelines.settings.inference_config().embedding.get("model_path")
+        model = self.round.model
+        same = (model.kind == "local" and preset and Path(model.model).resolve() == Path(str(preset)).resolve())
+        if not same:
+            raise ValueError(f"The population cache was embedded with {preset or 'the preset TrialSpace'}, not round "
+                             f"{self.round.number}'s encoder ({model.model}); its patients cannot be searched against "
+                             "this round's cohort vectors.")
+
+    def seed_cohort_vectors(self) -> int:
+        """Synthetic mode: the store's cohorts are the run's corpus cohorts, so the round's own cohort vectors are
+        theirs (the same texts and prompt); taken instead of embedding them again."""
+        if self.settings.real or self.round is None or self.vectors is None:
+            return 0
+        added = 0
+        with self.cohort_vectors.lock:
+            for row, vector in zip(self.training_corpus.cohorts, self.vectors.cohorts):
+                key = cohort_text_key(row["text"])
+                if key not in self.cohort_vectors.vectors:
+                    self.cohort_vectors.vectors[key] = np.asarray(vector, dtype=np.float32)
+                    added += 1
+            self.cohort_vectors._matrix = None
+        if added:
+            self.log(f"  {added:,} cohort vectors taken from round {self.round.number}")
+        return added
 
     # ------------------------------------------------------------------ the trial store
 
@@ -136,7 +226,7 @@ class DashState:
     def refresh_round(self) -> bool:
         """Switch to a higher TrialSpace round once it validates; the trial cohorts are then re-embedded."""
         current = self.round.number if self.round else 0
-        info, skipped = select_round(self.settings.path("trialspace"), self.corpus, above=current)
+        info, skipped = select_round(self.settings.path("trialspace"), self.training_corpus, above=current)
         if info is None:
             self.skipped_rounds = skipped
             return False
@@ -147,9 +237,17 @@ class DashState:
             self.round, self.vectors, self.encoder, self.skipped_rounds = info, vectors, encoder, skipped
             self.cohort_vectors, self.round_switched_at = cohort_vectors, time.time()
             self.custom.clear()
+            if self.patient_source == "training":
+                self.patient_vectors = vectors
         if old is not encoder:
             old.close()
+        if self.patient_source == "population":
+            try:  # the population cache's vectors stay comparable only with the same encoder
+                self.require_same_encoder()
+            except ValueError as exc:
+                self.patients_error, self.patient_vectors = str(exc), None
         self.log(f"Switched to TrialSpace round {info.number}; re-embedding the trial cohorts")
+        self.seed_cohort_vectors()
         self.embed_cohorts()
         return True
 
@@ -170,7 +268,11 @@ class DashState:
     # ------------------------------------------------------------------ patients
 
     def _patient_cancer_types(self) -> list[list[str]]:
-        key = {"patients": file_stamp(self.settings.path("corpus") / "patients.jsonl"), "version": cancer_types.VERSION}
+        population = getattr(self.corpus, "population", None)
+        source = (f"population:{population.manifest_sha256}" if population is not None
+                  else file_stamp(self.settings.path("corpus") / "patients.jsonl") if self.patient_source == "training"
+                  else "none")
+        key = {"patients": source, "version": cancer_types.VERSION}
         cached = self.cache.get("patient_cancer_types")
         if cached and cached.get("key") == key and len(cached["value"]) == len(self.corpus.patients):
             return cached["value"]
@@ -231,7 +333,7 @@ class DashState:
         return self.custom[pid]
 
     def patient_vector(self, entity: dict) -> np.ndarray:
-        return entity["vector"] if entity.get("custom") else self.vectors.patients[entity["row"]]
+        return entity["vector"] if entity.get("custom") else self.patient_vectors.patients[entity["row"]]
 
     def pair(self, patient_id: str, cohort_id: str) -> PairText:
         p, c = self.patient_entity(patient_id), self.cohort(cohort_id)
@@ -253,15 +355,18 @@ class DashState:
                           "signature": s["signature"], "rules": s["rules"], "error": self.store_error,
                           "last_check": self.last_check, "path": str(self.settings.store_path),
                           "poll_seconds": self.settings.rebuild_poll_seconds},
-                "sources": {"trial_data": str(self.settings.trial_data), "oa_db": s.get("oa_db") or str(self.settings.oa_db),
-                            "grouping": str(self.settings.grouping),
-                            "good_options": str(self.settings.good_options_catalog)},
+                "sources": ({"trial_data": str(self.settings.trial_data),
+                             "oa_db": s.get("oa_db") or str(self.settings.oa_db)} if self.settings.real else
+                            {"trials": str(self.settings.path("trials")), "cohorts": str(self.settings.path("corpus"))})
+                | {"grouping": str(self.settings.grouping),
+                   "good_options": str(self.settings.good_options_catalog) if self.settings.good_options_catalog else None},
                 "good_options": s.get("good_options"),
-                "patients": {"corpus": str(self.settings.path("corpus")), "count": len(self.corpus.patients)},
+                "patients": {"source": self.patient_source, "corpus": self.corpus.describe().get("directory"),
+                             "count": len(self.corpus.patients), "error": self.patients_error},
                 "round": self.round.describe() if self.round else None, "skipped_rounds": self.skipped_rounds,
                 "round_switched_at": self.round_switched_at, "encoder": self.encoder.describe(),
                 "cohort_vectors": self.cohort_vectors.describe(s), "decision_model": self.decisions.describe(),
-                "notes": self.notes.describe(),
+                "notes": self.notes.describe(), "benchmarks": self.benchmarks.describe(),
                 "jobs": self.registry.recent(10),
                 "startup_seconds": self.startup_seconds, "score_cache": self.decisions.cache.count(),
                 "llm": {"connection": self.llm.connection.describe(), "cached": self.llm.cache.count()}}

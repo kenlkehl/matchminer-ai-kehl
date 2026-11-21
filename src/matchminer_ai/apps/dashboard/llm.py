@@ -1,6 +1,6 @@
 """The LLM endpoint the dashboard's LLM checks use (GoodOption check, per-criterion LLM check).
 
-The connection profiles are the package's (``matchminer_ai.llm.connections``, shared with the guideline fetcher):
+The connection profiles are the package's (``matchminer_ai.llm.connections``, shared with the guideline features):
 ``normalize_endpoint``, the Vertex profiles and the parts of a section they fix, model discovery from
 ``/v1/models`` and the Vertex credentials check. Two kinds of connection:
 
@@ -14,9 +14,10 @@ The connection profiles are the package's (``matchminer_ai.llm.connections``, sh
 
 Sampling comes from the inference package's model profiles: each check's section gets ``sampling_profile: auto`` and
 loses the section's own fixed sampling keys (the GoodOption preset's greedy decoding), so the served model's profile
-applies (Nemotron 3.5 Super: NVIDIA's). Hosted Gemini gets ``sampling_profile: none`` and no sampling keys. The choice is
-set at startup (``--llm-backend``, ``--llm-endpoint``, ``--llm-model``) and can be changed on Data and Models for the
-server's session; nothing is written to disk.
+applies (Nemotron 3.5 Super: NVIDIA's). Hosted Gemini gets ``sampling_profile: none`` and no sampling keys. The default is
+set at startup (``--llm-backend``, ``--llm-endpoint``, ``--llm-model``); each browser session can choose its own per check
+on Data and Models (``Connection.for_task`` of the session's ``good_option`` and ``criteria_llm`` tasks); nothing is
+written to disk.
 """
 from __future__ import annotations
 

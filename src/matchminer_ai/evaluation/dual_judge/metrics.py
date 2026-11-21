@@ -14,7 +14,7 @@ from pathlib import Path
 import random
 import statistics
 
-from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, JUDGES, PRICES, cohen_kappa, gold, latest_decisions, log, private,  # noqa: E402
+from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, PRICES, compared_judges, cohen_kappa, gold, latest_decisions, log, private,  # noqa: E402
                      read_jsonl, usage_cost, write_json)
 from matchminer_ai.evaluation.dual_judge.compare import current_requests, final_answers  # noqa: E402
 
@@ -96,9 +96,9 @@ def scored(rows, function):
 
 # --- the run -------------------------------------------------------------------------------------------------------
 
-def judge_costs(run_dir, component):
+def judge_costs(run_dir, component, judges):
     out = {}
-    for judge in JUDGES:
+    for judge in judges:
         current = current_requests(run_dir, component)
         every = read_jsonl(Path(run_dir) / 'responses' / judge / f'{component}.jsonl')
         rows = [row for row in every if row['request_id'] in current]
@@ -132,14 +132,14 @@ def _count(values):
     return out
 
 
-def agreement(units, decisions):
+def agreement(units, decisions, judges):
     """Per kind: unit counts by status, agreement and kappa where both answered, each judge's accuracy against the
     reference (all reference units, and adjudicated units only), and the audit's both-wrong rate."""
     out = {}
     for kind in sorted({u['kind'] for u in units}):
         mine = [u for u in units if u['kind'] == kind]
-        both = [u for u in mine if all(u['compared'][j] is not None for j in JUDGES)]
-        pairs = [(u['compared'][JUDGES[0]], u['compared'][JUDGES[1]]) for u in both]
+        both = [u for u in mine if all(u['compared'][j] is not None for j in judges)]
+        pairs = [(u['compared'][judges[0]], u['compared'][judges[1]]) for u in both]
         entry = dict(units=len(mine), **{s: sum(u['status'] == s for u in mine)
                                          for s in ('agreed', 'disputed', 'single', 'awaiting', 'missing')},
                      queued=sum(u['queued'] for u in mine),
@@ -147,7 +147,7 @@ def agreement(units, decisions):
                      pending=sum(u['queued'] and u['unit_id'] not in decisions for u in mine),
                      agreement=(sum(a == b for a, b in pairs) / len(pairs)) if pairs else None,
                      kappa=cohen_kappa(pairs), judges={})
-        for judge in JUDGES:
+        for judge in judges:
             with_gold, adjudicated = [], []
             for u in mine:
                 value, source = gold(u, decisions)
@@ -162,7 +162,7 @@ def agreement(units, decisions):
                 n_adjudicated=len(adjudicated))
         entry['distribution'] = {judge: dict(sorted(_count(u['compared'][judge] for u in mine
                                                           if u['compared'][judge] is not None).items()))
-                                 for judge in JUDGES}
+                                 for judge in judges}
         audited = [u for u in mine if u['queue_reason'] == 'audit' and u['unit_id'] in decisions]
         entry['audit'] = dict(decided=len(audited), both_wrong=sum(
             decisions[u['unit_id']]['value'] != next(v for v in u['compared'].values() if v is not None) for u in audited))
@@ -242,13 +242,16 @@ def metrics(run_dir):
     units = read_jsonl(run_dir / 'compare' / 'units.jsonl')
     decisions = latest_decisions(read_jsonl(run_dir / 'adjudications.jsonl'))
     ref = reference(units, decisions)
-    result = dict(units=len(units), with_reference=len(ref), adjudications=len(decisions), components={})
+    judges = compared_judges(run_dir)
+    result = dict(units=len(units), with_reference=len(ref), adjudications=len(decisions), judges=list(judges),
+                  components={})
     for component in COMPONENTS:
         mine = [u for u in units if u['component'] == component]
         if not mine:
             continue
         items = read_jsonl(run_dir / 'items' / f'{component}.jsonl')
-        entry = dict(items=len(items), judges=judge_costs(run_dir, component), agreement=agreement(mine, decisions))
+        entry = dict(items=len(items), judges=judge_costs(run_dir, component, judges),
+                     agreement=agreement(mine, decisions, judges))
         if component == 'extraction':
             entry['results'] = extraction_results(mine, ref)
         elif component == 'summary':
@@ -275,6 +278,7 @@ def ci(entry, key='rate'):
 
 
 def report(result):
+    JUDGES = result['judges']
     lines = ['# Dual-judge evaluation', '',
              f'{result["units"]} units, {result["with_reference"]} with a reference (agreed or adjudicated), '
              f'{result["adjudications"]} adjudicated. Rates are weighted by sampling weight; 95% intervals resample '

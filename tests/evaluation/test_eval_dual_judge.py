@@ -179,7 +179,7 @@ def test_answers_to_superseded_requests_are_not_used(tmp_path):
     items = [_decision_item('b-1', 'boilerplate', {'boilerplate': 'yes'}, {'boilerplate': 0.9})]
     judging.write_jsonl(tmp_path / 'items' / 'decision.jsonl', items)
     _requests(tmp_path, items, ['new'])
-    for judge in judging.JUDGES:
+    for judge in judging.DEFAULT_PAIR:
         judging.write_jsonl(tmp_path / 'responses' / judge / 'decision.jsonl',
                             [_answer('old', judge, 'b-1', {'reason': 'r', 'excluded': True})])
     units, _ = dj_compare.compare(tmp_path, audit_fraction=0.0)

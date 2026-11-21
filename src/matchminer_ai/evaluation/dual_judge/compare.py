@@ -19,7 +19,7 @@ import argparse
 from pathlib import Path
 import random
 
-from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, JUDGES, component_module, compared, log, private, read_jsonl, unit_status,  # noqa: E402
+from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, component_module, compared, log, private, read_jsonl, run_judges, unit_status,  # noqa: E402
                      write_json, write_jsonl)
 
 NOT_AUDITED = {('omission', 'none'), ('missing', 'none')}
@@ -40,9 +40,14 @@ def final_answers(run_dir, judge, component):
     return latest
 
 
-def compare(run_dir, audit_fraction=0.10, seed=42):
+def compare(run_dir, audit_fraction=0.10, seed=42, judges=None):
+    """Every unit with the two judges' values (``judges``: default the two whose answers the run holds)."""
     run_dir = Path(run_dir)
-    units, summary = [], dict(components={})
+    JUDGES = run_judges(run_dir, judges)
+    if len(JUDGES) != 2:
+        raise ValueError(f'compare needs exactly two judges; the run has answers from {list(JUDGES) or "none"} '
+                         '(name two with --judges)')
+    units, summary = [], dict(components={}, judges=list(JUDGES))
     for component in COMPONENTS:
         items = read_jsonl(run_dir / 'items' / f'{component}.jsonl')
         if not items:
@@ -98,9 +103,11 @@ def main(argv=None):
     p.add_argument('--run-dir', required=True, type=Path)
     p.add_argument('--audit-fraction', type=float, default=0.10)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--judges', help='the two judges to compare, comma-separated (default: the two with answers)')
     args = p.parse_args(argv)
     private()
-    _, summary = compare(args.run_dir, args.audit_fraction, args.seed)
+    judges = [j.strip() for j in args.judges.split(',') if j.strip()] if args.judges else None
+    _, summary = compare(args.run_dir, args.audit_fraction, args.seed, judges)
     for component, entry in summary['components'].items():
         log(f'{component}: {entry["items"]} items; judges {entry["judge_status"]}; units {entry["units"]}; '
             f'queued {entry["queued"]} in {entry["queued_items"]} items')

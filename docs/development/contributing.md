@@ -49,15 +49,11 @@ downloads. Run those on a GPU machine with `pytest -m resource_heavy`.
 | `tests/` | The runtime package: trials, patients, embedding, matching, the LLM clients, labeling, guideline catalogs |
 | `tests/training/` | `matchminer_ai.training`; stages resolve their paths under a temporary data root |
 | `tests/evaluation/` | `matchminer_ai.evaluation` |
-| `tests/apps/` | The dashboard and the guideline fetcher; not collected without the `apps` extra |
+| `tests/apps/` | The dashboard, including its guideline features; not collected without the `apps` extra |
 | `tests/integration/` | GPU smoke tests of trial and patient summarization (`resource_heavy`) |
 | `tests/data/` | Fixtures, such as the embedding regression vectors |
 
-The guideline fetcher's browser modules have Node tests (Node 18 or later):
-
-```shell
-node --test tests/apps/guideline_fetcher/*.mjs
-```
+The dashboard's frontend is type-checked by its build (`cd frontend/dashboard && pnpm build`).
 
 Tests use synthetic or fabricated records only.
 

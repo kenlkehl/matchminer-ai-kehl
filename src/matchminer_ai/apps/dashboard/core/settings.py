@@ -87,6 +87,8 @@ class Settings:
             "trialspace": L / "trialspace",
             "patient_metadata": L / "patient_summaries" / "synthetic_patient_metadata.parquet",
             "notes": L / "patient_summaries" / "all_synthetic_notes.parquet",
+            # The run's trials (synthetic mode's trial store): their ct.gov sample and listings.
+            "trials": L / "trials_deboilerplate_v4",
         }
         self.paths = {key: Path(self.paths.get(key, value)) for key, value in defaults.items()}
 

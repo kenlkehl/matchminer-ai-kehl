@@ -6,12 +6,11 @@ from collections import OrderedDict
 from threading import Lock
 
 import pytest
-from fastapi.testclient import TestClient
 
-from matchminer_ai.apps.guideline_fetcher.app import create_app
-from matchminer_ai.apps.guideline_fetcher.services import Inference
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
-from .test_app import catalog
+from matchminer_ai.apps.dashboard.guidelines.services import Inference
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings
+
+from .conftest import catalog
 
 
 @pytest.mark.parametrize("provider,model,thinking", [
@@ -21,7 +20,7 @@ from .test_app import catalog
     ("gemini_vertex", "unused", False),
     ("gemma_vertex", "unused", False),
 ])
-def test_enhanced_agentic_review_through_app_jobs(tmp_path, monkeypatch, provider, model, thinking):
+def test_enhanced_agentic_review_through_app_jobs(tmp_path, monkeypatch, provider, model, thinking, make_client):
     from matchminer_ai.llm.structured import EndpointError, StructuredClient
     from matchminer_ai.patients import workup_search_review
 
@@ -112,20 +111,20 @@ def test_enhanced_agentic_review_through_app_jobs(tmp_path, monkeypatch, provide
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             job = client.get(f"/api/jobs/{key}").json()
-            if job["status"] in {"complete", "failed"}:
-                assert job["status"] == "complete", job.get("error")
+            if job["status"] in {"done", "error"}:
+                assert job["status"] == "done", job.get("error")
                 return job["result"]
             time.sleep(0.02)
         pytest.fail("Fabricated agentic job did not finish")
 
-    with TestClient(create_app(settings)) as client:
-        key = client.post("/api/retrieve", json={"summary": "Fabricated summary"}).json()["job_id"]
-        done(client, key)
-        response = client.post("/api/workup", json={"text": "Not the dated source",
-            "notes": notes, "retrieval_job_id": key, "space_index": 0, "method": "agentic"})
-        assert response.status_code == 202
-        output = done(client, response.json()["job_id"])
-        assert client.get("/api/session").json()["job"]["result"] == output
+    client = make_client(settings)
+    key = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
+    done(client, key)
+    response = client.post("/api/guidelines/workup", json={"text": "Not the dated source",
+        "notes": notes, "retrieval_job_id": key, "space_index": 0, "method": "agentic"})
+    assert response.status_code == 202
+    output = done(client, response.json()["job"]["id"])
+    assert client.get("/api/patient/session").json()["job"]["result"] == output
 
     assert output["method"] == "agentic" and output["notes_input"]["notes"] == notes
     result = output["review"]

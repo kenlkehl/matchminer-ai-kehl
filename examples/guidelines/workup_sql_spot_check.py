@@ -18,16 +18,15 @@ No reference labels are made and no LLM labels the sample. The agent's explorati
 (extracted values from the synthetic store) go to the selected connection: Gemini 4 Hydrogen
 on Vertex by default, or any OpenAI-compatible endpoint with --backend local --endpoint.
 --sql-backend gives the SQL agent a connection of its own, such as Claude through the
-Databricks AI Gateway (claude_databricks, with --sql-model or
-GUIDELINE_DATABRICKS_SONNET_ENDPOINT naming the gateway endpoint); compiled queries keep
---backend.
+Databricks AI Gateway (claude_databricks, with --sql-model or the site config's
+databricks.endpoints.sonnet naming the gateway endpoint); compiled queries keep --backend.
 
 Examples:
-  python examples/workup_sql_spot_check.py --space nccn-nscl-df052cc3b953c3b7 --patients 30
-  python examples/workup_sql_spot_check.py --space S --items 2,8,13 --backend local \\
+  python examples/guidelines/workup_sql_spot_check.py --space nccn-nscl-df052cc3b953c3b7 --patients 30
+  python examples/guidelines/workup_sql_spot_check.py --space S --items 2,8,13 --backend local \\
       --endpoint http://localhost:8000/v1 --model served/model
-  python examples/workup_sql_spot_check.py --space S --sql-backend claude_databricks
-  python examples/workup_sql_spot_check.py --build-db /tmp/synthetic_extractions.duckdb
+  python examples/guidelines/workup_sql_spot_check.py --space S --sql-backend claude_databricks
+  python examples/guidelines/workup_sql_spot_check.py --build-db /tmp/synthetic_extractions.duckdb
 """
 
 import argparse
@@ -43,9 +42,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from matchminer_ai.apps.guideline_fetcher.settings import (  # noqa: E402
-    CLAUDE_BACKENDS, CLAUDE_ENDPOINT_NAME, SQL_TASK, VERTEX_PROFILES, Settings, data_path,
-    mode_side_error,
+from matchminer_ai.apps.dashboard.guidelines.settings import (  # noqa: E402
+    CLAUDE_ENDPOINT_NAME, SQL_ONLY_BACKENDS, SQL_TASK, VERTEX_BACKENDS, Settings, claude_backends, data_path,
+    mode_side_error, vertex_profiles,
 )
 
 STATUSES = ("met", "not_met", "unknown", "not_applicable")
@@ -65,16 +64,16 @@ def parse(argv):
     parser.add_argument("--store", help="extraction record store (default: the app's default)")
     parser.add_argument("--out", help="output folder (default: a dated folder under "
                         "data/no_phi/guideline_fetcher_extractions/spot_checks)")
-    parser.add_argument("--backend", choices=[*VERTEX_PROFILES, "local"],
+    parser.add_argument("--backend", choices=[*sorted(VERTEX_BACKENDS), "local"],
                         help="LLM connection (default: the app's default, Gemini 4 Hydrogen)")
     parser.add_argument("--endpoint", help="OpenAI-compatible /v1 URL for --backend local")
     parser.add_argument("--model", help="served model for --backend local")
     parser.add_argument("--tokenizer", help="tokenizer for --backend local (default: --model)")
-    parser.add_argument("--sql-backend", choices=[*VERTEX_PROFILES, *CLAUDE_BACKENDS],
+    parser.add_argument("--sql-backend", choices=[*sorted(VERTEX_BACKENDS), *sorted(SQL_ONLY_BACKENDS)],
                         help="the SQL agent's own connection (default: --backend's)")
     parser.add_argument("--sql-model", help="the Databricks gateway endpoint name for "
-                        "--sql-backend claude_databricks (default: "
-                        "GUIDELINE_DATABRICKS_SONNET_ENDPOINT)")
+                        "--sql-backend claude_databricks (default: the site config's "
+                        "databricks.endpoints.sonnet)")
     parser.add_argument("--no-compiled-queries", action="store_true",
                         help="skip the compiled-query comparison")
     parser.add_argument("--per-status", type=int, default=3,
@@ -98,12 +97,12 @@ def connection(args):
             sys.exit("error: --backend local needs --endpoint and --model")
         values.update(endpoint=args.endpoint.rstrip("/"), model=args.model,
                       tokenizer=args.tokenizer or args.model)
-    if args.sql_backend in CLAUDE_BACKENDS:
-        profile = CLAUDE_BACKENDS[args.sql_backend]
+    if args.sql_backend in SQL_ONLY_BACKENDS:
+        profile = claude_backends()[args.sql_backend]
         model = args.sql_model or profile["model"]
         if not CLAUDE_ENDPOINT_NAME.fullmatch(model or ""):
             sys.exit("error: --sql-backend claude_databricks needs the full three-part gateway "
-                     "endpoint name (--sql-model or GUIDELINE_DATABRICKS_SONNET_ENDPOINT)")
+                     "endpoint name (--sql-model or the site config's databricks.endpoints.sonnet)")
         values["task_connections"] = {SQL_TASK: {
             "llm_backend": args.sql_backend, "endpoint": profile["endpoint"], "model": model,
             "tokenizer": profile["tokenizer"]}}
@@ -111,7 +110,7 @@ def connection(args):
         values["task_connections"] = {SQL_TASK: {"llm_backend": args.sql_backend}}
     settings = Settings(**values)
     if settings.phi:
-        sys.exit("error: spot checks run in the non-PHI app only")
+        sys.exit("error: spot checks run in synthetic mode only")
     return settings
 
 
@@ -271,14 +270,14 @@ def compare(space, sql_report, query_report, histories, out, args):
 def main(argv=None):
     args = parse(argv)
     settings = connection(args)
-    from matchminer_ai.apps.guideline_fetcher.extraction_workup import (
+    from matchminer_ai.apps.dashboard.guidelines.extraction_workup import (
         compile_space_queries, compile_space_sql, open_store, sql_summary,
     )
     from matchminer_ai.patients.workup_sql import (
         build_extraction_database, write_extraction_database,
     )
-    from matchminer_ai.apps.guideline_fetcher.population import PopulationInference, load_population_sample
-    from matchminer_ai.apps.guideline_fetcher.services import Catalogs, InputError
+    from matchminer_ai.apps.dashboard.guidelines.population import PopulationInference, load_population_sample
+    from matchminer_ai.apps.dashboard.guidelines.services import Catalogs, InputError
 
     def progress(message):
         print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
@@ -350,7 +349,7 @@ def main(argv=None):
                          "items": len(space["diagnostic_workup"]), "sql_agent": summary,
                          "agreement": agreement, "seconds": round(time.monotonic() - started)})
             progress(f"{space_id}: wrote {folder}")
-        model = VERTEX_PROFILES.get(settings.llm_backend, {}).get("model", settings.model)
+        model = vertex_profiles().get(settings.llm_backend, {}).get("model", settings.model)
         (out / "run.json").write_text(json.dumps({
             "created_utc": stamp, "backend": settings.llm_backend, "model": model,
             "sql_agent_model": config.workup_sql_agent["remote"]["model_name"],

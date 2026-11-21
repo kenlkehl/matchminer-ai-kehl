@@ -33,8 +33,8 @@ formats and schemas the runtime uses.
 - **[Training](training/index.md).** `mmai-train` produces TrialSpace and the decision model from synthetic and
   public data, and optionally distills [OncoReasoning](training/oncoreasoning.md).
 - **[Evaluation](evaluation/index.md).** Evaluations on real patients, run only where that data is authorized.
-- **Apps.** The [dashboard](apps/dashboard.md) (`mmai-dashboard`) and the
-  [guideline fetcher](apps/guideline-fetcher.md) (`mmai-guideline-fetcher`).
+- **App.** The [dashboard](apps/dashboard.md) (`mmai-dashboard --mode real|synthetic`): trials, populations,
+  single patients (trials and guideline workup) and benchmarks.
 
 ## Where to start
 

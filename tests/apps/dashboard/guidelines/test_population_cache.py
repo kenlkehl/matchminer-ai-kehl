@@ -1,17 +1,18 @@
+"""Real mode's population cache: a private, atomic build from the DuckDB database, loading only matched patients'
+notes, and refusing another TrialSpace encoder's vectors or synthetic mode."""
 import json
 import stat
 
 import numpy as np
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
-from matchminer_ai.apps.guideline_fetcher.app import create_app
-from matchminer_ai.apps.guideline_fetcher.population import browse_databases, load_population_sample
-from matchminer_ai.apps.guideline_fetcher.services import InputError
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
-from .test_app import catalog, wait
-from .test_population import SPACE, database_settings, fabricated_database
+from matchminer_ai.apps.dashboard.guidelines.population import browse_databases, load_population_sample
+from matchminer_ai.apps.dashboard.guidelines.services import InputError
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings
+
+from .conftest import catalog, wait
+from .test_population_workflows import SPACE, database_settings, fabricated_database
 
 IDENTITY = {"encoder": "fabricated-revision"}
 
@@ -38,7 +39,7 @@ def fake_trialspace(monkeypatch):
 
 @pytest.fixture
 def built(tmp_path, fake_trialspace):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import build_population_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import build_population_cache
 
     database = fabricated_database(tmp_path / "oa_fabricated.duckdb")
     output = tmp_path / "guideline_population_cache" / "oa_fabricated"
@@ -76,7 +77,7 @@ def test_build_writes_a_private_complete_cache(built, fake_trialspace):
 def test_cache_notes_match_the_duckdb_sample_loader(built):
     from matchminer_ai.population import create_patient_cohort
 
-    from matchminer_ai.apps.guideline_fetcher.population_cache import open_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import open_cache
 
     settings, output, manifest, _ = built
     cache = open_cache(settings)
@@ -92,7 +93,7 @@ def test_cache_notes_match_the_duckdb_sample_loader(built):
 
 def test_a_cache_from_another_encoder_is_refused(built, monkeypatch):
     """Vectors made by an earlier TrialSpace (such as 0526) never load beside the current model's."""
-    from matchminer_ai.apps.guideline_fetcher import population_cache
+    from matchminer_ai.apps.dashboard.guidelines import population_cache
     settings, output, manifest, _ = built
     population_cache._LOADED.clear()
     monkeypatch.setattr("matchminer_ai.matching.guideline_encoder_identity",
@@ -103,7 +104,7 @@ def test_a_cache_from_another_encoder_is_refused(built, monkeypatch):
 
 
 def test_build_is_atomic_and_never_silently_replaces(built, monkeypatch):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import build_population_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import build_population_cache
 
     settings, output, manifest, _ = built
     with pytest.raises(InputError, match="--overwrite"):
@@ -121,7 +122,7 @@ def test_build_is_atomic_and_never_silently_replaces(built, monkeypatch):
 
 
 def test_overwrite_and_trial_limit(built, fake_trialspace):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import build_population_cache, inspect_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import build_population_cache, inspect_cache
 
     settings, output, manifest, _ = built
     rebuilt = build_population_cache(settings, output, overwrite=True, limit=1,
@@ -134,7 +135,7 @@ def test_overwrite_and_trial_limit(built, fake_trialspace):
 
 
 def test_cache_selection_is_validated(built, tmp_path):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import inspect_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import inspect_cache
 
     settings, output, manifest, _ = built
     assert inspect_cache(settings)["patients"] == 2
@@ -150,9 +151,7 @@ def test_cache_selection_is_validated(built, tmp_path):
         inspect_cache(settings)
 
 
-def test_cached_population_routes_load_notes_only_for_matched_patients(
-    built, tmp_path, monkeypatch
-):
+def test_cached_population_routes_load_notes_only_for_matched_patients(built, tmp_path, monkeypatch, make_client):
     from matchminer_ai.matching import PatientEmbeddings
 
     settings, output, manifest, _ = built
@@ -174,39 +173,38 @@ def test_cached_population_routes_load_notes_only_for_matched_patients(
     monkeypatch.setattr("matchminer_ai.matching.retrieve_guideline_patients", retrieve)
     catalog(tmp_path / "catalogs")
     settings.catalog_root = tmp_path / "catalogs"
-    api = create_app(settings)
-    with TestClient(api) as client:
-        assert client.get("/api/population").json()["defaults"]["cache"] == str(output)
-        assert client.get("/api/population/cache").json()["notes"] == 6
-        assert client.post("/api/population/cache", json={"path": "/etc"}).status_code == 400
-        response = client.post("/api/population/cache", json={"path": str(output)})
-        loaded = wait(client, response.json()["job_id"]).json()["result"]
-        assert loaded["source_count"] == 2 and loaded["source_note_count"] == 6
-        assert loaded["notes_on_demand"] is True
-        assert loaded["provenance"]["cache"]["name"] == "oa_fabricated"
-        catalog_id = client.get("/api/catalogs").json()["catalogs"][0]["id"]
-        response = client.post("/api/population/retrieve", json={
-            "version": loaded["version"], "catalog_id": catalog_id, "space_trial_id": "s",
-        })
-        active = wait(client, response.json()["job_id"]).json()["result"]["active"]
-        assert active["patient_count"] == 1 and active["note_count"] == 1
-        patient = client.get("/api/population/patient", params={
-            "version": client.get("/api/population").json()["population"]["version"],
-            "patient_id": "102",
-        }).json()
-        assert [n["note_text"] for n in patient["notes"]] == ["Colonoscopy completed."]
+    client = make_client(settings)
+    assert client.get("/api/population").json()["defaults"]["cache"] == str(output)
+    assert client.get("/api/population/cache").json()["notes"] == 6
+    assert client.post("/api/population/cache", json={"path": "/etc"}).status_code == 400
+    response = client.post("/api/population/cache", json={"path": str(output)})
+    loaded = wait(client, response.json()["job"]["id"])["result"]
+    assert loaded["source_count"] == 2 and loaded["source_note_count"] == 6
+    assert loaded["notes_on_demand"] is True
+    assert loaded["provenance"]["cache"]["name"] == "oa_fabricated"
+    catalog_id = client.get("/api/guidelines/catalogs").json()["catalogs"][0]["id"]
+    response = client.post("/api/population/retrieve", json={
+        "version": loaded["version"], "catalog_id": catalog_id, "space_trial_id": "s",
+    })
+    active = wait(client, response.json()["job"]["id"])["result"]["active"]
+    assert active["patient_count"] == 1 and active["note_count"] == 1
+    patient = client.get("/api/population/patient", params={
+        "version": client.get("/api/population").json()["population"]["version"],
+        "patient_id": "102",
+    }).json()
+    assert [n["note_text"] for n in patient["notes"]] == ["Colonoscopy completed."]
     assert len(calls) == 1
 
 
-def test_population_caches_are_phi_only(built, tmp_path):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import build_population_cache, inspect_cache, open_cache
+def test_population_caches_are_real_mode_only(built, tmp_path):
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import build_population_cache, inspect_cache, open_cache
 
     settings, output, manifest, _ = built
-    standard = Settings(device="cpu", population_duckdb=settings.population_duckdb,
+    synthetic = Settings(device="cpu", population_duckdb=settings.population_duckdb,
                         duckdb_roots=[tmp_path], population_cache=output)
-    for call in (lambda: inspect_cache(standard), lambda: open_cache(standard),
-                 lambda: build_population_cache(standard, tmp_path / "other", log=print)):
-        with pytest.raises(InputError, match="PHI app"):
+    for call in (lambda: inspect_cache(synthetic), lambda: open_cache(synthetic),
+                 lambda: build_population_cache(synthetic, tmp_path / "other", log=print)):
+        with pytest.raises(InputError, match="real mode"):
             call()
     # A population cache holds PHI and never lands in a no_phi folder.
     with pytest.raises(InputError, match="no_phi"):
@@ -215,7 +213,7 @@ def test_population_caches_are_phi_only(built, tmp_path):
 
 
 def test_summaries_can_come_from_parquet_files(tmp_path, fake_trialspace):
-    from matchminer_ai.apps.guideline_fetcher.population_cache import build_population_cache
+    from matchminer_ai.apps.dashboard.guidelines.population_cache import build_population_cache
 
     database = fabricated_database(tmp_path / "oa_fabricated.duckdb")
     folder = tmp_path / "summaries"

@@ -122,7 +122,6 @@ matchminer_ai = [
   "data/*.json",
   "data/*.zip",
   "data/*.md",
-  "evaluation/dual_judge/static/*.html",
   "apps/dashboard/grouping.yaml",
   # The built dashboard frontend (frontend/dashboard: pnpm build), when present.
   "apps/dashboard/static/*",

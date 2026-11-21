@@ -5,10 +5,10 @@ embeds the summaries with the app's TrialSpace configuration, and writes a cache
 directory that population management loads in seconds. The cache contains PHI:
 it is created 0700 with 0600 files. Logs show counts only.
 
-It always uses PHI-mode settings (the app's `mmai-guideline-fetcher --phi`), including the PHI cache.
+It always uses real-mode settings (the app's `mmai-dashboard --mode real`), including the PHI cache.
 
 Example (GPU 3):
-  CUDA_VISIBLE_DEVICES=3 python -m matchminer_ai.apps.guideline_fetcher.preprocess_population
+  CUDA_VISIBLE_DEVICES=3 python -m matchminer_ai.apps.dashboard.guidelines.preprocess_population
 """
 
 import argparse

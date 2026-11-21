@@ -281,7 +281,7 @@ The participant has received a prior fictional inhibitor.
 
 `load_guideline_catalog` returns this text as `cohort_key_criteria`, the column a trial cohort's key criteria use.
 TrialSpace retrieval and the decision model's match questions read it, as they do for trial cohorts; guideline
-spaces have no boilerplate criteria. The population workup review and the guideline fetcher also pass it to workup
+spaces have no boilerplate criteria. The population workup review and the dashboard also pass it to workup
 review as the population context. `clinical_space_summary` is unchanged and remains the key for exact lookup.
 
 **Catalogs without stored key criteria.** For a record without `key_criteria`, the loader lays out the nine fields
@@ -441,7 +441,7 @@ reviewed, metadata = review_guideline_citations(
 
 Each population and menu item gains `citation_review`: `version`, `status` (`supported_by_model_review` or
 `unresolved`) and `issues`. An unresolved item can have partial or empty evidence. **Show these issues beside the
-affected assertion**, as the guideline fetcher and the Markdown reports do, rather than presenting partial support as
+affected assertion**, as the dashboard and the Markdown reports do, rather than presenting partial support as
 validation of the whole recommendation. A completed review can contain unresolved items; the audit counts them.
 
 For several diseases, write a JSON object that maps disease folder names to completed catalog directories:

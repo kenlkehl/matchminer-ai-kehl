@@ -79,9 +79,14 @@ def router(state: DashState) -> APIRouter:
         if state.vectors is None:
             raise HTTPException(503, "no valid TrialSpace round")
 
+    def require_patients():
+        require_round()
+        if state.patient_vectors is None:
+            raise HTTPException(503, state.patients_error or "no patient vectors")
+
     @api.post("/api/match/patients-for-cohort")
     def patients_for_cohort(request: PatientsForCohort):
-        require_round()
+        require_patients()
         started = time.monotonic()
         with state.round_lock:
             cohort = state.cohort(request.cohort_id)
@@ -92,7 +97,7 @@ def router(state: DashState) -> APIRouter:
                                      "pending": True, "job": job.describe(False) if job else None}, status_code=409)
             k = max(1, min(int(request.k or state.settings.default_k), state.settings.max_k))
             mask = state.patient_mask(request.cancer_type, request.sex, "")
-            hits = state.vectors.search(vector, "patients", k, mask)
+            hits = state.patient_vectors.search(vector, "patients", k, mask)
             searched = len(state.corpus.patients) if mask is None else int(mask.sum())
         rows = [{"rank": rank, "patient": state.patient_summary(state.corpus.patients[i]["id"]), "cosine": round(c, 5)}
                 for rank, (i, c) in enumerate(hits, 1)]
@@ -111,6 +116,7 @@ def router(state: DashState) -> APIRouter:
         started = time.monotonic()
         with state.round_lock:
             if request.patient_id:
+                require_patients()
                 entity = state.patient_entity(request.patient_id)
             elif request.summary and request.summary.strip():
                 entity = state.add_custom_patient(request.summary, request.boilerplate or "")

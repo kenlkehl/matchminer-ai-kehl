@@ -7,13 +7,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from matchminer_ai.apps.guideline_fetcher.settings import Settings
+from matchminer_ai.apps.dashboard.guidelines.settings import Settings
 
 # Load the example by path: an unrelated installed package named "examples" can shadow
 # this repository's examples folder.
 _SPEC = importlib.util.spec_from_file_location(
     "benchmark_biliary_workup",
-    Path(__file__).resolve().parents[3] / "examples" / "guideline_fetcher" / "benchmark_biliary_workup.py")
+    Path(__file__).resolve().parents[4] / "examples" / "guidelines" / "benchmark_biliary_workup.py")
 benchmark = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(benchmark)
 
@@ -84,7 +84,7 @@ def test_summary_reuse_requires_the_same_verified_case(tmp_path, thinking):
     saved = {
         **gold,
         "synthetic_only": True,
-        "model": benchmark.GEMMA_PROFILE["model"],
+        "model": benchmark.gemma_profile()["model"],
         "thinking": thinking,
         "summary": "Fabricated patient summary.",
     }
