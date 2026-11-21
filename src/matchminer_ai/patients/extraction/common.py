@@ -288,4 +288,3 @@ def prompt_messages(content: str, head: str, settings: SectionSettings) -> list[
             and remote_provider_name(remote) == DATABRICKS_ANTHROPIC_PROVIDER):
         return [{"role": "system", "content": head}, {"role": "user", "content": content[len(head):]}]
     return [{"role": "user", "content": content}]
-
