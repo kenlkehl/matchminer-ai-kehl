@@ -1,16 +1,24 @@
-"""Where the dashboard reads its trial data, synthetic patients and models, and where it keeps its store.
+"""Where the app reads its data and models, where it keeps its store, and how it serves, by mode.
 
-Patients, the TrialSpace round, the encoder and the decision model are those of ``core.settings`` (the synthetic
-n=5000 run), except two decision-model defaults (user, 2026-11-12): the newest interim export of the
-run's decision model, taken from a Trainer checkpoint while it trains, comes before the fit-2 checkpoint, and the
-model runs on ``cuda:0`` when CUDA is available. The trials are the OA trials being extracted in ``trial_data``
-with the OA DuckDB copy's trial table (``pipeline.trial_table``). The store (``dashboard.json``), the real cohorts'
-vectors and the score cache hold confidential protocol-derived text, so they live in ``store_dir`` beside the trial
-data (owner only), not in the repository or the home directory. Each trial's drugs and mechanisms come from the
-GoodOption catalog (``good_options_catalog``), read in place.
+The app starts in one of two modes (``--mode``, on the command line only):
 
-Defaults come from the site config's ``dashboard`` section, else folders under the data root's
-``phi/real_time`` (``matchminer_ai.site``); ``--site-config`` and ``--data-root`` name them.
+- **real:** the OA trials being extracted in ``trial_data`` with the OA DuckDB copy's trial table
+  (``pipeline.trial_table``), and real patients (the population cache; guideline populations from the OA database).
+  It serves on loopback only and always asks for the access token. Its store, vectors and caches hold confidential
+  protocol-derived text and patient data, so they live beside the trial data under the data root's ``phi/`` side
+  (owner only), never in a ``no_phi`` folder.
+- **synthetic:** the synthetic run's trials and patients only. It may serve beyond loopback (``0.0.0.0`` by
+  default, any Host name unless ``--allowed-hosts`` names them) and asks for a token only with
+  ``--require-token``. It never reads or writes a ``phi`` folder.
+
+The TrialSpace rounds, the encoder and the decision model come from the synthetic n=5000 run in both modes
+(``core.settings``), except two decision-model defaults (user, 2026-11-12): the newest interim export of the run's
+decision model, taken from a Trainer checkpoint while it trains, comes before the fit-2 checkpoint, and the model
+runs on ``cuda:0`` when CUDA is available. Each trial's drugs and mechanisms come from the GoodOption catalog
+(``good_options_catalog``), read in place.
+
+Defaults come from the site config's ``dashboard.<mode>`` section, then its shared ``dashboard`` keys, else folders
+under the data root (``matchminer_ai.site``); ``--site-config`` and ``--data-root`` name them.
 """
 from __future__ import annotations
 
@@ -30,10 +38,38 @@ from .llm import DEFAULT_BACKEND, NEMOTRON, default_endpoint
 DEFAULT_GROUPING = Path(__file__).with_name("grouping.yaml")
 
 
-def site_default(key: str, relative: str) -> Path:
-    """The site config's ``dashboard.<key>``, else ``relative`` under the data root's ``phi/real_time``."""
-    value = load_site_config().get(f"dashboard.{key}")
-    return Path(value).expanduser() if value else data_root() / "phi" / "real_time" / relative
+MODES = ("real", "synthetic")
+# Where a mode's own folders sit under the data root when the site config names none.
+MODE_FOLDERS = {"real": Path("phi") / "real_time", "synthetic": Path("no_phi")}
+MODE_PORTS = {"real": 8781, "synthetic": 8034}
+ANY_HOST = "0.0.0.0"
+
+
+def site_value(mode: str, key: str):
+    """The site config's ``dashboard.<mode>.<key>``, else its shared ``dashboard.<key>``."""
+    site = load_site_config()
+    value = site.get(f"dashboard.{mode}.{key}")
+    return value if value is not None else site.get(f"dashboard.{key}")
+
+
+def site_default(mode: str, key: str, relative: str | None) -> Path | None:
+    """The site config's value for ``key`` in ``mode``, else ``relative`` under the mode's folder of the data root
+    (None when the mode has no default)."""
+    value = site_value(mode, key)
+    if value:
+        return Path(value).expanduser()
+    return data_root() / MODE_FOLDERS[mode] / relative if relative else None
+
+
+def mode_side_error(mode: str, path) -> str | None:
+    """Why ``path`` is on the other mode's side of the data root (None when it is not). Real-mode data and caches
+    never sit in a ``no_phi`` folder, and synthetic mode never reads or writes a ``phi`` folder."""
+    parts = Path(path).expanduser().resolve().parts
+    if mode == "real" and "no_phi" in parts:
+        return "Real mode keeps patient and protocol data out of no_phi folders."
+    if mode == "synthetic" and "phi" in parts:
+        return "Synthetic mode never uses a phi folder."
+    return None
 
 
 def default_grouping() -> Path:
@@ -54,17 +90,19 @@ AUTO_DEVICE = "auto"
 
 @dataclass
 class DashSettings(Settings):
-    port: int = 8781
+    # "real" or "synthetic" (see the module docstring); the command line requires it.
+    mode: str = "real"
+    host: str | None = None  # default: 127.0.0.1 (real), 0.0.0.0 (synthetic)
+    port: int | None = None  # default: 8781 (real), 8034 (synthetic)
     cache_dir: Path | None = None  # default: <store_dir>/cache
-    trial_data: Path = field(default_factory=lambda: site_default("trial_data", "trial_data"))
-    # The newest OA snapshot (a glob).
-    oa_db: Path = field(default_factory=lambda: site_default("oa_db", "oa_db_*.duckdb"))
-    store_dir: Path = field(default_factory=lambda: site_default("store_dir", "dashboard"))
+    # Real mode: the OA trials' extraction runs and the newest OA snapshot (a glob).
+    trial_data: Path | None = None
+    oa_db: Path | None = None
+    store_dir: Path | None = None
     grouping: Path = field(default_factory=default_grouping)
     # Trials' drugs (public trial and drug information only, built from NCT IDs and drug names, read in place);
     # a missing catalog: no drugs.
-    good_options_catalog: Path = field(default_factory=lambda: site_default("good_options_catalog",
-                                                                            "good_options_catalog/catalog"))
+    good_options_catalog: Path | None = None
     # The LLM checks' endpoint (llm.py): by default the Vertex profile Gemini 4 Hydrogen (user, 2026-11-17); with
     # llm_backend "openai", an OpenAI-compatible server (llm_endpoint, default the site config's
     # endpoints.teacher.url; "none" turns the LLM checks off). Changeable on Data and Models for the server's session.
@@ -76,24 +114,58 @@ class DashSettings(Settings):
     auto_score_n: int = 10  # pairs the result pages score with the decision model as they open
     default_k: int = 50
     device: str = AUTO_DEVICE  # the decision model: cuda:0 when CUDA is available, else cpu (device_notice says so)
-    # Host headers accepted (loopback names; a forwarded port's Host is localhost or 127.0.0.1).
-    allowed_hosts: tuple[str, ...] = tuple(LOOPBACK_HOSTS)
-    # Require an access token (MMAI_DASH_ACCESS_TOKEN, else a private token file) to keep out other accounts on
-    # this machine, which can reach a loopback port.
+    # Host headers accepted. Default: loopback names (real mode; a forwarded port's Host is localhost or
+    # 127.0.0.1), any (synthetic mode).
+    allowed_hosts: tuple[str, ...] | None = None
+    # Require an access token (MMAI_DASH_ACCESS_TOKEN, else a private token file): always in real mode, to keep out
+    # other accounts on this machine, which can reach a loopback port; on request in synthetic mode.
     require_token: bool = False
     device_notice: str | None = None
 
     def __post_init__(self):
+        if self.mode not in MODES:
+            raise ValueError(f"mode must be one of {MODES}, not {self.mode!r}")
+        real = self.mode == "real"
+        if self.host is None:
+            self.host = "127.0.0.1" if real else ANY_HOST
+        if self.port is None:
+            self.port = MODE_PORTS[self.mode]
+        if self.allowed_hosts is None:
+            self.allowed_hosts = tuple(LOOPBACK_HOSTS) if real else ("*",)
+        if real:
+            self.require_token = True
         if self.device in (None, "", AUTO_DEVICE):
             self.device, self.device_notice = default_device()
-        self.trial_data = Path(self.trial_data).expanduser()
-        self.oa_db = Path(self.oa_db).expanduser()
+        if self.trial_data is None and real:
+            self.trial_data = site_default("real", "trial_data", "trial_data")
+        if self.oa_db is None and real:
+            self.oa_db = site_default("real", "oa_db", "oa_db_*.duckdb")
+        if self.store_dir is None:
+            self.store_dir = site_default(self.mode, "store_dir", "dashboard" if real else "dashboard_synthetic")
+        if self.good_options_catalog is None:
+            self.good_options_catalog = site_default(self.mode, "good_options_catalog",
+                                                     "good_options_catalog/catalog" if real else None)
+        self.trial_data = Path(self.trial_data).expanduser() if self.trial_data else None
+        self.oa_db = Path(self.oa_db).expanduser() if self.oa_db else None
         self.store_dir = Path(self.store_dir).expanduser()
         self.grouping = Path(self.grouping).expanduser()
-        self.good_options_catalog = Path(self.good_options_catalog).expanduser()
+        self.good_options_catalog = Path(self.good_options_catalog).expanduser() if self.good_options_catalog else None
         if self.cache_dir is None:
             self.cache_dir = self.store_dir / "cache"
         super().__post_init__()
+        for name in ("store_dir", "cache_dir"):
+            error = mode_side_error(self.mode, getattr(self, name))
+            if error:
+                raise ValueError(f"{error} Choose another --{name.replace('_', '-')}.")
+        if not real:
+            for name in ("trial_data", "oa_db", "good_options_catalog"):
+                value = getattr(self, name)
+                if value is not None and mode_side_error(self.mode, value):
+                    raise ValueError(f"Synthetic mode never reads a phi folder: {name}.")
+
+    @property
+    def real(self) -> bool:
+        return self.mode == "real"
 
     @property
     def store_path(self) -> Path:
@@ -176,9 +248,13 @@ def _env(name: str):
 def parse_settings(argv: list[str] | None = None) -> DashSettings:
     """Settings from the command line, then MMAI_DASH_* variables, then the defaults."""
     parser = argparse.ArgumentParser(prog="mmai-dashboard",
-                                     description="MatchMiner-AI dashboard over the OA trials (research use)")
+                                     description="MatchMiner-AI dashboard: trials, populations, patients and "
+                                                 "benchmarks (research use)")
     parser.add_argument("command", nargs="?", default="serve", choices=("serve", "build"),
                         help="serve (default) or build the dashboard store once and exit")
+    parser.add_argument("--mode", required=True, choices=MODES,
+                        help="real: the OA trials and real patients, loopback only, with sign-in; synthetic: the "
+                             "synthetic run's trials and patients only, may serve beyond loopback")
     parser.add_argument("--site-config", help=f"site config YAML (default ${SITE_CONFIG_ENV})")
     parser.add_argument("--data-root", help=f"data root holding phi/ and no_phi/ (default ${DATA_ROOT_ENV} or the "
                         "site config's paths.data_root)")
@@ -201,12 +277,15 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--synthetic-run", type=Path, help="synthetic run (patients, TrialSpace rounds, decision model; "
                         "default: dashboard.synthetic_run, else no_phi/synthetic_run under the data root)")
     parser.add_argument("--cache-dir", type=Path)
-    parser.add_argument("--host")
+    parser.add_argument("--host", help="real mode: a loopback address only (default 127.0.0.1); synthetic mode: "
+                        f"default {ANY_HOST}")
     parser.add_argument("--allowed-hosts", help="comma-separated Host header names to accept (default: "
-                        f"{','.join(LOOPBACK_HOSTS)})")
-    parser.add_argument("--require-token", action="store_true", help="require an access token "
-                        f"(MMAI_DASH_ACCESS_TOKEN, else {ACCESS_TOKEN_FILE}, created on first use)")
-    parser.add_argument("--port", type=int)
+                        f"{','.join(LOOPBACK_HOSTS)} in real mode, any in synthetic mode)")
+    parser.add_argument("--require-token", action="store_true", help="synthetic mode: require an access token "
+                        f"(MMAI_DASH_ACCESS_TOKEN, else {ACCESS_TOKEN_FILE}, created on first use); always on in "
+                        "real mode")
+    parser.add_argument("--port", type=int, help=f"default {MODE_PORTS['real']} (real), {MODE_PORTS['synthetic']} "
+                        "(synthetic)")
     parser.add_argument("--decision-model", help="checkpoint directory or Hub id (default: the run's trained decision "
                         "model once complete, else its newest interim export, else fit 2, else base d1-2B)")
     parser.add_argument("--decision-revision")
@@ -246,6 +325,6 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     hosts = args.allowed_hosts or _env("allowed_hosts")
     if hosts:
         values["allowed_hosts"] = tuple(h.strip() for h in hosts.split(",") if h.strip())
-    settings = DashSettings(**values)
+    settings = DashSettings(mode=args.mode, **values)
     settings.command = args.command
     return settings

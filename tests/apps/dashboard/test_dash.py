@@ -435,7 +435,7 @@ def test_drugs_without_the_ncit_hierarchy_or_catalog(trial_data, tmp_path, monke
     assert info["state"] == "ready" and not info["most_specific"] and "could not be loaded" in info["hierarchy"]
     from matchminer_ai.apps.dashboard.settings import parse_settings
 
-    chosen = parse_settings(["--store-dir", str(tmp_path / "store"), "--device", "cpu",
+    chosen = parse_settings(["--mode", "real", "--store-dir", str(tmp_path / "store"), "--device", "cpu",
                              "--good-options-catalog", str(tmp_path / "no-catalog")])
     assert chosen.good_options_catalog == tmp_path / "no-catalog"
     for catalog in (chosen.good_options_catalog, None):
@@ -561,12 +561,12 @@ def test_decision_model_device_tries_gpu0(monkeypatch, tmp_path):
     monkeypatch.setattr(dash_settings_module, "cuda_available", lambda: True)
     s = DashSettings(store_dir=tmp_path / "store")
     assert s.device == "cuda:0" and s.device_notice is None
-    assert parse_settings(["--store-dir", str(tmp_path / "store"), "--device", "cpu"]).device == "cpu"
+    assert parse_settings(["--mode", "real", "--store-dir", str(tmp_path / "store"), "--device", "cpu"]).device == "cpu"
     monkeypatch.setenv("MMAI_DASH_DEVICE", "cuda:1")
-    assert parse_settings(["--store-dir", str(tmp_path / "store")]).device == "cuda:1"
+    assert parse_settings(["--mode", "real", "--store-dir", str(tmp_path / "store")]).device == "cuda:1"
     monkeypatch.delenv("MMAI_DASH_DEVICE")
     monkeypatch.setattr(dash_settings_module, "cuda_available", lambda: False)
-    s = parse_settings(["--store-dir", str(tmp_path / "store")])
+    s = parse_settings(["--mode", "real", "--store-dir", str(tmp_path / "store")])
     assert s.device == "cpu" and "CUDA is not available" in s.device_notice
     assert s.embedding_device == "cpu"  # the TrialSpace encoder's device is unchanged
 

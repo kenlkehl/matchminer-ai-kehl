@@ -1,5 +1,8 @@
-"""``mmai-dashboard`` (``python -m matchminer_ai.apps.dashboard``): serve the dashboard on 127.0.0.1;
-``mmai-dashboard build``: build its store once."""
+"""``mmai-dashboard --mode real|synthetic`` (``python -m matchminer_ai.apps.dashboard``): serve the app;
+``mmai-dashboard --mode ... build``: build its trial store once.
+
+Real mode serves on loopback only and always asks for the access token; synthetic mode may serve beyond loopback
+and asks for a token only with ``--require-token`` (``settings``)."""
 import os
 import sys
 import threading
@@ -19,9 +22,9 @@ def main(argv=None):
         write_store(store, settings.store_path)
         print(f"{store['counts']} -> {settings.store_path} ({store['build_seconds']} s)")
         return
-    if not is_loopback(settings.host):
-        sys.exit(f"Refusing to serve on {settings.host}: the dashboard shows confidential protocol content and serves "
-                 "on 127.0.0.1 only (forward the port with ssh -L to reach it from another machine).")
+    if settings.real and not is_loopback(settings.host):
+        sys.exit(f"Refusing to serve on {settings.host}: real mode shows patient records and confidential protocol "
+                 "content and serves on 127.0.0.1 only (forward the port with ssh -L to reach it from another machine).")
     if not settings.allow_downloads:  # before transformers or huggingface_hub is imported
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -66,16 +69,16 @@ def main(argv=None):
     interval = settings.rebuild_poll_seconds
     if interval > 0:  # new extraction results, a later TrialSpace round, edited grouping rules
         threading.Thread(target=state.watch, args=(interval, stop), name="watch", daemon=True).start()
-    print(f"Ready in {state.startup_seconds} s. Serving on http://{settings.host}:{settings.port}/ "
-          f"(research use; protocol content is confidential). Ctrl-C to stop.", flush=True)
+    what = ("patient records and protocol content are confidential" if settings.real
+            else "synthetic data only")
+    print(f"Ready in {state.startup_seconds} s. Serving {settings.mode} mode on http://{settings.host}:{settings.port}/ "
+          f"(research use; {what}). Ctrl-C to stop.", flush=True)
     try:
         uvicorn.run(create_app(state, access_token=token), host=settings.host, port=settings.port, log_level="warning")
     finally:
         stop.set()
         state.encoder.close()
-        state.jobs.shutdown()
-        state.background.shutdown()
-        state.llm.jobs.shutdown()
+        state.registry.shutdown()
 
 
 if __name__ == "__main__":

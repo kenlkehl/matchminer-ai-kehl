@@ -40,10 +40,10 @@ def test_environment_and_command_line_overrides(tmp_path, monkeypatch):
     store = ["--store-dir", str(tmp_path / "store")]
     monkeypatch.setenv("MMAI_DASH_SYNTHETIC_RUN", str(tmp_path / "env-root"))
     monkeypatch.setenv("MMAI_DASH_THREADS", "4")
-    s = parse_settings(store + ["--port", "9999", "--device", "cuda:3", "--cache-dir", str(tmp_path / "c")])
+    s = parse_settings(["--mode", "real"] + store + ["--port", "9999", "--device", "cuda:3", "--cache-dir", str(tmp_path / "c")])
     assert s.port == 9999 and s.device == "cuda:3" and s.threads == 4 and s.cache_dir == tmp_path / "c"
     assert s.path("corpus") == tmp_path / "env-root" / "trialspace" / "trialspace_corpus"
-    assert (parse_settings(store + ["--synthetic-run", str(tmp_path / "cli"), "--device", "cpu"]).synthetic_run
+    assert (parse_settings(["--mode", "real"] + store + ["--synthetic-run", str(tmp_path / "cli"), "--device", "cpu"]).synthetic_run
             == tmp_path / "cli")
 
 

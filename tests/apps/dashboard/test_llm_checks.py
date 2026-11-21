@@ -176,16 +176,17 @@ def test_good_option_check_runs_as_a_job_and_is_cached(dash_client, dash, fake_g
     assert rubric["criteria"][0]["question"].startswith("Has this drug")
 
 
-def test_good_option_errors_are_shown_and_not_cached(dash_client, monkeypatch, fake_good_options):
+def test_good_option_errors_are_reduced_and_not_cached(dash_client, monkeypatch, fake_good_options):
     import matchminer_ai.matching as matching
 
     def down(*args, **kwargs):
-        raise ConnectionError("endpoint down")
+        raise ConnectionError("endpoint down: patient text that must not reach the page")
 
     monkeypatch.setattr(matching, "check_good_options", down)
     started = dash_client.post("/api/good-option", json={"patient_id": "patient_a", "trial_id": "NCT90000001"}).json()
     job = wait_job(dash_client, started["job"]["id"])
-    assert job["status"] == "error" and "endpoint down" in job["error"]
+    # The page gets the error's type and a fixed message, never the exception's text.
+    assert job["status"] == "error" and job["error"].startswith("ConnectionError") and "patient" not in job["error"]
     assert "job" in dash_client.post("/api/good-option", json={"patient_id": "patient_a",
                                                                 "trial_id": "NCT90000001"}).json()
 

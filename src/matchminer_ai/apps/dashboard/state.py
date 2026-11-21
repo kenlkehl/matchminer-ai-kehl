@@ -12,7 +12,7 @@ from .core.cache import JSONCache, ScoreCache, file_stamp, text_key
 from .core.corpus import Corpus
 from .core.decisions import DecisionService, PairText
 from .core.encoder import EncoderClient
-from .core.jobs import JobManager
+from .core.jobs import JobManager, JobRegistry
 from .core.notes import NotesIndex
 from .core.vectors import VectorStore, select_round
 
@@ -74,6 +74,8 @@ class DashState:
                                                        settings.llm_tokenizer),
                              ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
         self.custom: dict[str, dict] = {}
+        # Every job manager, so one route finds and stops any job (core.jobs).
+        self.registry = JobRegistry(model=self.jobs, background=self.background, llm=self.llm.jobs)
         self.startup_seconds = round(time.monotonic() - started, 1)
 
     # ------------------------------------------------------------------ the trial store
@@ -223,9 +225,17 @@ class DashState:
 
     # ------------------------------------------------------------------ status
 
+    def tabs(self) -> list[str]:
+        """The frontend's tabs in this mode: Benchmarking only when there are runs to show."""
+        tabs = ["trials", "population", "patient"]
+        benchmarks = getattr(self, "benchmarks", None)
+        if benchmarks is not None and benchmarks.available():
+            tabs.append("benchmarking")
+        return tabs
+
     def describe(self) -> dict:
         s = self.store
-        return {"store": {"built_at": s["built_at"], "build_seconds": s["build_seconds"], "counts": s["counts"],
+        return {"mode": self.settings.mode, "store": {"built_at": s["built_at"], "build_seconds": s["build_seconds"], "counts": s["counts"],
                           "signature": s["signature"], "rules": s["rules"], "error": self.store_error,
                           "last_check": self.last_check, "path": str(self.settings.store_path),
                           "poll_seconds": self.settings.rebuild_poll_seconds},
@@ -238,6 +248,6 @@ class DashState:
                 "round_switched_at": self.round_switched_at, "encoder": self.encoder.describe(),
                 "cohort_vectors": self.cohort_vectors.describe(s), "decision_model": self.decisions.describe(),
                 "notes": self.notes.describe(),
-                "jobs": self.jobs.recent(10) + self.background.recent(10) + self.llm.jobs.recent(10),
+                "jobs": self.registry.recent(10),
                 "startup_seconds": self.startup_seconds, "score_cache": self.decisions.cache.count(),
                 "llm": {"connection": self.llm.connection.describe(), "cached": self.llm.cache.count()}}
