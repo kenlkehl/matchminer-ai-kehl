@@ -23,7 +23,7 @@ def router(state: DashState) -> APIRouter:
                              "pending": len(c["pending_trial_ids"])} for c in s["centers"]],
                 "cancer_types": cancer_types.describe(), "auto_score_n": settings.auto_score_n,
                 "default_k": settings.default_k, "max_k": settings.max_k,
-                "round": state.round.number if state.round else None, "site": pipeline.branding(),
+                "round": state.round.number if state.round else None, "site": pipeline.branding(settings.real),
                 "vectors": state.cohort_vectors.describe(), "patients": len(state.corpus.patients),
                 "sign_in": bool(settings.require_token),
                 # The GoodOption catalog's state (None: a store built before the drugs), so a page can say why a

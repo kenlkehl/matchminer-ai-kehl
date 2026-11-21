@@ -81,7 +81,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `center_prefix` | none | Regular expression removed from center names in the sidebar |
 | `higher_threshold_groups` | none | Coordinating centers left out of the Patient tab's trials unless included |
 | `branding.institution` | none | The site's name |
-| `branding.confidentiality` | none | Confidentiality notice |
+| `branding.confidentiality` | none | Confidentiality notice, shown in real mode only |
 | `branding.pi_label` | `Site PI` | Label of the site PI |
 | `branding.higher_threshold_label` | `Exclude higher-threshold programs` | Label of the `higher_threshold_groups` filter |
 | `branding.institutions` | none | Sidebar groups of the disease centers: `label` and name `prefixes` |

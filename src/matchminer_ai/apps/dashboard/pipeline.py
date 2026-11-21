@@ -67,17 +67,18 @@ def site_name_map() -> dict[str, str]:
     return {str(k): str(v) for k, v in load_site_config().section("dashboard.site_names").items()}
 
 
-def branding() -> dict:
-    """What the frontend shows of the site (dashboard.branding): its name, the confidentiality notice, the label of
-    the site PI, institution groups of the disease centers (labels and name prefixes) and links from a trial's
-    protocol number (URL templates with ``{protocol_no}``). Without a site config: none of them."""
+def branding(real: bool) -> dict:
+    """What the frontend shows of the site (dashboard.branding): its name, the confidentiality notice (real mode
+    only: synthetic data is not sensitive), the label of the site PI, institution groups of the disease centers
+    (labels and name prefixes) and links from a trial's protocol number (URL templates with ``{protocol_no}``).
+    Without a site config: none of them."""
     value = load_site_config().section("dashboard.branding")
     institutions = [{"label": str(i.get("label", "")), "prefixes": [str(p) for p in i.get("prefixes") or []]}
                     for i in value.get("institutions") or [] if isinstance(i, dict)]
     links = [{"label": str(i.get("label", "")), "url": str(i.get("url", ""))}
              for i in value.get("trial_links") or [] if isinstance(i, dict) and "{protocol_no}" in str(i.get("url"))]
     return {"institution": str(value.get("institution") or ""),
-            "confidentiality": str(value.get("confidentiality") or ""),
+            "confidentiality": str(value.get("confidentiality") or "") if real else "",
             "pi_label": str(value.get("pi_label") or "Site PI"),
             "higher_threshold_label": str(value.get("higher_threshold_label") or "Exclude higher-threshold programs"),
             "institutions": institutions, "trial_links": links}
