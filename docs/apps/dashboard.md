@@ -32,7 +32,9 @@ TrialSpace model and says so on Data and Models if they differ.
   and GoodOption LLM checks run on demand. **Screen with structured data** checks the cohort's criteria lines on the
   structured records of every candidate the mode's extraction store holds (each line's query is compiled once; see
   [Structured-Record Criteria Screening](../api/structured-criteria.md)), and the search can be limited to patients
-  with stored records.
+  with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
+  status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
+  the Patient-centric Trials view.
 - **Population management:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default), compress their notes, and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a

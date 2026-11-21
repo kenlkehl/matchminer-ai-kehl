@@ -11,6 +11,8 @@ export interface AiFilters {
   excludeHigherThreshold: boolean;
   /** Leave out the trials whose common-exclusion check found the patient likely excluded. */
   hideLikelyExcluded: boolean;
+  /** Show trials that are not open to enrollment (hidden by default). */
+  showClosed: boolean;
 }
 
 export const DEFAULT_FILTERS: AiFilters = {
@@ -19,6 +21,7 @@ export const DEFAULT_FILTERS: AiFilters = {
   locations: [],
   excludeHigherThreshold: true,
   hideLikelyExcluded: false,
+  showClosed: false,
 };
 
 /**

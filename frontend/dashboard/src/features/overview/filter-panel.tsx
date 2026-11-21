@@ -58,6 +58,7 @@ export function FilterPanel({ overview, view }: { overview: Overview; view: Cent
   const mechanisms = options("mechanisms", mechanismClasses, (v) => v).sort(
     (a, b) => b.count - a.count || a.label.localeCompare(b.label),
   );
+  const closed = closedTrials(rows);
 
   return (
     <SidebarSlot>
@@ -72,6 +73,19 @@ export function FilterPanel({ overview, view }: { overview: Overview; view: Cent
             Clear All
           </button>
         </div>
+        {closed ? (
+          <Label className="items-start gap-1.5 text-xs leading-snug font-normal text-gray-200">
+            <Checkbox
+              className="mt-px size-3.5 shrink-0"
+              checked={filters.closed}
+              onCheckedChange={(checked) => {
+                setFilters({ closed: checked ? true : undefined });
+              }}
+            />
+            <span className="flex-1">Show closed trials</span>
+            <span className="text-white/40 tabular-nums">{closed}</span>
+          </Label>
+        ) : null}
         <CheckList
           label="Groups"
           options={groups}
@@ -118,6 +132,11 @@ export function FilterPanel({ overview, view }: { overview: Overview; view: Cent
       </div>
     </SidebarSlot>
   );
+}
+
+/** How many of these rows' trials are not open to enrollment. */
+export function closedTrials(rows: { trial: { id: string; is_open: boolean } }[]): number {
+  return new Set(rows.filter((r) => !r.trial.is_open).map((r) => r.trial.id)).size;
 }
 
 export const FILTER_LABEL_CLASS =

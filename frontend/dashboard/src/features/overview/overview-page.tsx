@@ -23,7 +23,7 @@ import { centerOptions, metaOptions } from "@/lib/queries";
 
 import { CatalogEvidenceDialog } from "./catalog-evidence-dialog";
 import { CohortDialog } from "./cohort-dialog";
-import { FilterPanel } from "./filter-panel";
+import { closedTrials, FilterPanel } from "./filter-panel";
 import {
   COLUMNS,
   filtersOf,
@@ -168,6 +168,7 @@ function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: numb
   const groups = (view?.groups ?? [])
     .map((g) => ({ ...g, rows: g.rows.filter((r) => overview.shown(r)) }))
     .filter((g) => g.rows.length > 0);
+  const closedHidden = closedTrials(overview.rows);
   const pending = filtering ? [] : (view?.pending ?? []);
   // While filtering, the groups with matches open; otherwise as the user left them (all closed at first).
   const open = openGroups ?? (filtering ? groups.map((g) => g.id) : []);
@@ -294,6 +295,9 @@ function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: numb
               ? `Showing ${String(trialCount)} trials, ${String(cohortCount)} cohorts across ${String(groups.length)} groups`
               : "No trials found."}
             {pending.length ? ` · ${String(pending.length)} trials without extracted cohorts` : ""}
+            {!filters.closed && closedHidden
+              ? ` · ${String(closedHidden)} closed ${closedHidden === 1 ? "trial" : "trials"} hidden`
+              : ""}
           </p>
         </>
       )}

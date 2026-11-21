@@ -138,6 +138,7 @@ function filterRows(
   const any = (chosen: string[], value: string) => chosen.length === 0 || chosen.includes(value);
   return rows.filter(
     (r) =>
+      (f.showClosed || r.cohort.trial.is_open) &&
       any(f.phases, r.cohort.trial.phase) &&
       any(f.centers, r.cohort.trial.center) &&
       (f.locations.length === 0 || r.cohort.trial.sites.some((s) => f.locations.includes(s))) &&
@@ -835,6 +836,8 @@ function AiFilterPanel({
   const set = (patch: Partial<AiFilters>) => {
     setAiState((s) => ({ filters: { ...s.filters, ...patch } }));
   };
+  const closed = new Set(rows.filter((r) => !r.cohort.trial.is_open).map((r) => r.cohort.trial.id))
+    .size;
   const options = (facet: "phases" | "centers" | "locations", values: (r: Row) => string[]) => {
     const others = filterRows(rows, { ...filters, [facet]: [] }, higher, scores);
     return [...new Set([...others.flatMap(values), ...filters[facet]])].sort();
@@ -863,6 +866,7 @@ function AiFilterPanel({
                 locations: [],
                 excludeHigherThreshold: true,
                 hideLikelyExcluded: false,
+                showClosed: false,
               });
             }}
           >
@@ -889,6 +893,19 @@ function AiFilterPanel({
           />
           Hide trials with likely common exclusions
         </Label>
+        {closed ? (
+          <Label className="items-start gap-1.5 text-xs font-normal text-gray-200">
+            <Checkbox
+              className="mt-px size-3.5"
+              checked={filters.showClosed}
+              onCheckedChange={(v) => {
+                set({ showClosed: v });
+              }}
+            />
+            <span className="flex-1">Show closed trials</span>
+            <span className="text-white/40 tabular-nums">{closed}</span>
+          </Label>
+        ) : null}
         {facets.map(({ facet, label, values }) => {
           const opts = options(facet, values);
           if (!opts.length) return null;

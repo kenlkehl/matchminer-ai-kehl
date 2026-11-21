@@ -10,6 +10,8 @@ export interface OverviewSearch {
   types?: string[];
   /** Drug mechanism classes (GoodOption catalog). */
   mechanisms?: string[];
+  /** Show trials that are not open to enrollment (hidden by default). */
+  closed?: boolean;
   /** Columns whose visibility differs from the default. */
   cols?: Partial<Record<ColumnKey, boolean>>;
   /** The trial whose details dialog is open. */
@@ -38,6 +40,7 @@ export function validateOverviewSearch(search: Record<string, unknown>): Overvie
     sources: strings(search.sources) as Version[] | undefined,
     types: strings(search.types),
     mechanisms: strings(search.mechanisms),
+    closed: search.closed === true || search.closed === "true" ? true : undefined,
     cols,
     details: text(search.details),
     cohort: text(search.cohort),
@@ -70,6 +73,8 @@ export interface Filters {
   sources: Version[];
   types: string[];
   mechanisms: string[];
+  /** Whether trials not open to enrollment show. */
+  closed: boolean;
 }
 
 export function filtersOf(search: OverviewSearch): Filters {
@@ -80,6 +85,7 @@ export function filtersOf(search: OverviewSearch): Filters {
     sources: search.sources ?? [],
     types: search.types ?? [],
     mechanisms: search.mechanisms ?? [],
+    closed: Boolean(search.closed),
   };
 }
 
@@ -149,6 +155,7 @@ export function keeps(
 ): boolean {
   const any = (chosen: string[], value: string) => chosen.length === 0 || chosen.includes(value);
   return (
+    (f.closed || row.trial.is_open) &&
     (except === "groups" || any(f.groups, row.group ?? "")) &&
     (except === "phases" || any(f.phases, row.trial.phase)) &&
     (except === "sources" || any(f.sources, row.version)) &&
