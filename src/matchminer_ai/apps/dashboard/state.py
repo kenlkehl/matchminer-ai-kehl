@@ -153,7 +153,13 @@ class DashState:
 
         if self.round is None:
             return
-        preset = self.guidelines.settings.inference_config().embedding.get("model_path")
+        from matchminer_ai.embedding.inference import _model_path
+
+        # The encoder's own resolution: embedding.model_path, else the site config's paths.trialspace_model.
+        try:
+            preset = _model_path(self.guidelines.settings.inference_config().embedding)
+        except ValueError:
+            preset = None
         model = self.round.model
         same = (model.kind == "local" and preset and Path(model.model).resolve() == Path(str(preset)).resolve())
         if not same:
