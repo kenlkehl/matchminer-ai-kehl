@@ -23,7 +23,8 @@ import threading
 import time
 
 COMPONENTS = ('extraction', 'summary', 'decision')
-# The judges a run can have (judge_worker --judge); a run compares the two whose answers it holds (run_judges).
+# The judges a run can hold answers from; a run compares the two whose answers it holds (run_judges). judge_worker
+# sends to databricks and azure only: vertex is the Claude route of runs judged before 2026-11-21, kept to read them.
 KNOWN_JUDGES = ('vertex', 'databricks', 'azure')
 JUDGE_NAMES = dict(vertex='Claude Opus 5.5 (Vertex)', databricks='Claude Opus 5.5 (Databricks)',
                    azure='GPT-6.1 Sol (Azure)')
@@ -55,7 +56,7 @@ def log(message):
 
 # --- files ---------------------------------------------------------------------------------------------------------
 
-DEFAULT_PAIR = ('vertex', 'azure')
+DEFAULT_PAIR = ('databricks', 'azure')
 
 
 def run_judges(run_dir, chosen=None):

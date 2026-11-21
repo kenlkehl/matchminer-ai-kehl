@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Send a run directory's requests to one judge and journal the answers (resumable; safe to rerun).
 
-  vertex      Claude Opus 5.5 on Vertex AI (``anthropic[vertex]``, Google ADC; --project, ANTHROPIC_VERTEX_PROJECT_ID
-              or the site config's vertex.project)
   databricks  Claude Opus 5.5 through a Databricks AI Gateway (``anthropic`` and ``databricks-sdk``; --model, else the
               site config's databricks.endpoints.opus; the site config's databricks.host and databricks.profile)
   azure       GPT-6.1 Sol on Azure (Responses API over HTTPS; an Entra token from ``az`` or AZURE_OPENAI_API_KEY)
@@ -14,11 +12,11 @@ breaks the schema or the component's coverage rules is retried once with the err
 truncation and twice-invalid answers are final and go to the adjudication queue as single-judge units. A judge
 never falls back to another model. Answers go to ``responses/<judge>/<component>.jsonl``, one row per attempt.
 
-Needs only the standard library, plus ``anthropic[vertex]`` for the vertex judge, so it runs on any machine that
+Needs only the standard library, plus ``anthropic`` and ``databricks-sdk`` for the databricks judge, so it runs on any machine that
 can read and write the run directory (mode 600/700: run it as the owner).
 
-  python judge_worker.py --run-dir RUN --judge vertex --dry-run            # price the remaining requests
-  python judge_worker.py --run-dir RUN --judge vertex --limit 1            # one live request per component
+  python judge_worker.py --run-dir RUN --judge databricks --dry-run        # price the remaining requests
+  python judge_worker.py --run-dir RUN --judge databricks --limit 1        # one live request per component
   python judge_worker.py --run-dir RUN --judge azure \\
       --endpoint https://<resource>.openai.azure.com/openai/v1 --deployment <gpt-6.1-sol deployment>
 """
@@ -38,8 +36,9 @@ from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, PRICES, Jou
                      private, read_jsonl, usage_cost)
 
 FINAL = ('ok', 'refusal', 'max_tokens', 'invalid')
+# Claude goes through the Databricks gateway only (user, 2026-11-21: all Claude inference through Databricks, for
+# cost). Runs judged earlier on Vertex keep their answers under responses/vertex, which compare and metrics still read.
 DEFAULTS = dict(
-    vertex=dict(model='claude-opus-5-5', concurrency=8, min_interval=0.0, **PRICES['vertex']),
     databricks=dict(model=None, concurrency=16, min_interval=0.0, **PRICES['databricks']),  # the gateway endpoint name
     azure=dict(model=None, concurrency=3, min_interval=2.0, **PRICES['azure']),  # Azure deployments are named by the user
 )
@@ -55,20 +54,16 @@ class Refused(Exception):
 
 # --- providers -----------------------------------------------------------------------------------------------------
 
-class VertexJudge:
-    name = 'vertex'
-
-    def __init__(self, args):
-        from anthropic import AnthropicVertex
-        self.model, self.effort = args.model, args.effort
-        self.client = AnthropicVertex(project_id=args.project, region=args.region, max_retries=8, timeout=3600)
+class ClaudeJudge:
+    """Claude's requests and answers (Messages API); a subclass makes ``self.client``, ``self.model`` and
+    ``self.effort``."""
 
     def body(self, request, user):
         return dict(model=self.model, max_tokens=request['max_output_tokens'],
                     system=[dict(type='text', text=request['system'], cache_control=dict(type='ephemeral'))],
                     messages=[dict(role='user', content=user)],
-                    # no output_config.format: the organization policy forbids structured outputs for partner
-                    # models; the schema is in the system text and every answer is validated
+                    # no output_config.format, as the first runs' Vertex judge could not use it (an organization
+                    # policy): the schema is in the system text and every answer is validated
                     output_config=dict(effort=self.effort))
 
     def call(self, request, user):
@@ -86,9 +81,9 @@ class VertexJudge:
         return status, text, meta
 
 
-class DatabricksJudge(VertexJudge):
-    """Claude through a Databricks AI Gateway's Messages route: the Vertex judge's requests, signed with a
-    Databricks token (no refusal fallback: a judge never falls back to another model)."""
+class DatabricksJudge(ClaudeJudge):
+    """Claude through a Databricks AI Gateway's Messages route, signed with a Databricks token (no refusal fallback:
+    a judge never falls back to another model)."""
     name = 'databricks'
 
     def __init__(self, args):
@@ -264,7 +259,7 @@ def judge_one(judge, request, module, journal, args, spend):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--run-dir', required=True, type=Path)
-    p.add_argument('--judge', required=True, choices=('vertex', 'databricks', 'azure'))
+    p.add_argument('--judge', required=True, choices=('databricks', 'azure'))
     p.add_argument('--components', nargs='+', default=list(COMPONENTS), choices=COMPONENTS)
     p.add_argument('--limit', type=int, help='at most this many new requests per component (a live test)')
     p.add_argument('--concurrency', type=int)
@@ -275,10 +270,8 @@ def main(argv=None):
     p.add_argument('--effort', default='high')
     p.add_argument('--retry-failed', action='store_true', help='also resend refused, truncated and invalid requests')
     p.add_argument('--dry-run', action='store_true', help='price the remaining requests; send nothing')
-    p.add_argument('--model', help='vertex model (default claude-opus-5-5), or the databricks gateway endpoint name')
-    p.add_argument('--project', default=os.environ.get('ANTHROPIC_VERTEX_PROJECT_ID'),
-                   help="Vertex project (default: ANTHROPIC_VERTEX_PROJECT_ID, else the site config's vertex.project)")
-    p.add_argument('--region', default=os.environ.get('CLOUD_ML_REGION', 'global'))
+    p.add_argument('--model', help="the databricks gateway endpoint name (default: the site config's "
+                                   'databricks.endpoints.opus)')
     p.add_argument('--endpoint', default=os.environ.get('AZURE_OPENAI_ENDPOINT'))
     p.add_argument('--deployment', default=os.environ.get('AZURE_OPENAI_DEPLOYMENT'))
     p.add_argument('--az', default='az', help='Azure CLI executable for Entra tokens')
@@ -288,9 +281,6 @@ def main(argv=None):
         if getattr(args, key) is None:
             setattr(args, key, defaults[key])
     args.model = args.model or defaults['model']
-    if args.judge == 'vertex' and not args.project:
-        from matchminer_ai.site import load_site_config  # needs PyYAML only when a site config is used
-        args.project = load_site_config().require('vertex.project')
     private()
 
     work, spent = [], 0.0
@@ -319,7 +309,7 @@ def main(argv=None):
         return 0
     if not work:
         return 0
-    judge = dict(vertex=VertexJudge, databricks=DatabricksJudge, azure=AzureJudge)[args.judge](args)
+    judge = dict(databricks=DatabricksJudge, azure=AzureJudge)[args.judge](args)
     modules = {c: component_module(c) for c in args.components}
     journals = {c: Journal(args.run_dir / 'responses' / args.judge / f'{c}.jsonl') for c in args.components}
     budget, gate = dict(spent=spent), threading.Lock()

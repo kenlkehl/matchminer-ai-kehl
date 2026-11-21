@@ -1,5 +1,5 @@
 """Prompt, parsing, LLM-client and scoring contracts of the dual-judge evaluation (matchminer_ai.evaluation.dual_judge), on
-fabricated data: strict schemas written into the shared request, the Vertex and Azure request bodies, answer
+fabricated data: strict schemas written into the shared request, the Claude and Azure request bodies, answer
 validation, statement splitting and quote grounding, and units, agreement, adjudication and gold."""
 import json
 from pathlib import Path
@@ -30,13 +30,13 @@ def test_request_writes_the_schema_into_the_shared_system_text():
     assert json.loads(a['system'].split('fields):\n', 1)[1]) == a['schema']
 
 
-def test_vertex_body_has_effort_and_no_sampling_or_structured_output_feature():
-    judge = object.__new__(judge_worker.VertexJudge)
+def test_claude_body_has_effort_and_no_sampling_or_structured_output_feature():
+    judge = object.__new__(judge_worker.DatabricksJudge)
     judge.model, judge.effort = 'claude-opus-5-5', 'high'
     request = judging.make_request('summary', 'S01', 'SYS', 'USER', rubric_summary.SCHEMA, max_output_tokens=64000)
     body = judge.body(request, request['user'])
     assert body['model'] == 'claude-opus-5-5' and body['max_tokens'] == 64000
-    assert body['output_config'] == {'effort': 'high'}  # the org policy forbids output_config.format on Vertex
+    assert body['output_config'] == {'effort': 'high'}  # the same requests as the first runs' Vertex judge
     assert not {'temperature', 'top_p', 'top_k', 'thinking'} & set(body)
     assert body['system'][0]['text'] == request['system'] and body['system'][0]['cache_control']['type'] == 'ephemeral'
     assert body['messages'] == [{'role': 'user', 'content': 'USER'}]

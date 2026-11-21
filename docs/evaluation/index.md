@@ -54,20 +54,22 @@ real-patient evaluation is the meaningful one.
 
 ```bash
 python -m matchminer_ai.evaluation.dual_judge.build_items --run-dir RUN ...    # where the data is
-python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge vertex       # or --judge databricks
-python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge azure
-python -m matchminer_ai.evaluation.dual_judge.compare --run-dir RUN          # [--judges vertex,databricks]
+python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge databricks
+python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge azure \
+    --endpoint https://<resource>.openai.azure.com/openai/v1 --deployment gpt-6.1-sol
+python -m matchminer_ai.evaluation.dual_judge.compare --run-dir RUN          # [--judges databricks,azure]
 python -m matchminer_ai.evaluation.dual_judge.metrics --run-dir RUN
 ```
 
 `compare` compares the two judges whose answers the run holds (while only one has answered, the other is the first
-of Vertex and Azure not taken, and its units wait); name them with `--judges` when a run has more. The judge,
-comparison, adjudication and metrics modules need only the package and the standard library (plus
-`anthropic[vertex]` for the Vertex judge), so they can run on another machine that can read and write the run
-directory. The Vertex project is `--project`, `ANTHROPIC_VERTEX_PROJECT_ID` or the site config's `vertex.project`.
-The `databricks` judge sends the same requests to Claude Opus through a Databricks AI Gateway: the site config's
-`databricks.host` and `databricks.profile`, and `--model` or `databricks.endpoints.opus` for the endpoint name.
-Azure uses `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT`. `judge_worker --dry-run` prices the remaining
+of Databricks and Azure not taken, and its units wait); name them with `--judges` when a run has more. The judge,
+comparison, adjudication and metrics modules need only the package and the standard library (plus `anthropic` and
+`databricks-sdk` for the Databricks judge), so they can run on another machine that can read and write the run
+directory. Claude judges only through the Databricks gateway (Claude Opus 5.5): the site config's `databricks.host`
+and `databricks.profile`, and `--model` or `databricks.endpoints.opus` for the endpoint name. Runs judged before
+2026-11-21 through Vertex keep those answers (`responses/vertex`), which compare and metrics still read. Azure uses
+`--endpoint` and `--deployment` (or `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT`) with an Entra token from
+the Azure CLI (`--az`), refreshed every 30 minutes and on a 401 or 403. `judge_worker --dry-run` prices the remaining
 requests without sending any, and `--max-usd` caps a judge's spending. The judge prompts are `prompts/judge.*.txt`.
 
 A synthetic judge run builds its items from a synthetic fidelity run: `build_items --synthetic-notes

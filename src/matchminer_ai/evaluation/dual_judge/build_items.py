@@ -133,7 +133,7 @@ def main(argv=None):
         kept = sum(r['request_id'] in old_ids for r in requests)
         log(f'{name}: {len(items)} items, {len(requests)} requests ({kept} unchanged from the previous build), '
             f'{chars / 1e6:.2f}M characters (largest {manifest["components"][name]["max_request_chars"] / 1e6:.2f}M)')
-    for judge in ('vertex', 'azure'):
+    for judge in ('databricks', 'azure'):
         judge_worker.main(['--run-dir', str(args.run_dir), '--judge', judge, '--dry-run',
                            '--components', *[c for c in COMPONENTS if (args.run_dir / 'requests' / f'{c}.jsonl').exists()]])
     return 0
