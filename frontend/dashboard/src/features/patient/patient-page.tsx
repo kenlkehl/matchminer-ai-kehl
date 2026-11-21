@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { restoreSession } from "./actions";
 import { GuidelinesView } from "./guidelines/guidelines-view";
 import { PatientInput } from "./patient-input";
+import { RecordsView } from "./records/records-view";
 import { type PatientView, usePatientValue } from "./store";
 import { TrialsView } from "./trials/trials-view";
 
@@ -16,8 +17,9 @@ const route = getRouteApi("/_app/patient/");
 
 /**
  * The Patient tab: one patient (chosen from the corpus, entered as a summary, or made from clinical
- * notes) on top, and two views that use it: Trials (matching trial cohorts) and Guidelines (guideline
- * spaces and the documented workup). The sub-tab is the `view` search param.
+ * notes) on top, and three views that use it: Trials (matching trial cohorts), Guidelines (guideline
+ * spaces and the documented workup) and Structured data (the records extracted from the notes). The
+ * sub-tab is the `view` search param.
  */
 export function PatientPage() {
   const view = route.useSearch({ select: (s) => s.view ?? "trials" });
@@ -26,6 +28,7 @@ export function PatientPage() {
     (s) => s.job?.kind === "retrieve" || s.job?.kind === "workup",
   );
   const spaces = usePatientValue((s) => s.retrieval?.spaces.length ?? null);
+  const recordsJob = usePatientValue((s) => s.recordsJob);
   useEffect(() => {
     void restoreSession();
   }, []);
@@ -35,7 +38,8 @@ export function PatientPage() {
         <p>
           Choose a patient, enter a summary, or add clinical notes. Trials matches the patient's
           cancer summary against the open trials' cohorts; Guidelines finds the guideline
-          populations that fit the patient and checks the documented workup in the notes.
+          populations that fit the patient and checks the documented workup in the notes; Structured
+          data shows the clinical facts extracted from the notes.
         </p>
       </PageHeader>
       <PatientInput />
@@ -45,7 +49,7 @@ export function PatientPage() {
           void navigate({
             search: (prev) => ({
               ...prev,
-              view: value === "guidelines" ? "guidelines" : undefined,
+              view: value === "trials" ? undefined : value,
               drugs: undefined,
               good: undefined,
               evidence: undefined,
@@ -65,6 +69,10 @@ export function PatientPage() {
               <Badge variant="secondary">{spaces}</Badge>
             ) : null}
           </TabsTrigger>
+          <TabsTrigger value="records" className="flex-none px-3">
+            Structured data
+            {recordsJob ? <Spinner className="size-3.5" /> : null}
+          </TabsTrigger>
         </TabsList>
         {/* Kept mounted so its scores and dialogs survive a look at Guidelines. */}
         <TabsContent value="trials" keepMounted className="pt-2">
@@ -72,6 +80,9 @@ export function PatientPage() {
         </TabsContent>
         <TabsContent value="guidelines" className="pt-2">
           <GuidelinesView />
+        </TabsContent>
+        <TabsContent value="records" className="pt-2">
+          <RecordsView />
         </TabsContent>
       </Tabs>
     </div>

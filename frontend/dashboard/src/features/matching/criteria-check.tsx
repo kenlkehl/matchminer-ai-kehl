@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BotIcon, ListChecksIcon } from "lucide-react";
+import { BotIcon, DatabaseIcon, ListChecksIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { CriteriaList, disagree } from "@/components/criteria-list";
@@ -16,23 +16,35 @@ import {
   waitForJob,
 } from "@/lib/api";
 import { llmOptions } from "@/lib/queries";
+import {
+  type CriteriaRecordsResult,
+  describeSource,
+  ENGINE_LABELS,
+  type Engine,
+  type RecordsBody,
+} from "@/lib/records";
 
 /**
  * The decision model's per-criterion check of one patient against every line of one cohort: yes means the
  * patient does not clearly fail the line (an inclusion line clearly not met, or an exclusion line clearly met).
  * "Check with LLM" asks the configured LLM endpoint the same about each line (the per-criterion teacher
- * prompt), shown beside the decision model's answers with their disagreements.
+ * prompt), shown beside the decision model's answers with their disagreements. "Check with structured data"
+ * runs each line's query (compiled once per line) on the patient's extraction records: the stored records
+ * of a corpus patient, else (`records`) the Patient tab's extraction of its notes.
  */
 export function CriteriaCheck({
   patientId,
   cohortId,
   items,
   autoStart = false,
+  records,
 }: {
   patientId: string;
   cohortId: string;
   items: CriteriaItem[];
   autoStart?: boolean;
+  /** Which records to screen (default: the corpus patient's stored records). */
+  records?: () => RecordsBody;
 }) {
   const [progress, setProgress] = useState("");
   const check = useMutation({
@@ -77,6 +89,22 @@ export function CriteriaCheck({
       ),
   });
   const answers = llm.data;
+  const [engine, setEngine] = useState<Engine>("queries");
+  const [recordsProgress, setRecordsProgress] = useState("");
+  const structured = useMutation({
+    mutationFn: async (which: Engine) => {
+      const body = {
+        ...(records ? records() : { patient_id: patientId }),
+        cohort_id: cohortId,
+        engine: which,
+      };
+      const { job } = await api.post<{ job: Job }>("/api/criteria-records", body);
+      return waitForJob<CriteriaRecordsResult>(job.id, (j) => {
+        setRecordsProgress(j.message);
+      });
+    },
+  });
+  const screened = structured.data;
   const llmButton = (
     <Button
       size="sm"
@@ -143,7 +171,49 @@ export function CriteriaCheck({
           <span className="w-full text-xs text-gray-500">{llmStatus.notice}</span>
         ) : null}
       </div>
-      <CriteriaList items={items} checks={result?.lines ?? null} llm={answers?.lines ?? null} />
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          aria-label="Structured data engine"
+          className="h-8 rounded-md border border-gray-300 bg-white px-2 text-sm"
+          value={engine}
+          disabled={structured.isPending}
+          onChange={(e) => {
+            setEngine(e.target.value as Engine);
+          }}
+        >
+          {(Object.keys(ENGINE_LABELS) as Engine[]).map((key) => (
+            <option key={key} value={key}>
+              {ENGINE_LABELS[key]}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={structured.isPending}
+          onClick={() => {
+            structured.mutate(engine);
+          }}
+        >
+          {structured.isPending ? <Spinner /> : <DatabaseIcon />}
+          {screened ? "Check structured data again" : "Check with structured data"}
+        </Button>
+        {structured.isPending ? (
+          <span className="text-sm text-gray-500">
+            {recordsProgress || "Compiling and running the criteria queries…"}
+          </span>
+        ) : null}
+        {structured.isError ? (
+          <span className="text-sm text-red-700">{structured.error.message}</span>
+        ) : null}
+        {screened ? <RecordsSummary result={screened} decisions={result} /> : null}
+      </div>
+      <CriteriaList
+        items={items}
+        checks={result?.lines ?? null}
+        llm={answers?.lines ?? null}
+        records={screened?.lines ?? null}
+      />
     </div>
   );
 }
@@ -188,6 +258,52 @@ function LLMSummary({
         {" · "}
         {answers.connection.label} · {answers.seconds} s{answers.cached ? " · cached" : ""}
         {c.retries ? ` · ${String(c.retries)} retries` : ""}
+      </span>
+    </span>
+  );
+}
+
+/** The structured-record screen in one line: failures, what could be checked, agreement, source. */
+function RecordsSummary({
+  result,
+  decisions,
+}: {
+  result: CriteriaRecordsResult;
+  decisions: CriteriaResult | undefined;
+}) {
+  const c = result.counts;
+  const notCheckable = c.not_checkable + c.query_unavailable;
+  const byNumber = new Map((decisions?.lines ?? []).map((l) => [l.number, l]));
+  const compared = result.lines.filter(
+    (l) =>
+      byNumber.has(l.number) &&
+      !["not_checkable", "no_records", "query_unavailable"].includes(l.status),
+  );
+  const differ = compared.filter((l) => byNumber.get(l.number)?.fails !== l.clearly_fails);
+  return (
+    <span className="text-sm text-gray-700">
+      <strong>Records:</strong>{" "}
+      {c.clearly_failed_lines.length ? (
+        <strong className="text-red-700">
+          {c.clearly_failed_lines.length} of {c.checked} checkable{" "}
+          {c.checked === 1 ? "line" : "lines"} clearly fail
+        </strong>
+      ) : (
+        <>no line clearly fails ({c.checked} checkable)</>
+      )}
+      {notCheckable ? ` · ${String(notCheckable)} not checkable from records` : ""}
+      {decisions && compared.length ? (
+        <>
+          {" · "}agrees with the decision model on {compared.length - differ.length} of{" "}
+          {compared.length}
+        </>
+      ) : null}
+      <span className="text-xs text-gray-500">
+        {" · "}
+        {ENGINE_LABELS[result.engine]} · {describeSource(result.source)}
+        {result.compile.requests
+          ? ` · ${String(result.compile.requests)} compile requests`
+          : " · cached queries"}
       </span>
     </span>
   );

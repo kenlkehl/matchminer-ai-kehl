@@ -69,7 +69,10 @@ def router(state: DashState) -> APIRouter:
                 documents, patients, store = stored
                 return documents, patients, rec.source_of(store), corpus_numbers(body.patient_id), body.patient_id
         frame = rec.workspace_frame(body.text, notes_of(body))
-        saved = rec.session_records(g.session_extractions, owner, frame, body.levels, config)
+        # The levels asked for first, then the other (a Guidelines review may have extracted documents only).
+        saved = None
+        for levels in dict.fromkeys((body.levels, "document_and_patient", "document")):
+            saved = saved or rec.session_records(g.session_extractions, owner, frame, levels, config)
         if saved is not None:
             documents, patients = rec.extraction_frames(saved)
             source = {"kind": "session", **saved["metadata"]}

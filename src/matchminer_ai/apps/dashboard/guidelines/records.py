@@ -51,6 +51,7 @@ class StoreHandle:
     def __init__(self, settings):
         self.settings, self.lock = settings, threading.Lock()
         self.store, self.stamp, self.error = None, None, None
+        self._ids: tuple | None = None
 
     def get(self):
         path = Path(self.settings.extraction_records) / "manifest.json"
@@ -68,6 +69,28 @@ class StoreHandle:
                 self.store, self.error = None, str(exc)
             self.stamp = stamp
             return self.store
+
+    def patient_ids(self) -> frozenset[str]:
+        """The patients the store holds (read once per manifest)."""
+        import pyarrow.dataset as ds
+
+        from .extraction_workup import DOCUMENT_FILE, PATIENT_FILE
+
+        store = self.get()
+        if store is None:
+            return frozenset()
+        with self.lock:
+            if self._ids is not None and self._ids[0] == self.stamp:
+                return self._ids[1]
+        ids: set[str] = set()
+        for name in (DOCUMENT_FILE, PATIENT_FILE):
+            file = store.path / name
+            if file.is_file():
+                column = ds.dataset(file, format="parquet").to_table(columns=["patient_id"]).column(0)
+                ids.update(str(v) for v in column.unique().to_pylist())
+        with self.lock:
+            self._ids = (self.stamp, frozenset(ids))
+        return self._ids[1]
 
     def describe(self) -> dict:
         store = self.get()
@@ -98,9 +121,10 @@ def criteria_sql_cache(settings):
 
 
 def corpus_frame(pid: str, notes: list[dict]) -> pd.DataFrame:
-    """A corpus patient's notes ({date, type, text}, the order the app shows) as an extraction note table."""
+    """A corpus patient's notes ({date, type, text}, the order the app shows) as an extraction note table, blank
+    notes left out (as the Patient tab and the store builds leave them out)."""
     return pd.DataFrame([{"patient_id": pid, "note_text": n.get("text") or "", "note_date": n.get("date"),
-                          "note_type": n.get("type")} for n in notes],
+                          "note_type": n.get("type")} for n in notes if (n.get("text") or "").strip()],
                         columns=["patient_id", "note_text", "note_date", "note_type"])
 
 

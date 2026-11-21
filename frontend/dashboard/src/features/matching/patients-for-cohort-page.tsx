@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
-import { ArrowLeftIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
+import { ArrowLeftIcon, DatabaseIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
 import { Fragment, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
@@ -16,12 +16,15 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   api,
   type CohortDetail,
+  type Job,
   type PatientHit,
   type PatientsForCohortResult,
   VERSION_LABELS,
+  waitForJob,
 } from "@/lib/api";
 import { patientLine } from "@/lib/format";
 import { metaOptions } from "@/lib/queries";
+import { ENGINE_LABELS, type Engine, type ScreenResult, type StoreStatus } from "@/lib/records";
 
 import { CriteriaCheck } from "./criteria-check";
 import { PatientDialog } from "./patient-dialog";
@@ -42,13 +45,21 @@ export function PatientsForCohortPage() {
   const meta = useQuery(metaOptions()).data;
   const k = search.k ?? meta?.default_k ?? 50;
   const result = useQuery({
-    queryKey: ["patients-for-cohort", cohortId, search.cancer_type ?? "", search.sex ?? "", k],
+    queryKey: [
+      "patients-for-cohort",
+      cohortId,
+      search.cancer_type ?? "",
+      search.sex ?? "",
+      k,
+      Boolean(search.records),
+    ],
     queryFn: () =>
       api.post<PatientsForCohortResult>("/api/match/patients-for-cohort", {
         cohort_id: cohortId,
         k,
         cancer_type: search.cancer_type ?? "",
         sex: search.sex ?? "",
+        with_records: Boolean(search.records),
       }),
     staleTime: Infinity,
     retry: (count, error) => count < 30 && (error as { status?: number }).status === 409,
@@ -66,12 +77,34 @@ export function PatientsForCohortPage() {
     meta?.auto_score_n ?? 10,
   );
   const [hideExcluded, setHideExcluded] = useState(false);
+  const store = useQuery({
+    queryKey: ["records-status"],
+    queryFn: () => api.get<{ store: StoreStatus }>("/api/records/status"),
+    staleTime: 60_000,
+  }).data?.store;
+  const [engine, setEngine] = useState<Engine>("queries");
+  const [screenProgress, setScreenProgress] = useState("");
+  const [hideFailing, setHideFailing] = useState(false);
+  const screen = useMutation({
+    mutationFn: async (which: Engine) => {
+      const { job } = await api.post<{ job: Job }>(`/api/cohorts/${cohortId}/screen-records`, {
+        patient_ids: (rows ?? []).map((r) => r.id),
+        engine: which,
+      });
+      return waitForJob<ScreenResult>(job.id, (j) => {
+        setScreenProgress(j.message);
+      });
+    },
+  });
+  const screened = screen.data?.cohort_id === data?.query.cohort_id ? screen.data : undefined;
   const [open, setOpen] = useState<{ id: string; tab: "pair" | "summary" } | null>(null);
   const router = useRouter();
 
   const shown = rows
     ? byScore(rows, scoring.scores).filter(
-        (r) => !(hideExcluded && likelyExcluded(scoring.scores[r.id])),
+        (r) =>
+          !(hideExcluded && likelyExcluded(scoring.scores[r.id])) &&
+          !(hideFailing && screened?.patients[r.id]?.counts.clearly_failed_lines.length),
       )
     : [];
   const unscored = rows?.filter((r) => !scoring.scores[r.id]?.match).map((r) => r.id) ?? [];
@@ -143,6 +176,30 @@ export function PatientsForCohortPage() {
             />
             Hide patients likely excluded
           </Label>
+          {store?.available ? (
+            <Label className="gap-1.5 text-xs font-normal text-gray-200">
+              <Checkbox
+                className="size-3.5"
+                checked={Boolean(search.records)}
+                onCheckedChange={(checked) => {
+                  void navigate({
+                    search: (prev) => ({ ...prev, records: checked ? true : undefined }),
+                  });
+                }}
+              />
+              Only patients with structured records ({store.patients?.toLocaleString()})
+            </Label>
+          ) : null}
+          {screened ? (
+            <Label className="gap-1.5 text-xs font-normal text-gray-200">
+              <Checkbox
+                className="size-3.5"
+                checked={hideFailing}
+                onCheckedChange={setHideFailing}
+              />
+              Hide patients failing a line by records
+            </Label>
+          ) : null}
         </div>
       </SidebarSlot>
       <PageHeader title="Find Patients for a Cohort">
@@ -203,11 +260,51 @@ export function PatientsForCohortPage() {
                   </Badge>
                   <ScoringStatus scoring={scoring} />
                 </div>
+                {store?.available ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label="Structured data engine"
+                      className="h-8 rounded-md border border-gray-300 bg-white px-2 text-sm"
+                      value={engine}
+                      disabled={screen.isPending}
+                      onChange={(e) => {
+                        setEngine(e.target.value as Engine);
+                      }}
+                    >
+                      {(Object.keys(ENGINE_LABELS) as Engine[]).map((key) => (
+                        <option key={key} value={key}>
+                          {ENGINE_LABELS[key]}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={screen.isPending || !rows?.length}
+                      onClick={() => {
+                        screen.mutate(engine);
+                      }}
+                    >
+                      {screen.isPending ? <Spinner /> : <DatabaseIcon />}
+                      Screen with structured data
+                    </Button>
+                    {screen.isPending ? (
+                      <span className="text-sm text-gray-500">
+                        {screenProgress || "Compiling the criteria queries…"}
+                      </span>
+                    ) : null}
+                    {screen.isError ? (
+                      <span className="text-sm text-red-700">{screen.error.message}</span>
+                    ) : null}
+                    {screened ? <ScreenSummary result={screened} /> : null}
+                  </div>
+                ) : null}
                 <ol className="flex flex-col gap-3">
                   {shown.map((row) => (
                     <PatientCard
                       key={row.id}
                       row={row}
+                      screened={screened}
                       scores={scoring.scores[row.id]}
                       scoring={scoring.running.includes(row.id)}
                       onOpen={(tab) => {
@@ -232,7 +329,7 @@ export function PatientsForCohortPage() {
             ) : null}
           </div>
         </ResizablePanel>
-        {cohort ? <CohortPanel cohort={cohort} /> : null}
+        {cohort ? <CohortPanel cohort={cohort} screened={screened} /> : null}
       </ResizablePanelGroup>
       {open && cohort ? (
         <PatientDialog
@@ -275,11 +372,13 @@ export function ScoringStatus({ scoring }: { scoring: ReturnType<typeof useScori
 
 function PatientCard({
   row,
+  screened,
   scores,
   scoring,
   onOpen,
 }: {
   row: PatientHit & { id: string };
+  screened: ScreenResult | undefined;
   scores: PatientHit["scores"] | undefined;
   scoring: boolean;
   onOpen: (tab: "pair" | "summary") => void;
@@ -293,6 +392,7 @@ function PatientCard({
             {patientLine(p) || p.id}
           </h3>
           <MatchBadge scores={scores} scoring={scoring} />
+          {screened ? <RecordsPill result={screened} patientId={row.id} /> : null}
         </div>
         <p className="flex flex-wrap gap-x-4 text-xs text-gray-500">
           <span className="font-mono">{p.id}</span>
@@ -327,7 +427,13 @@ function PatientCard({
 }
 
 /** The right panel: the cohort searched for, its criteria, collapsible as mm-dash's patient panel. */
-function CohortPanel({ cohort }: { cohort: CohortDetail }) {
+function CohortPanel({
+  cohort,
+  screened,
+}: {
+  cohort: CohortDetail;
+  screened: ScreenResult | undefined;
+}) {
   const panel = useRef<PanelImperativeHandle>(null);
   const [hidden, setHidden] = useState(false);
   return (
@@ -377,6 +483,7 @@ function CohortPanel({ cohort }: { cohort: CohortDetail }) {
               </p>
             </div>
             <CriteriaList items={cohort.items} />
+            {screened ? <LineFailures result={screened} /> : null}
           </aside>
         )}
       </ResizablePanel>
@@ -394,5 +501,77 @@ function CohortPanel({ cohort }: { cohort: CohortDetail }) {
         </Button>
       ) : null}
     </Fragment>
+  );
+}
+
+/** The structured-record screen of the candidates in one line. */
+function ScreenSummary({ result }: { result: ScreenResult }) {
+  const patients = Object.values(result.patients);
+  const failing = patients.filter((p) => p.counts.clearly_failed_lines.length).length;
+  return (
+    <span className="text-sm text-gray-700">
+      <strong>Records:</strong> {failing} of {patients.length} candidates with records fail a line
+      {result.without_records.length
+        ? ` · ${String(result.without_records.length)} without records`
+        : ""}
+      <span className="text-xs text-gray-500">
+        {" · "}
+        {ENGINE_LABELS[result.engine]} · {result.store.name}
+        {result.compile.requests
+          ? ` · ${String(result.compile.requests)} compile requests`
+          : " · cached queries"}
+      </span>
+    </span>
+  );
+}
+
+function RecordsPill({ result, patientId }: { result: ScreenResult; patientId: string }) {
+  const found = result.patients[patientId];
+  if (!found) {
+    return (
+      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-500">
+        no records
+      </span>
+    );
+  }
+  const failed = found.failed;
+  return failed.length ? (
+    <span
+      title={failed.map((f) => `${String(f.number)}. ${f.bottom_line}`).join("\n")}
+      className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-800 ring-1 ring-red-200"
+    >
+      Records: {failed.length} {failed.length === 1 ? "line fails" : "lines fail"}
+    </span>
+  ) : (
+    <span className="rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-800 ring-1 ring-green-200">
+      Records: no line fails ({found.counts.checked} checkable)
+    </span>
+  );
+}
+
+/** Lines the candidates' records fail, with how many candidates fail each. */
+function LineFailures({ result }: { result: ScreenResult }) {
+  const lines = result.aggregate.filter((row) => row.clearly_fail > 0);
+  return (
+    <section className="flex flex-col gap-1 border-t border-gray-200 pt-3">
+      <h3 className="text-xs font-semibold tracking-wider text-gray-500 uppercase">
+        Failed by records
+      </h3>
+      {lines.length ? (
+        <ul className="flex flex-col gap-1 text-sm">
+          {lines.map((row) => (
+            <li key={row.number} className="flex gap-2">
+              <span className="w-16 shrink-0 text-right font-medium text-red-700 tabular-nums">
+                {row.clearly_fail} / {row.patient_count}
+              </span>
+              <span className="text-gray-700">{row.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-gray-600">No line is failed by any candidate's records.</p>
+      )}
+      <p className="text-xs text-gray-500">{result.notice}</p>
+    </section>
   );
 }

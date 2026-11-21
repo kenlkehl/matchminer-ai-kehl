@@ -20,6 +20,8 @@ class PatientsForCohort(BaseModel):
     k: int | None = None
     cancer_type: str = ""
     sex: str = ""
+    #: Only patients the mode's extraction record store holds (for criteria screening on their records).
+    with_records: bool = False
 
 
 class TrialsForPatient(BaseModel):
@@ -97,6 +99,13 @@ def router(state: DashState) -> APIRouter:
                                      "pending": True, "job": job.describe(False) if job else None}, status_code=409)
             k = max(1, min(int(request.k or state.settings.default_k), state.settings.max_k))
             mask = state.patient_mask(request.cancer_type, request.sex, "")
+            if request.with_records:
+                held = np.zeros(len(state.corpus.patients), dtype=bool)
+                for pid in state.guidelines.records.patient_ids():
+                    row = state.corpus.patient_index.get(pid)
+                    if row is not None:
+                        held[row] = True
+                mask = held if mask is None else mask & held
             hits = state.patient_vectors.search(vector, "patients", k, mask)
             searched = len(state.corpus.patients) if mask is None else int(mask.sum())
         rows = [{"rank": rank, "patient": state.patient_summary(state.corpus.patients[i]["id"]), "cosine": round(c, 5)}

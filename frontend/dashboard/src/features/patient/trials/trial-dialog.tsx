@@ -16,6 +16,7 @@ import { type CohortHit, type PairScores, VERSION_LABELS } from "@/lib/api";
 import { cohortOptions } from "@/lib/queries";
 
 import { CriteriaCheck } from "../../matching/criteria-check";
+import { getPatient, recordsBody } from "../store";
 import { ExclusionLine, MatchBadge, Requirements } from "../../matching/score-view";
 
 /** A matched trial's cohort: its facts, the decision model's answers and the per-criterion check. */
@@ -59,6 +60,7 @@ export function TrialDialog({
             patientId={patientId}
             cohortId={row.cohort.cohort_id}
             items={cohort.data.items}
+            records={() => ({ ...recordsBody(getPatient()), levels: "document_and_patient" })}
           />
         ) : (
           <Spinner className="size-5" />

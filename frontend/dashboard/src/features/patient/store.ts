@@ -16,7 +16,7 @@ import type {
 
 // ---------------------------------------------------------------- the URL
 
-export type PatientView = "trials" | "guidelines";
+export type PatientView = "trials" | "guidelines" | "records";
 
 /** The Patient tab's URL state: its sub-tab, and the Trials view's open dialogs. */
 export interface PatientSearch {
@@ -33,7 +33,7 @@ export interface PatientSearch {
 export function validatePatientSearch(search: Record<string, unknown>): PatientSearch {
   const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
   return {
-    view: search.view === "guidelines" ? "guidelines" : undefined,
+    view: search.view === "guidelines" || search.view === "records" ? search.view : undefined,
     drugs: text(search.drugs),
     good: text(search.good),
     evidence: text(search.evidence),
@@ -119,6 +119,8 @@ export interface PatientState {
   notesVersion: number;
   /** A corpus patient whose notes are being loaded. */
   corpusNotesPending: string | null;
+  /** Whether the Structured data view's extraction of the notes is running. */
+  recordsJob: boolean;
   /** An upload or a synthetic example is being read. */
   loading: boolean;
   syntheticCase: string;
@@ -159,6 +161,7 @@ export function initialPatientState(): PatientState {
     notesNotice: null,
     notesVersion: 0,
     corpusNotesPending: null,
+    recordsJob: false,
     loading: false,
     syntheticCase: "",
     noteSource: "original",
@@ -213,3 +216,21 @@ export const isBusy = (s: PatientState) => s.job !== null || s.loading;
 
 export const usesExtraction = (method: WorkupMethod) =>
   method === "extractions" || method === "extraction_sql";
+
+/**
+ * Which structured records the Patient tab means: a corpus patient's stored records while its own notes
+ * are loaded, else the session's extraction of the workspace notes.
+ */
+export function recordsBody(s: PatientState) {
+  const corpus =
+    s.notesOrigin?.kind === "corpus"
+      ? s.notesOrigin.patientId
+      : !s.notesText.trim() && s.patientId && !s.patientId.startsWith("entered-")
+        ? s.patientId
+        : null;
+  return {
+    patient_id: corpus,
+    text: s.notesText.trim() ? s.notesText : null,
+    notes: s.notes,
+  };
+}
