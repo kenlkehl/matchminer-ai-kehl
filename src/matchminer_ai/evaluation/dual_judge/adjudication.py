@@ -1,4 +1,4 @@
-"""Adjudication of a dual-judge run: the units the two judges disagree on (and an audit sample of agreed ones).
+"""Adjudication of a dual-judge run: the units the two judges disagree on (and, with compare --audit-fraction, a sample of agreed ones).
 
 The dashboard's Benchmarking tab serves it (``apps.dashboard.benchmarking``); ``Store`` reads the run directory's
 items and ``compare/units.jsonl`` (rerun compare.py to pick up new answers; the store reloads it when it changes) and

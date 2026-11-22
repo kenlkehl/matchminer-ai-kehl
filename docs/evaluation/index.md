@@ -62,7 +62,9 @@ python -m matchminer_ai.evaluation.dual_judge.metrics --run-dir RUN
 ```
 
 `compare` compares the two judges whose answers the run holds (while only one has answered, the other is the first
-of Databricks and Azure not taken, and its units wait); name them with `--judges` when a run has more. The judge,
+of Databricks and Azure not taken, and its units wait); name them with `--judges` when a run has more. It queues
+disputed and single-judge units for adjudication; `--audit-fraction` also queues a seeded sample of agreed units
+(off by default). The judge,
 comparison, adjudication and metrics modules need only the package and the standard library (plus `anthropic` and
 `databricks-sdk` for the Databricks judge), so they can run on another machine that can read and write the run
 directory. Claude judges only through the Databricks gateway (Claude Opus 5.5): the site config's `databricks.host`

@@ -11,8 +11,8 @@ decision question's yes/no). Its status:
   single     only one judge answered; the other refused, was truncated or was invalid twice  -> queued
   awaiting   only one judge answered and the other has not run yet (not queued until it has)
   missing    neither answered
-A seeded ``--audit-fraction`` of agreed units is queued too, to estimate how often the judges agree and are both
-wrong. Agreed "nothing missing" units (omissions per section, missing criteria per cohort) are not audited: they
+With ``--audit-fraction`` (default 0: off; user, 2026-11-21), a seeded fraction of agreed units is queued too, to
+estimate how often the judges agree and are both wrong. Agreed "nothing missing" units (omissions per section, missing criteria per cohort) are not audited: they
 cannot be checked without rereading the whole source.
 """
 import argparse
@@ -40,7 +40,7 @@ def final_answers(run_dir, judge, component):
     return latest
 
 
-def compare(run_dir, audit_fraction=0.10, seed=42, judges=None):
+def compare(run_dir, audit_fraction=0.0, seed=42, judges=None):
     """Every unit with the two judges' values (``judges``: default the two whose answers the run holds)."""
     run_dir = Path(run_dir)
     JUDGES = run_judges(run_dir, judges)
@@ -101,7 +101,8 @@ def compare(run_dir, audit_fraction=0.10, seed=42, judges=None):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--run-dir', required=True, type=Path)
-    p.add_argument('--audit-fraction', type=float, default=0.10)
+    p.add_argument('--audit-fraction', type=float, default=0.0,
+                   help='fraction of agreed units also queued for adjudication (default 0: none)')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--judges', help='the two judges to compare, comma-separated (default: the two with answers)')
     args = p.parse_args(argv)
