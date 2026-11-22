@@ -144,6 +144,26 @@ def test_responses_become_chat_completions():
             "choices"][0]["finish_reason"] == finish
 
 
+def test_thinking_summaries_are_opt_in_and_come_back_as_reasoning():
+    """``thinking.display: summarized`` is passed on, and the summaries come back as ``message.reasoning``."""
+    body = {"model": HAIKU, "max_tokens": 64, "messages": [{"role": "user", "content": "Turn."}]}
+    assert "thinking" not in am.messages_request(body)
+    summarized = {"type": "adaptive", "display": "summarized"}
+    assert am.messages_request({**body, "thinking": summarized})["thinking"] == summarized
+    assert am.remote_body({**body, "thinking": summarized, "temperature": 1})["thinking"] == summarized
+    with pytest.raises(ValueError, match="thinking"):
+        am.messages_request({**body, "thinking": {"type": "enabled", "budget_tokens": 1024}})
+    answer = message("{}")
+    answer.content[0].thinking = "Fabricated summary."
+    assert am.chat_completion(answer, streamed=True)["choices"][0]["message"]["reasoning"] == "Fabricated summary."
+    from matchminer_ai.llm.remote_inference import build_remote_request_config
+
+    params, extra = build_remote_request_config({"provider": "databricks_anthropic", "sampling_profile": "none",
+                                                 "remote": {"request_params": {"max_tokens": 9, "thinking": summarized,
+                                                                               "temperature": 1}}})
+    assert params == {"max_tokens": 9, "thinking": summarized} and extra == {}
+
+
 def test_gateway_urls_and_fields_are_checked_before_any_request():
     assert am.gateway_url_error(GATEWAY) is None
     for url in ("http://adb-1.2.azuredatabricks.net/ai-gateway/anthropic",

@@ -17,6 +17,9 @@ patient summarization, cohort steps and the LLM checks use.
 - **Refusals:** Opus and Sonnet 5.5 requests opt into server-side refusal fallbacks
   (``fallbacks="default"``); the response's ``model`` and ``transport.fallback_used``
   say which model answered.
+- **Thinking summaries (opt in):** a body with ``thinking: {"type": "adaptive", "display": "summarized"}``
+  asks Claude for readable summaries of its thinking (the 5.5 models omit the text by default; thinking is billed
+  the same either way), and the answer's ``message.reasoning`` carries them. Other callers send no such field.
 - **Errors:** only the HTTP status is kept, never provider text.
 - **Request log:** with ``MMAI_GATEWAY_REQUEST_LOG`` set, every remote-path request
   appends one JSON line of metadata (times, HTTP status, stop reason, served model,
@@ -54,6 +57,9 @@ _DROPPED = frozenset({"temperature", "top_p", "top_k", "min_p", "presence_penalt
 _FINISH = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length",
            "model_context_window_exceeded": "length", "refusal": "refusal",
            "pause_turn": "pause_turn", "tool_use": "tool_calls"}
+#: The thinking settings a body may send (adaptive thinking, its summaries returned or omitted).
+THINKING = ({"type": "adaptive", "display": "summarized"}, {"type": "adaptive", "display": "omitted"})
+_OPTIONAL = frozenset({"thinking"})
 
 
 def gateway_url_error(base_url: str) -> str | None:
@@ -75,7 +81,7 @@ def gateway_url_error(base_url: str) -> str | None:
 
 def request_field_error(fields) -> str | None:
     """Why request fields cannot be sent to Claude (None when they can)."""
-    unknown = sorted(set(fields) - _TAKEN - _DROPPED)
+    unknown = sorted(set(fields) - _TAKEN - _OPTIONAL - _DROPPED)
     if unknown:
         return "Claude through Databricks does not take these request fields: " + ", ".join(unknown)
     return None
@@ -111,6 +117,11 @@ def messages_request(body: dict) -> dict:
         # instructions open every turn of an agent run), later ones may vary.
         request["system"] = [{"type": "text", "text": text} for text in system]
         request["system"][0]["cache_control"] = {"type": "ephemeral"}
+    thinking = body.get("thinking")
+    if thinking is not None:
+        if thinking not in THINKING:
+            raise ValueError('thinking must be {"type": "adaptive", "display": "summarized" or "omitted"}.')
+        request["thinking"] = dict(thinking)
     output: dict[str, Any] = {}
     effort = body.get("reasoning_effort")
     if effort is not None:
@@ -135,6 +146,9 @@ def chat_completion(message, *, streamed: bool, abort_reason: str | None = None)
     """A Messages API response in the chat-completions shape (text blocks only)."""
     blocks = list(getattr(message, "content", None) or [])
     text = "".join(block.text for block in blocks if getattr(block, "type", None) == "text")
+    # Summarized thinking (requested with ``thinking.display``); empty when omitted.
+    thinking = "".join(getattr(block, "thinking", "") or "" for block in blocks
+                       if getattr(block, "type", None) == "thinking")
     usage = getattr(message, "usage", None)
     read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
     written = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
@@ -148,7 +162,8 @@ def chat_completion(message, *, streamed: bool, abort_reason: str | None = None)
         "id": getattr(message, "id", None),
         "model": getattr(message, "model", None),
         "choices": [{"index": 0, "finish_reason": finish,
-                     "message": {"role": "assistant", "content": text}}],
+                     "message": {"role": "assistant", "content": text,
+                                 **({"reasoning": thinking} if thinking else {})}}],
         "usage": {
             "prompt_tokens": int(getattr(usage, "input_tokens", 0) or 0) + read + written,
             "completion_tokens": int(getattr(usage, "output_tokens", 0) or 0),
@@ -261,7 +276,7 @@ def remote_body(kwargs: dict) -> dict:
     effort and response format are kept.
     """
     extra = kwargs.get("extra_body") or {}
-    body = {key: value for key, value in kwargs.items() if key in _TAKEN}
+    body = {key: value for key, value in kwargs.items() if key in _TAKEN or key in _OPTIONAL}
     if "max_tokens" not in body and "max_completion_tokens" in kwargs:
         body["max_tokens"] = kwargs["max_completion_tokens"]
     for key in ("reasoning_effort", "response_format"):
@@ -348,11 +363,12 @@ class GatewayChatClient:
                      cache_creation_input_tokens=usage["cache_creation_input_tokens"])
         _log_request(entry)
         choice = result["choices"][0]
+        answer = choice["message"]
         return SimpleNamespace(
             id=result["id"], model=result["model"],
             choices=[SimpleNamespace(index=0, finish_reason=choice["finish_reason"],
-                                     message=SimpleNamespace(role="assistant", content=choice["message"]["content"],
-                                                             reasoning=""))],
+                                     message=SimpleNamespace(role="assistant", content=answer["content"],
+                                                             reasoning=answer.get("reasoning", "")))],
             usage=SimpleNamespace(**usage), transport=result["transport"])
 
     async def close(self) -> None:
