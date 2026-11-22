@@ -36,7 +36,7 @@ TrialSpace model and says so on Data and models if they differ.
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
   the Patient-centric Trials view.
-- **Population guideline concordance:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
+- **Guideline concordance reporting:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default, or the LLM's reasonableness answer), and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
   workup item or a patient, and export the cohort and its results.
@@ -209,7 +209,7 @@ source and scale in their results, and list each LLM answer under the step, open
 | Its trial dialog | the pair's answers and the per-criterion check | the same, from the LLM |
 | The per-criterion check (both dialogs) | `check_eligibility_criteria` | `check_eligibility_criteria_with_llm` (one request per line) |
 | Patient-centric search, Guidelines: ranking TrialSpace's candidate spaces | the match score | the LLM's match score |
-| Population guideline concordance: selecting and ranking a space's candidates | P(reasonable) at least the threshold | the LLM's reasonableness answer is yes |
+| Guideline concordance reporting: selecting and ranking a space's candidates | P(reasonable) at least the threshold | the LLM's reasonableness answer is yes |
 
 **Questions and scales.** The LLM answers the prompts the training teacher labeled with (the package's LLM
 functions; the dashboard writes no prompt of its own), on their own scales, never mixed with the decision model's

@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <NavItem
                       to="/population"
                       icon={UsersIcon}
-                      label="Population guideline concordance"
+                      label="Guideline concordance reporting"
                       active
                     />
                   ) : tab === "patient" ? (

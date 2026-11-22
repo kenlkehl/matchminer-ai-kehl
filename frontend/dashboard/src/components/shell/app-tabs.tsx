@@ -33,7 +33,7 @@ const TABS: {
 }[] = [
   { tab: "trials", to: "/", label: "Trial management" },
   { tab: "patient", to: "/patient", label: "Patient-centric search" },
-  { tab: "population", to: "/population", label: "Population guideline concordance" },
+  { tab: "population", to: "/population", label: "Guideline concordance reporting" },
   { tab: "assistant", to: "/assistant", label: "Assistant" },
   { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
   { tab: "docs", to: "/how-it-works", label: "How this works" },
