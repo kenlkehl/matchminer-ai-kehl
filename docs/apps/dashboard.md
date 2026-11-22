@@ -103,11 +103,12 @@ A user message gets at most 8 tool calls; then the model must answer or ask. Res
 totals, and a repeated call is not run again. Each tool step shows on the page as it runs, as a line that opens to
 the step's purpose; steps are numbered through the conversation.
 
-**Charts.** When asked for a chart, or when a few counts compare naturally, the answer carries up to 3 charts as
-data, never diagram code: a pie or donut (2-6 parts of one whole, adding up to its denominator), bars (vertical or
-horizontal, one to four series, grouped or stacked) or a line (an ordered x axis), each with the steps its numbers
-came from. Code checks them like the rest of the action (lengths, caps, signs, a pie's sum, and that the cited steps'
-tool results succeeded), and the page draws them in SVG with every value and share printed, a table view and a CSV
+**Charts.** When asked for a chart, or when a few counts compare naturally, the answer asks for charts, and one more
+request returns up to 3 of them as data, never diagram code: a pie or donut (2-6 parts of one whole, adding up to its
+denominator), bars (vertical or horizontal, one to four series, grouped or stacked) or a line (an ordered x axis), each
+with the steps its numbers came from. (In every step's schema, charts would make Claude's structured-output grammar
+too large.) Code checks them like the actions (lengths, caps, signs, a pie's sum, and that the cited steps' tool
+results succeeded), and the page draws them in SVG with every value and share printed, a table view and a CSV
 download. "Not documented" parts are grey: absence in the records is not a negative finding.
 
 **Trial status.** In real mode a trial's status is the institution's own accrual status (OnCore) from the OA trial

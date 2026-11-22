@@ -21,8 +21,8 @@ def ask(question, options, why=""):
     return {"ask_user": {"question": question, "options": options, "why": why}}
 
 
-def answer(markdown, interpretation="", charts=()):
-    return {"answer": {"markdown": markdown, "interpretation": interpretation, "charts": list(charts)}}
+def answer(markdown, interpretation="", draw_charts=False):
+    return {"answer": {"markdown": markdown, "interpretation": interpretation, "draw_charts": draw_charts}}
 
 
 def chart(kind="pie", labels=("Present", "Absent", "Not documented"), series=((18, 30, 11),), total=59, **overrides):
@@ -60,12 +60,18 @@ def test_action_schema_and_validation():
 
 
 def test_chart_validation():
-    from matchminer_ai.apps.dashboard.assistant.actions import Limits, chart_view, validate
+    import json
+
+    from matchminer_ai.apps.dashboard.assistant.actions import (
+        Limits, chart_view, charts_schema, response_schema, validate, validate_charts,
+    )
 
     limits = Limits()
+    # Charts come from a follow-up request: in every step's schema they make Claude's grammar too large.
+    assert '"labels"' not in json.dumps(response_schema()) and '"labels"' in json.dumps(charts_schema())
 
-    def check(*charts, markdown="KRAS status of the 59 patients.", steps=frozenset({1, 2})):
-        return validate({"purpose": "Answer", "call": answer(markdown, "", charts)}, limits, steps=steps)
+    def check(*charts, steps=frozenset({1, 2})):
+        return validate_charts({"charts": list(charts)}, limits, steps)
 
     accepted = [
         chart(), chart("donut"),
@@ -104,8 +110,11 @@ def test_chart_validation():
             check(value)
     with pytest.raises(ValueError, match="at most 3 charts"):
         check(*accepted[:4])
+    with pytest.raises(ValueError, match="exactly the fields"):
+        validate_charts({"charts": [], "markdown": ""}, limits)
     with pytest.raises(ValueError, match="diagram code"):
-        check(markdown="KRAS:\n```mermaid\npie showData\n    \"KRAS\" : 18\n```")
+        validate({"purpose": "Answer", "call": answer("KRAS:\n```mermaid\npie showData\n    \"KRAS\" : 18\n```")},
+                 limits)
 
 
 def test_the_assistant_task_defaults_to_opus_through_the_gateway(tmp_path, monkeypatch):
@@ -196,7 +205,8 @@ def test_a_scripted_answer_carries_a_chart_through_the_routes(dash_client, dash)
     phases = chart("bar", ["Phase 1", "Phase 2"], [(1, 1)], total=0, orientation="horizontal", unit="trials",
                    title="Trials by phase", caption="All dashboard trials (search_trials, step 1).")
     client = FakeClient([{"purpose": "Count trials by phase", "call": search()},
-                         {"purpose": "Answer", "call": answer("Trials by phase are below.", "", [phases])}])
+                         {"purpose": "Answer", "call": answer("Trials by phase are below.", "", True)},
+                         {"charts": [phases]}])
     dash.assistant.client_factory = lambda selected: client
     wait_job(dash_client, dash_client.post("/api/assistant/messages",
                                            json={"text": "A bar chart of trials by phase"}).json()["job"]["id"])
@@ -208,3 +218,4 @@ def test_a_scripted_answer_carries_a_chart_through_the_routes(dash_client, dash)
     assert drawn["series"] == [{"name": "", "values": [1, 1]}] and drawn["unit"] == "trials"
     result = client.sent[1][-1]["content"]
     assert result.startswith("Result of step 1, search_trials (ok;") and '"trials_by_phase"' in result
+    assert client.sent[2][-1]["content"].startswith("Now the charts for your answer")  # the follow-up request

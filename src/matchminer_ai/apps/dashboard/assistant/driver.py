@@ -11,7 +11,8 @@ The model's messages are the system prompt (cached by Claude), the data overview
 messages, the model's actions and the tool results, each kept verbatim so that a later step's request starts with
 the earlier one's (Claude reads it from the cache). A result names its step (numbered through the conversation, as
 the page shows them, so that a chart can cite where its numbers came from) and says how many tool calls are left;
-once none are, the response schema offers only ``ask_user`` and ``answer``.
+once none are, the response schema offers only ``ask_user`` and ``answer``. An answer with ``draw_charts`` is followed by
+one more request for its charts (``actions.charts_schema``); the answer stands without them if that request fails.
 """
 from __future__ import annotations
 
@@ -24,7 +25,9 @@ from matchminer_ai.llm.prompts import load_prompt_text
 from matchminer_ai.llm.remote_auth import DATABRICKS_ANTHROPIC_PROVIDER
 from matchminer_ai.llm.structured import CredentialsError, EndpointError
 
-from .actions import Limits, chart_view, compact, parse_call, response_schema, validate
+from .actions import (
+    Limits, chart_view, charts_schema, compact, parse_call, response_schema, validate, validate_charts,
+)
 from .conversation import USAGE_KEYS, Conversation
 from .tools import LABELS, ToolResult
 
@@ -38,6 +41,26 @@ class ContextFull(Exception):
 
 class Driver(Protocol):
     name: str
+
+    def _charts(self, conversation: Conversation, overview: dict, client) -> tuple[list[dict], str | None]:
+        """The charts of the answer just given (its follow-up request), and why there are none if it failed."""
+        limits = self.limits
+        with conversation.lock:
+            conversation.history.append({"role": "user", "content": charts_request(limits)})
+        cited = conversation.result_steps()
+        failed_checks = len(getattr(client, "validation_errors", None) or [])
+        try:
+            value = client.complete("assistant", self._messages(conversation, overview, client), charts_schema(),
+                                    lambda v: validate_charts(v, limits, cited))
+        except EndpointError:
+            checks = len(getattr(client, "validation_errors", None) or []) > failed_checks
+            with conversation.lock:
+                conversation.history.pop()  # the request: the answer stands without charts
+            return [], ("The charts did not pass the checks, so none are shown." if checks else
+                        "The charts could not be drawn: the model connection failed.")
+        with conversation.lock:
+            conversation.history.append({"role": "assistant", "content": compact(value)})
+        return [chart_view(c) for c in value["charts"]], None
 
     def run_turn(self, conversation: Conversation, text: str, *, toolbox, client, progress: Callable,
                  model: str) -> None:
@@ -56,6 +79,18 @@ def render_result(result: ToolResult, calls_left: int, limits: Limits, step: int
     state = "ok" if result.ok else "error"
     return (f"Result of step {step}, {result.tool} ({state}; {calls_left} tool call{'' if calls_left == 1 else 's'} "
             f"left for this message):\n{body}")
+
+
+def charts_request(limits: Limits) -> str:
+    """The message that asks for an answer's charts, with the checks they must pass (a failed check is retried
+    without saying which one failed)."""
+    return (f"Now the charts for your answer: one JSON object {{\"charts\": [...]}} with 1-{limits.max_charts} "
+            "charts, following the chart rules. Copy each number exactly from the tool results above and list those "
+            f"results' step numbers in steps. Checks: a pie or donut has 2-{limits.max_pie_slices} labels and one "
+            "series, with values of 0 or more that add up to total; bars have "
+            f"1-{limits.max_chart_categories} labels and 1-{limits.max_chart_series} series (each named when there "
+            "are two or more; stacked values 0 or more; when total is above 0, no bar is above it); a line has "
+            f"2-{limits.max_chart_categories} points; every series has one value per label; labels are distinct.")
 
 
 def endpoint_message(client, exc: Exception) -> str:
@@ -94,6 +129,26 @@ class JSONActionDriver:
                 raise ContextFull()
             oldest["content"] = OMITTED
 
+    def _charts(self, conversation: Conversation, overview: dict, client) -> tuple[list[dict], str | None]:
+        """The charts of the answer just given (its follow-up request), and why there are none if it failed."""
+        limits = self.limits
+        with conversation.lock:
+            conversation.history.append({"role": "user", "content": charts_request(limits)})
+        cited = conversation.result_steps()
+        failed_checks = len(getattr(client, "validation_errors", None) or [])
+        try:
+            value = client.complete("assistant", self._messages(conversation, overview, client), charts_schema(),
+                                    lambda v: validate_charts(v, limits, cited))
+        except EndpointError:
+            checks = len(getattr(client, "validation_errors", None) or []) > failed_checks
+            with conversation.lock:
+                conversation.history.pop()  # the request: the answer stands without charts
+            return [], ("The charts did not pass the checks, so none are shown." if checks else
+                        "The charts could not be drawn: the model connection failed.")
+        with conversation.lock:
+            conversation.history.append({"role": "assistant", "content": compact(value)})
+        return [chart_view(c) for c in value["charts"]], None
+
     def run_turn(self, conversation: Conversation, text: str, *, toolbox, client, progress: Callable,
                  model: str) -> None:
         limits = self.limits
@@ -124,16 +179,21 @@ class JSONActionDriver:
                 final_only = calls_left <= 0
                 schema = response_schema(final_only, tools)
                 messages = self._messages(conversation, overview, client)
-                cited = conversation.result_steps()  # the steps a chart may cite
-                value = client.complete("assistant", messages, schema, lambda v: validate(
-                    v, limits, final_only=final_only, tools=tools, steps=cited))
+                value = client.complete("assistant", messages, schema,
+                                        lambda v: validate(v, limits, final_only=final_only, tools=tools))
                 call = parse_call(value)
                 with conversation.lock:
                     conversation.history.append({"role": "assistant", "content": compact(value)})
                 if call["tool"] == "answer":
-                    update(status="done", kind="answer", text=call["markdown"].strip(),
+                    # The answer shows at once; its charts, when asked for, follow from one more request.
+                    update(kind="answer", text=call["markdown"].strip(),
                            interpretation=call["interpretation"].strip(),
-                           charts=[chart_view(c) for c in call["charts"]], progress="")
+                           progress="Drawing charts" if call["draw_charts"] else "")
+                    if call["draw_charts"]:
+                        progress("Drawing charts")
+                        charts, why = self._charts(conversation, overview, client)
+                        update(charts=charts, chart_error=why)
+                    update(status="done", progress="")
                     break
                 if call["tool"] == "ask_user":
                     update(status="done", kind="question", text=call["question"].strip(),

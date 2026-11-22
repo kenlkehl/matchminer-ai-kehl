@@ -290,6 +290,12 @@ function Turn({
   onOption: (text: string) => void;
 }) {
   const renderText = useIdLinks(links);
+  const working = (
+    <p role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-gray-600">
+      <Spinner className="text-brand-blue" />
+      {entry.progress || "Working"}
+    </p>
+  );
   return (
     <article className="flex max-w-4xl flex-col gap-2 rounded-lg border border-gray-200 p-3">
       {entry.steps.length ? (
@@ -299,20 +305,14 @@ function Turn({
           ))}
         </ol>
       ) : null}
-      {entry.status === "running" ? (
-        <p
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 text-sm text-gray-600"
-        >
-          <Spinner className="text-brand-blue" />
-          {entry.progress || "Working"}
-        </p>
-      ) : null}
+      {entry.status === "running" && entry.kind !== "answer" ? working : null}
       {entry.kind === "answer" ? (
         <>
           <Markdown text={entry.text} renderText={renderText} />
           {entry.charts?.length ? <AnswerCharts charts={entry.charts} steps={steps} /> : null}
+          {/* The answer shows while its charts are drawn. */}
+          {entry.status === "running" ? working : null}
+          {entry.chart_error ? <p className="text-sm text-amber-800">{entry.chart_error}</p> : null}
           {entry.interpretation ? (
             <p className="text-sm text-gray-600 italic">{entry.interpretation}</p>
           ) : null}

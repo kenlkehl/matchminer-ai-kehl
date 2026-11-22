@@ -2,7 +2,7 @@
 
 ``call`` has one key, the name of a tool (``TOOLS``: read-only searches over the dashboard's own data), of
 ``ask_user`` (a clarifying question with options; ends the turn) or of ``answer`` (the final Markdown, the
-interpretation used and any charts; ends the turn), and its value holds the arguments:
+interpretation used and whether charts follow; ends the turn), and its value holds the arguments:
 ``{"search_trials": {"text": "EGFR", ...}}``.
 The name is the key, not a ``tool`` field beside the arguments, because constrained decoding then fixes the
 arguments' schema by the name (with a ``tool`` field among ``anyOf`` variants, Claude's structured outputs returned
@@ -11,10 +11,13 @@ another tool's empty arguments). Every argument is required (strict JSON-schema 
 :func:`validate` checks it again with fixed messages (never input text), and each tool checks its arguments' meaning
 when it runs. :func:`parse_call` gives the code's form, ``{"tool": name, **arguments}``.
 
-**Charts** (``answer.charts``, :data:`CHART`): data, never diagram code. Each is a kind (pie, donut, bar or line), a
-title and caption, its labels and one or more series of numbers, a unit, the denominator, the bar layout and the steps
-its numbers came from; :func:`check_charts` checks the shapes, caps and signs the page draws from, and that the steps
-are this conversation's successful tool results. The page draws them as SVG.
+**Charts** (:data:`CHART`): data, never diagram code. An answer with ``draw_charts`` is followed by one more request
+whose schema is only ``{"charts": [...]}`` (:func:`charts_schema`): with the charts in every step's schema, Claude's
+structured outputs refuse the step schema as too large a grammar (the tools' schemas already come close to the limit).
+Each chart is a kind (pie, donut, bar or line), a title and caption, its labels and one or more series of numbers, a
+unit, the denominator, the bar layout and the steps its numbers came from; :func:`validate_charts` checks the shapes,
+caps and signs the page draws from, and that the steps are this conversation's successful tool results. The page
+draws them as SVG.
 """
 from __future__ import annotations
 
@@ -257,9 +260,8 @@ CALLS: dict[str, dict] = {
             "markdown": _string("The answer in Markdown, citing the tools' IDs exactly."),
             "interpretation": _string("One sentence stating how ambiguous concepts were read (\"Interpreted "
                                       "metastatic as ...\"), or '' when none needed reading."),
-            "charts": {"type": "array", "items": CHART,
-                       "description": "0-3 charts the page draws below the Markdown, from tool results' numbers "
-                                      "only; [] for none."},
+            "draw_charts": {**BOOL, "description": "true to add charts to this answer (the next request asks for "
+                                                   "them); false for none."},
         },
     },
 }
@@ -322,14 +324,28 @@ def _text(value: str, limit: int, where: str, *, required: bool = True) -> None:
         raise ValueError(f"{where} needs {'a ' if required else ''}short text within its length limit.")
 
 
+def charts_schema() -> dict:
+    """The schema of the request that follows an answer with ``draw_charts``."""
+    return {"type": "object", "additionalProperties": False, "required": ["charts"],
+            "properties": {"charts": {"type": "array", "items": CHART,
+                                      "description": "1-3 charts the page draws below the answer."}}}
+
+
+def validate_charts(value, limits: Limits, steps=None) -> dict:
+    """The charts request's answer, checked against :func:`charts_schema` and :func:`check_charts`."""
+    _check(value, charts_schema(), "the charts answer")
+    check_charts(value["charts"], limits, steps)
+    return value
+
+
 def check_charts(charts: list[dict], limits: Limits, steps=None) -> None:
     """An answer's charts (already of the schema's shape), checked against the caps and the kinds' rules: lengths,
     signs, a pie's sum, and the steps (``steps``: this conversation's successful tool results' step numbers; None
     skips that check). Fixed messages, never input text."""
     if len(charts) > limits.max_charts:
-        raise ValueError(f"answer.charts holds at most {limits.max_charts} charts.")
+        raise ValueError(f"An answer holds at most {limits.max_charts} charts.")
     for n, chart in enumerate(charts):
-        where, kind = f"answer.charts[{n}]", chart["kind"]
+        where, kind = f"charts[{n}]", chart["kind"]
         _text(chart["title"], limits.max_chart_title_chars, f"{where}.title")
         _text(chart["caption"], limits.max_chart_caption_chars, f"{where}.caption")
         _text(chart["unit"], limits.max_chart_label_chars, f"{where}.unit", required=False)
@@ -392,9 +408,8 @@ def chart_view(chart: dict) -> dict:
             "stacked": bool(bar and chart["stacked"] and len(chart["series"]) > 1), "steps": list(chart["steps"])}
 
 
-def validate(value, limits: Limits, *, final_only: bool = False, tools=None, steps=None) -> dict:
-    """The step's action, checked against the schema and the limits (fixed messages, never input text). ``steps``:
-    the step numbers an answer's charts may cite (None skips that check)."""
+def validate(value, limits: Limits, *, final_only: bool = False, tools=None) -> dict:
+    """The step's action, checked against the schema and the limits (fixed messages, never input text)."""
     if not isinstance(value, dict) or set(value) != {"purpose", "call"}:
         raise ValueError("Return exactly the fields purpose and call.")
     if not isinstance(value["purpose"], str) or len(value["purpose"]) > limits.max_purpose_chars:
@@ -419,9 +434,8 @@ def validate(value, limits: Limits, *, final_only: bool = False, tools=None, ste
         if len(call["interpretation"]) > limits.max_question_chars:
             raise ValueError("interpretation must be one sentence.")
         if DIAGRAM_FENCE.search(call["markdown"]):
-            raise ValueError("answer.markdown must not hold diagram code (such as Mermaid); put a chart in "
-                             "answer.charts.")
-        check_charts(call["charts"], limits, steps)
+            raise ValueError("answer.markdown must not hold diagram code (such as Mermaid); set draw_charts "
+                             "instead.")
     else:
         for key, sub in CALLS[name]["properties"].items():
             if sub.get("type") == "string" and len(call[key]) > limits.max_text_arg_chars:

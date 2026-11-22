@@ -65,7 +65,8 @@ class Conversation:
             self.entries.append({"id": len(self.entries), "role": "user", "text": text, "at": time.time()})
             turn = {"id": len(self.entries), "role": "assistant", "status": "running", "model": model, "steps": [],
                     "progress": "Starting", "kind": None, "text": "", "options": [], "why": "",
-                    "interpretation": "", "charts": [], "error": None, "at": time.time(), "seconds": None}
+                    "interpretation": "", "charts": [], "chart_error": None, "error": None, "at": time.time(),
+                    "seconds": None}
             self.entries.append(turn)
             self.touch()
             return turn

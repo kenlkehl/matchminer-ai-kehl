@@ -407,7 +407,7 @@ function PieChart({ chart }: { chart: Chart }) {
             <span className="border-t border-gray-200 pt-1 text-right text-xs font-semibold tabular-nums">
               {fmt(total, chart.unit)}
             </span>
-            <span className="border-t border-gray-200 pt-1" />
+            <span />
           </li>
         ) : null}
       </ul>
@@ -735,8 +735,9 @@ function BarChart({ chart, width }: { chart: Chart; width: number }) {
   // Horizontal bars: category names on the left, values at the bars' tips.
   const thick = grouped ? 12 : 18;
   const rowH = (grouped ? k * thick + (k - 1) * 2 : thick) + 12;
+  // The names' column: the longest name plus its 10px gap before the bars, within a third of the width.
   const labelW = Math.min(
-    Math.max(...chart.labels.map((l) => textWidth(l, 11))) + 10,
+    Math.max(...chart.labels.map((l) => textWidth(l, 11))) + 12,
     Math.max(90, width * 0.34),
     260,
   );
@@ -811,7 +812,7 @@ function BarChart({ chart, width }: { chart: Chart; width: number }) {
                 pointerEvents="none"
               >
                 <title>{label}</title>
-                {fit(label, m.left - 12)}
+                {fit(label, m.left - 10)}
               </text>
             </g>
           ))}
@@ -902,9 +903,13 @@ function LineChart({ chart, width }: { chart: Chart; width: number }) {
   };
   const height = m.top + plotH + m.bottom;
   const plotW = width - m.left - m.right;
-  const x = (i: number) => m.left + (n === 1 ? plotW / 2 : (i * plotW) / (n - 1));
+  // The points sit in from the plot's edges, so that the first and last x labels are not cut.
+  const padL = Math.max(8, textWidth(chart.labels[0] ?? "", 11) / 2 + 2);
+  const padR = Math.max(8, textWidth(chart.labels[n - 1] ?? "", 11) / 2 + 8 - m.right);
+  const span = Math.max(plotW - padL - padR, 1);
+  const x = (i: number) => m.left + padL + (n === 1 ? span / 2 : (i * span) / (n - 1));
   const y = linear(domain, [m.top + plotH, m.top]);
-  const spacing = n > 1 ? plotW / (n - 1) : plotW;
+  const spacing = n > 1 ? span / (n - 1) : span;
   const labelEvery = Math.max(
     1,
     Math.ceil((Math.max(...chart.labels.map((l) => textWidth(l, 11))) + 10) / spacing),
@@ -1065,7 +1070,7 @@ function LineChart({ chart, width }: { chart: Chart; width: number }) {
               const box = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
               if (!box) return;
               const px = ((e.clientX - box.left) * width) / box.width;
-              const i = n === 1 ? 0 : Math.round(((px - m.left) / plotW) * (n - 1));
+              const i = n === 1 ? 0 : Math.round(((px - m.left - padL) / span) * (n - 1));
               setActive(Math.max(0, Math.min(n - 1, i)));
             }}
           />
@@ -1111,12 +1116,12 @@ function downloadCsv(chart: Chart) {
     header.map((h) => csvCell(h, true)).join(","),
     ...rows.map((r) => r.map((c, i) => csvCell(c, i === 0)).join(",")),
   ];
-  const slug =
-    chart.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 60) || "chart";
+  const words = chart.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  // At most 60 characters, cut at a word.
+  const slug = (words.length > 60 ? words.slice(0, 61).replace(/-[^-]*$/, "") : words) || "chart";
   saveBlob(
     new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" }),
     `${slug}.csv`,
@@ -1127,7 +1132,7 @@ function DataTable({ chart }: { chart: Chart }) {
   const { header, rows } = tableRows(chart);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-auto min-w-64 text-xs">
         <caption className="sr-only">{chart.title}</caption>
         <thead>
           <tr className="border-b border-gray-200 text-gray-600">
@@ -1164,13 +1169,33 @@ function DataTable({ chart }: { chart: Chart }) {
   );
 }
 
+/** Step numbers as ranges: [1, 2, 3, 5] -> "steps 1-3 and 5". */
+function stepRanges(numbers: number[]): string {
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j + 1 < sorted.length && (sorted[j + 1] ?? 0) === (sorted[j] ?? 0) + 1) j += 1;
+    runs.push(j > i ? `${String(sorted[i])}–${String(sorted[j])}` : String(sorted[i]));
+    i = j + 1;
+  }
+  const list =
+    runs.length > 1 ? `${runs.slice(0, -1).join(", ")} and ${runs.at(-1) ?? ""}` : runs[0];
+  return `${sorted.length > 1 ? "steps" : "step"} ${list ?? ""}`;
+}
+
+/** Where the numbers came from: the cited steps, grouped by what each step did. */
 function sourceText(chart: Chart, steps: Map<number, Step>): string {
   if (!chart.steps.length) return "Numbers from the data overview.";
-  const parts = chart.steps.map((n) => {
-    const step = steps.get(n);
-    return step ? `step ${String(n)} (${step.label})` : `step ${String(n)}`;
-  });
-  return `Numbers from ${parts.join(", ")}.`;
+  const byLabel = new Map<string, number[]>();
+  for (const n of chart.steps) {
+    const label = steps.get(n)?.label ?? "";
+    byLabel.set(label, [...(byLabel.get(label) ?? []), n]);
+  }
+  const parts = [...byLabel].map(
+    ([label, numbers]) => `${stepRanges(numbers)}${label ? ` (${label})` : ""}`,
+  );
+  return `Numbers from ${parts.join("; ")}.`;
 }
 
 function ChartFigure({ chart, steps }: { chart: Chart; steps: Map<number, Step> }) {

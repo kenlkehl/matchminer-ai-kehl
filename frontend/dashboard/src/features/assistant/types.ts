@@ -43,6 +43,8 @@ export interface AssistantEntry {
   interpretation: string;
   /** The answer's charts (absent in entries made before charts existed). */
   charts?: Chart[];
+  /** Why an answer that asked for charts has none (their request failed). */
+  chart_error?: string | null;
   error: string | null;
   at: number;
   seconds: number | null;
