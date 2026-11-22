@@ -6,6 +6,7 @@ import {
   GaugeIcon,
   LogOutIcon,
   type LucideIcon,
+  MessageSquareTextIcon,
   UserIcon,
   UsersIcon,
   TableIcon,
@@ -35,7 +36,7 @@ import { api, type CenterInfo, type SiteBranding } from "@/lib/api";
 import { metaOptions } from "@/lib/queries";
 import { useSite } from "@/lib/site";
 
-import { AppTabs, useAppTab } from "./app-tabs";
+import { AppTabs, type TabPath, useAppTab } from "./app-tabs";
 import { SidebarSlotContext } from "./sidebar-slot";
 
 /** Centers by institution, in the site's order (its site config's institution prefixes); the rest last. */
@@ -100,6 +101,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                     />
                   ) : tab === "patient" ? (
                     <NavItem to="/patient" icon={UserIcon} label="Patient-centric search" active />
+                  ) : tab === "assistant" ? (
+                    <NavItem
+                      to="/assistant"
+                      icon={MessageSquareTextIcon}
+                      label="Assistant"
+                      active
+                    />
                   ) : tab === "benchmarking" ? (
                     <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarking" active />
                   ) : (
@@ -250,7 +258,7 @@ function AppFooter() {
 }
 
 interface NavItemProps {
-  to: "/" | "/population" | "/patient" | "/benchmarking" | "/status";
+  to: TabPath;
   icon: LucideIcon;
   label: string;
   active: boolean;

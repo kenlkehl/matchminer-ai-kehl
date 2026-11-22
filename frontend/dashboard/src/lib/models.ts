@@ -12,7 +12,8 @@ export type Task =
   | "workup_full_backup"
   | "workup_agent_backup"
   | "good_option"
-  | "criteria_llm";
+  | "criteria_llm"
+  | "assistant";
 
 export interface TaskConnection {
   llm_backend: Backend;

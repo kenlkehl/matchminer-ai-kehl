@@ -14,6 +14,9 @@ patient summarization, cohort steps and the LLM checks use.
   ``output_config.format`` (the SDK moves keywords Claude does not enforce, such as
   ``maxItems``, into descriptions; callers still validate in code). Sampling and
   chat-template fields are dropped: Claude manages its own sampling and thinking.
+- **Conversation caching (opt in):** a body with ``cache_control: {"type": "ephemeral"}`` sends it as the
+  request's top-level automatic cache breakpoint, so a multi-turn caller (the dashboard's chat assistant) reads
+  the conversation so far from the cache on its next request. Other callers send no such field.
 - **Refusals:** Opus and Sonnet 5.5 requests opt into server-side refusal fallbacks
   (``fallbacks="default"``); the response's ``model`` and ``transport.fallback_used``
   say which model answered.
@@ -48,7 +51,7 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 #: Request fields Claude takes from the chat body, and fields dropped as not applicable.
 _TAKEN = frozenset({"model", "messages", "max_tokens", "reasoning_effort", "response_format",
-                    "stream", "stream_options"})
+                    "stream", "stream_options", "cache_control"})
 _DROPPED = frozenset({"temperature", "top_p", "top_k", "min_p", "presence_penalty",
                       "frequency_penalty", "repetition_penalty", "chat_template_kwargs"})
 _FINISH = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length",
@@ -125,6 +128,11 @@ def messages_request(body: dict) -> dict:
                             "schema": transform_schema(response_format["json_schema"]["schema"])}
     if output:
         request["output_config"] = output
+    cache = body.get("cache_control")
+    if cache is not None:
+        if cache != {"type": "ephemeral"}:
+            raise ValueError('cache_control must be {"type": "ephemeral"}.')
+        request["cache_control"] = {"type": "ephemeral"}
     if fallbacks_supported(body["model"]):
         request["betas"] = [FALLBACK_BETA]
         request["fallbacks"] = "default"

@@ -106,6 +106,8 @@ CLAUDE_LABELS = {"claude_databricks": "Claude · Databricks AI Gateway"}
 CLAUDE_SQL_EFFORT = "high"
 # Every other task: Haiku 5.5's default effort (the OA summarization test of 2026-11-20 ran at it).
 CLAUDE_EFFORT = "medium"
+# The chat assistant (Opus 5.5 by default): Opus 5.5's default effort, so a chat turn's several requests stay quick.
+CLAUDE_ASSISTANT_EFFORT = "medium"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
 #: Patient-level extraction prompts through Claude: their budget and Claude's tokens per chunk-tokenizer token.
 CLAUDE_PATIENT_PROMPT_TOKENS = 85_000
@@ -114,6 +116,8 @@ CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
+# The Assistant tab's chat agent (``apps.dashboard.assistant``).
+ASSISTANT_TASK = "assistant"
 QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
 
 
@@ -144,14 +148,15 @@ def claude_backends():
 
 
 def default_task_connections() -> dict:
-    """The app's per-task defaults besides the default connection: query writing with Claude Sonnet 5.5 through the
-    gateway (user, 2026-11-21) when the site config names the gateway and a Sonnet endpoint."""
-    profile = claude_backends()["claude_databricks"]
-    sonnet = profile["models"].get("sonnet")
-    if not (connections.databricks_host() and sonnet):
+    """The app's per-task defaults besides the default connection, when the site config names the gateway and the
+    endpoint: query writing with Claude Sonnet 5.5 (user, 2026-11-21) and the chat assistant with Claude Opus 5.5
+    (user, 2026-11-22), both through the gateway."""
+    if not connections.databricks_host():
         return {}
-    return {SQL_TASK: {"llm_backend": "claude_databricks", "endpoint": profile["endpoint"], "model": sonnet,
-                       "tokenizer": profile["tokenizer"]}}
+    profile = claude_backends()["claude_databricks"]
+    chosen = {SQL_TASK: profile["models"].get("sonnet"), ASSISTANT_TASK: profile["models"].get("opus")}
+    return {task: {"llm_backend": "claude_databricks", "endpoint": profile["endpoint"], "model": model,
+                   "tokenizer": profile["tokenizer"]} for task, model in chosen.items() if model}
 
 
 def default_backend() -> str:
@@ -169,6 +174,7 @@ LLM_TASKS = {
     "workup_agent_backup": "Guideline concordance checks: Agent backup",
     "good_option": "GoodOption checks",
     "criteria_llm": "Per-criterion LLM checks",
+    ASSISTANT_TASK: "Chat assistant",
 }
 
 

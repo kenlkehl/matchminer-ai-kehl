@@ -91,7 +91,8 @@ export function ModelsPanel() {
   );
 }
 
-function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
+/** One task's connection form (Data and models; the Assistant tab's model choice uses it too). */
+export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
   const client = useQueryClient();
   const current = config.tasks[task];
   const [backend, setBackend] = useState<Backend>(current.llm_backend);
@@ -117,9 +118,10 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
   const vertex = config.vertex_profiles[backend];
   const claude = backend === "claude_databricks" ? config.claude_profiles[backend] : undefined;
   useEffect(() => {
-    // Claude offers the site's endpoint name first.
-    if (claude && !model.includes("claude")) setModel(claude.model);
-  }, [claude, model]);
+    // Claude offers the site's endpoint name first (the chat assistant's: Opus).
+    if (claude && !model.includes("claude"))
+      setModel((task === "assistant" ? claude.models.opus : undefined) ?? claude.model);
+  }, [claude, model, task]);
   const isBackup = BACKUP_TASKS.includes(task);
   const body = (applyToAll: boolean) => ({
     llm_backend: backend,

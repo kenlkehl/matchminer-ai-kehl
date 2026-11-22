@@ -34,7 +34,7 @@ from .common import owner as session_owner
 
 LLMBackend = Literal["local", "gemini4_vertex", "gemini_vertex", "gemma_vertex", "claude_databricks"]
 LLMTask = Literal["summarize", "workup", "workup_sql", "workup_full_backup", "workup_agent_backup", "good_option",
-                  "criteria_llm"]
+                  "criteria_llm", "assistant"]
 EXTRACTION_METHODS = {"extractions", "extraction_sql"}
 
 

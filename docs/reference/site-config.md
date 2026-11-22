@@ -45,7 +45,7 @@ its command line.
 | `vertex.project` | the apps' Vertex profiles, `evaluation.dual_judge.judge_worker` | Google Cloud project of the Vertex (Agent Platform) endpoints, and of the Claude judge on Vertex |
 | `databricks.host` | the dashboard's model connections, `provider: databricks_anthropic`, `evaluation.dual_judge.judge_worker --judge databricks` | Workspace URL whose AI Gateway serves Claude |
 | `databricks.profile` | the same | Databricks CLI login profile (default `unity-gateway`) |
-| `databricks.endpoints.<name>` | the dashboard (`haiku`: its default model for every LLM task; the others selectable), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
+| `databricks.endpoints.<name>` | the dashboard (`haiku`: its default model for every LLM task, except query writing, `sonnet`, and the chat assistant, `opus`; the others selectable), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
 
 Without `vertex.project` the Vertex profiles have no project, and without `databricks.host` the Claude option has no
 gateway.

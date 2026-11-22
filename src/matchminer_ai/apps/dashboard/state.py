@@ -1,5 +1,6 @@
 """What the app holds: the trial store (rebuilt as its sources change), the patient corpus and its vectors, the
-trial cohorts' vectors, the encoder, the decision model, the guideline features and the background jobs.
+trial cohorts' vectors, the encoder, the decision model, the guideline features, the Assistant tab's chat agent and
+the background jobs.
 
 The mode picks the sources (``settings``):
 
@@ -116,9 +117,14 @@ class DashState:
         from .benchmarking import Benchmarks
 
         self.benchmarks = benchmarks if benchmarks is not None else Benchmarks(settings.mode)
+        # ---- the Assistant tab's chat agent (its conversations are in memory, per session)
+        from .assistant import Assistant
+
+        self.assistant = Assistant(self)
         # Every job manager, so one route finds and stops any job (core.jobs).
         self.registry = JobRegistry(model=self.jobs, background=self.background, llm=self.llm.jobs,
-                                    guidelines=self.guidelines.jobs, benchmarks=self.benchmarks.jobs)
+                                    guidelines=self.guidelines.jobs, benchmarks=self.benchmarks.jobs,
+                                    assistant=self.assistant.jobs)
         self.startup_seconds = round(time.monotonic() - started, 1)
 
     # ------------------------------------------------------------------ the patient corpus
@@ -205,7 +211,9 @@ class DashState:
     def watch(self, interval: float, stop: threading.Event):
         while not stop.wait(interval):
             try:
-                self.guidelines.clean(self.registry.active_owners())
+                active = self.registry.active_owners()
+                self.guidelines.clean(active)
+                self.assistant.clean(active)
             except Exception as exc:
                 self.log(f"Session cleanup failed: {type(exc).__name__}")
             try:
@@ -358,7 +366,7 @@ class DashState:
 
     def tabs(self) -> list[str]:
         """The frontend's tabs in this mode: Benchmarking only when there are runs to show."""
-        tabs = ["trials", "population", "patient"]
+        tabs = ["trials", "population", "patient", "assistant"]
         benchmarks = getattr(self, "benchmarks", None)
         if benchmarks is not None and benchmarks.available():
             tabs.append("benchmarking")

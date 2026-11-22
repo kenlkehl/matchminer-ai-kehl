@@ -9,6 +9,7 @@ export type AppTab = AppTabName;
 const PREFIXES: [string, AppTab][] = [
   ["/population", "population"],
   ["/patient", "patient"],
+  ["/assistant", "assistant"],
   ["/benchmarking", "benchmarking"],
   ["/status", "status"],
 ];
@@ -21,14 +22,17 @@ export function useAppTab(): AppTab {
   });
 }
 
+export type TabPath = "/" | "/population" | "/patient" | "/assistant" | "/benchmarking" | "/status";
+
 const TABS: {
   tab: AppTab;
-  to: "/" | "/population" | "/patient" | "/benchmarking" | "/status";
+  to: TabPath;
   label: string;
 }[] = [
   { tab: "trials", to: "/", label: "Trial management" },
   { tab: "patient", to: "/patient", label: "Patient-centric search" },
   { tab: "population", to: "/population", label: "Population guideline concordance" },
+  { tab: "assistant", to: "/assistant", label: "Assistant" },
   { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
   { tab: "status", to: "/status", label: "Data and models" },
 ];

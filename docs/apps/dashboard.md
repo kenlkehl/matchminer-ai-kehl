@@ -59,6 +59,7 @@ TrialSpace model and says so on Data and models if they differ.
     extraction of the notes (one with patient level also serves a document-level review), and they extract only
     when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
     patient search marks the patients it holds (**Structured records**) and, by default, lists only them.
+- **Assistant:** a chat over the mode's own data (see [Assistant](#assistant) below).
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
@@ -66,10 +67,64 @@ TrialSpace model and says so on Data and models if they differ.
 - **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
-  GoodOption check and the per-criterion LLM check. Three connectors: an OpenAI-compatible server (**Detect served
+  GoodOption check, the per-criterion LLM check and the chat assistant. Three connectors: an OpenAI-compatible server (**Detect served
   model** reads its `/v1/models`), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8 Flash or Gemma 4
   26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's Claude
   endpoints).
+
+## Assistant
+
+The Assistant tab answers questions about the mode's own data ("what trials are open for EGFR-mutant lung cancer?",
+"find patients with metastatic colorectal cancer") in a chat. It is an agent loop inside the app
+(`matchminer_ai.apps.dashboard.assistant`), not a separate agent runtime: each step is one request to the chosen
+model whose answer is one JSON action, validated in code, so it works with every connector the app offers. The
+action is a tool call, a clarifying question or the answer.
+
+**Tools.** Read-only, over the running app's data, through the services the other tabs use; the model has no shell,
+file or network access:
+
+| Tool | What it does |
+| --- | --- |
+| `search_trials` | Regular-expression search over the dashboard cohorts (trial ID, titles, cohort names, key criteria, drug names), with the Trial management filters: cancer type, center, phase, open status, GoodOption drugs and classes |
+| `match_trials` | TrialSpace retrieval from a patient description (embedded as an entered summary is), one cohort per trial, optionally reranked by the decision model's match questions |
+| `trial_details` | A trial's or cohort's status, phase, center, drugs and key (and, on request, boilerplate) criteria lines |
+| `search_patients` | The patient list's search over the summaries |
+| `match_patients` | Find patients: TrialSpace retrieval from a cohort, or from ad-hoc criteria text, optionally reranked |
+| `patient_details` | A patient's summary sections and, when the extraction store holds the patient, the records' disease course |
+| `screen_records` | Screen with structured data: criteria lines (a cohort's, or ad-hoc lines) compiled into queries by the query-writing connection and run in code over the store's records, with per-line counts and the patients documented to meet every checkable inclusion line. Absence never fails a line, and lines no item type can check are reported as not checkable |
+| `score_pairs` | The decision model's match and boilerplate questions for given patient-cohort pairs |
+| `guideline_spaces` | The guideline catalog's spaces nearest a patient description |
+
+A user message gets at most 8 tool calls; then the model must answer or ask. Results list at most 25 rows with their
+totals, and a repeated call is not run again. Each tool step shows on the page as it runs, as a line that opens to
+the step's purpose.
+
+**Trial status.** In real mode a trial's status is the institution's own accrual status (OnCore) from the OA trial
+table the store was built from; in synthetic mode it is the ClinicalTrials.gov overall status of the run's export
+(open: recruiting or not yet recruiting), not site-specific. Neither says which cohorts have open slots, and the
+assistant says what the status means rather than implying more.
+
+**Clarification.** The assistant asks before searching when a clinical concept has materially different readings:
+metastatic (stage IV at diagnosis, recurrent metastatic disease, or either), first-line and line counting
+(maintenance, adjuvant therapy followed by early recurrence), EGFR mutant (any alteration, sensitizing exon 19
+deletion or L858R, exon 20 insertion, resistance mutations), lung cancer (NSCLC or SCLC), open, and time windows. It
+asks one question at a time with 2-5 options, shown as buttons (an answer can also be typed), carries the answer
+through the conversation, and states the interpretation it used under each answer. It does not ask when the reading
+would not change the result.
+
+**Answers** are Markdown. Every trial, cohort and patient ID a tool returned is a link: a trial opens its details
+and a cohort its criteria in Trial management, and a patient opens in Patient-centric search.
+
+**Model.** The chat assistant is its own LLM task on Data and models (**Change model** on the tab edits the same
+connection). Its default is Claude Opus 5.5 through the Databricks gateway (`databricks.endpoints.opus`), at medium
+effort, with the conversation so far read from Claude's prompt cache on each step; without a gateway it uses the
+app's default connection. The page shows the conversation's requests and tokens. **Stop** ends a running turn, and
+**New conversation** starts over.
+
+**Data handling.** A conversation lives in the server's memory for its browser session (it expires with the session)
+and is never written to disk or logged; an ad-hoc criteria line's compiled query is kept with the conversation only.
+Patient summaries and structured records go to the selected model connection, so use one authorized for the mode's
+data.
 
 ## Run
 
