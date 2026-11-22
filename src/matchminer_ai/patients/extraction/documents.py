@@ -203,6 +203,33 @@ def add_ncit_codes(record: dict, resource: str) -> None:
         item["agents_ncit"] = ncit_agent_codes(item["agents"], resource)
 
 
+def _resolve_settings(resolved: MMAIConfig, linking: bool) -> tuple:
+    """The section's settings, checked, with the prompt parts and contract: everything that needs no notes."""
+    extensions = resolve_extensions((getattr(resolved, SECTION, None) or {}).get("extensions") or [])
+    extra_types = extension_item_types(extensions)
+    item_types = item_types_for("document", extra_types)
+    schema = document_response_schema(extra_types, linking=linking)
+    settings = section_settings(resolved, SECTION, "clinical_document_record", schema)
+    template = load_prompt_text(PROMPT_FILE)
+    guide = render_field_guide("document", extra_types, linking=linking)
+    guidance = extension_guidance(extensions)
+    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
+    head = fill(template.split("{linking}")[0], {
+        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
+    limit = settings.values.get("max_document_characters", 200000)
+    if type(limit) is not int or limit < 1:
+        raise ValueError(f"{SECTION}.max_document_characters must be a positive integer")
+    ncit_resource = settings.values.get(
+        "ncit_resource", resolved.good_option_catalog.get("ncit_resource", "Thesaurus_26.07d.FLAT.zip")
+    )
+    contract = digest({
+        "schema_version": SCHEMA_VERSION, "template": template, "guide": guide,
+        "guidance": guidance, "schema": schema, "ncit": settings.ncit_agent_codes,
+    })
+    return (extensions, item_types, schema, settings, template, guide, guidance, head, limit, ncit_resource,
+            contract)
+
+
 def extract_document_records(
     notes: pd.DataFrame,
     *,
@@ -262,30 +289,11 @@ def extract_document_records(
     resolved = config or load_default_preset()
     if not isinstance(resolved, MMAIConfig):
         raise TypeError("config must be an MMAIConfig instance or None.")
-    frame, counts = normalize_notes(notes)
-    extensions = resolve_extensions((getattr(resolved, SECTION, None) or {}).get("extensions") or [])
-    extra_types = extension_item_types(extensions)
-    item_types = item_types_for("document", extra_types)
     linking = patient_records is not None
+    (extensions, item_types, schema, settings, template, guide, guidance, head, limit, ncit_resource,
+     contract) = _resolve_settings(resolved, linking)
+    frame, counts = normalize_notes(notes)
     cancers = known_cancers(patient_records) if linking else {}
-    schema = document_response_schema(extra_types, linking=linking)
-    settings = section_settings(resolved, SECTION, "clinical_document_record", schema)
-    template = load_prompt_text(PROMPT_FILE)
-    guide = render_field_guide("document", extra_types, linking=linking)
-    guidance = extension_guidance(extensions)
-    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
-    head = fill(template.split("{linking}")[0], {
-        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
-    limit = settings.values.get("max_document_characters", 200000)
-    if type(limit) is not int or limit < 1:
-        raise ValueError(f"{SECTION}.max_document_characters must be a positive integer")
-    ncit_resource = settings.values.get(
-        "ncit_resource", resolved.good_option_catalog.get("ncit_resource", "Thesaurus_26.07d.FLAT.zip")
-    )
-    contract = digest({
-        "schema_version": SCHEMA_VERSION, "template": template, "guide": guide,
-        "guidance": guidance, "schema": schema, "ncit": settings.ncit_agent_codes,
-    })
     debug = resolved.debug_mode
 
     notes_list = [

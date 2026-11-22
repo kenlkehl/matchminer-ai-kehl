@@ -234,6 +234,10 @@ processes (default 16), and each patient starts as soon as its chunks are ready.
 tokenized. The chunks are the same as a single process makes, so the number of workers does not change the results or
 the checkpoints.
 
+With a server registry, the requests in flight follow the servers' ceilings added up, when that is more than the
+window. `check_extraction_settings(config)` checks both sections' settings without notes; `preprocess_extractions` runs
+it before it reads the notes, so a bad value fails at once rather than after a large store's notes have loaded.
+
 ## Checkpoints
 
 With `checkpoint_dir`, the document stage appends each finished note to

@@ -7,7 +7,8 @@ hold up the rest of its batch, so most of a batch's slots sit idle while its slo
 finish. :class:`RequestQueue` instead sends each request on its own through the backend's
 request session (``open_request_session``, which remote backends have) and starts the next
 waiting request as soon as any returns, keeping ``chunk_size * chunks_in_flight`` requests in
-flight; the endpoint pool still limits each server. Backends without a request session (local
+flight, or the endpoints' ceilings added up when that is more (a server registry's ceilings are
+re-read as servers come and go); the endpoint pool still limits each server. Backends without a request session (local
 vLLM, which batches its own requests, and test doubles) get batches of ``chunk_size``, up to
 ``chunks_in_flight`` at once.
 """
@@ -22,6 +23,9 @@ import time
 from typing import Any
 
 from .prompt_rendering import build_prompt_list
+
+# The most requests a request session holds at once (one thread each, started as needed).
+STREAM_THREADS = 16384
 
 # (item, answer, reasoning, finish_reason, response metadata or None)
 Record = Callable[[Any, str, str, str, "dict[str, Any] | None"], None]
@@ -99,14 +103,26 @@ class RequestQueue:
     async def _stream(self, record, progress, progress_seconds):
         window = self.chunk_size * self.chunks_in_flight
         first = next(iter(self.runtimes.values()))
-        # The session's threads hold the requests waiting for an endpoint, so it needs one per request.
-        session_config = {**first, "pool_max_workers": max(window, int(first.get("pool_max_workers", 0)))}
+        # The session's threads hold the requests waiting for an endpoint, so it needs one per request. Threads start
+        # only as requests need them, so the bound can be well above the window (see limit below).
+        session_config = {**first, "pool_max_workers": max(window, STREAM_THREADS,
+                                                           int(first.get("pool_max_workers", 0)))}
         async with self.backend.open_request_session(session_config, self.cache_dir) as session:
             self.model_metadata = dict(session.model_metadata)
+            capacity = getattr(session, "request_capacity", None)
+
+            def limit() -> int:
+                # The endpoints' ceilings added up, when above the window. With a server registry the endpoint pool
+                # holds each server to its own adaptive limit, and the registry changes as servers come and go, so
+                # a fixed window would leave servers idle (or overload the few still up).
+                return max(window, min(int(capacity()), session_config["pool_max_workers"])) \
+                    if callable(capacity) else window
+
             finished: asyncio.Queue = asyncio.Queue()
             in_flight, reported = 0, time.monotonic()
             while in_flight or len(self):
-                while in_flight < window and (picked := self._next()) is not None:
+                allowed = limit()
+                while in_flight < allowed and (picked := self._next()) is not None:
                     group, queue = picked
                     item, messages = queue.popleft()
                     runtime = self.runtimes[group]

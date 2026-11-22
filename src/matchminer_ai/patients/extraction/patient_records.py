@@ -263,6 +263,61 @@ def _fragment_stream(patients, pids, tokenizer, size, overlap, workers):
         yield from pool.map(_worker_fragments, tasks, chunksize=8)
 
 
+def _resolve_settings(resolved: MMAIConfig) -> tuple:
+    """The section's settings, checked, with the prompt parts and contract: everything that needs no notes."""
+    extensions = resolve_extensions((getattr(resolved, SECTION, None) or {}).get("extensions") or [])
+    extra_types = extension_item_types(extensions)
+    item_types = item_types_for("patient", extra_types)
+    schema = patient_response_schema(extra_types)
+    settings = section_settings(resolved, SECTION, "clinical_patient_record_update", schema)
+    values = settings.values
+    chunk_tokens = values.get("chunk_tokens", 40000)
+    overlap = values.get("chunk_overlap_tokens", 500)
+    if type(chunk_tokens) is not int or chunk_tokens < 256:
+        raise ValueError(f"{SECTION}.chunk_tokens must be an integer of at least 256")
+    if type(overlap) is not int or not 0 <= overlap < chunk_tokens // 2:
+        raise ValueError(f"{SECTION}.chunk_overlap_tokens must be from 0 to half of chunk_tokens")
+    # A prompt budget (prompt_tokens, in the model's tokens; prompt_token_ratio of them per chunk-tokenizer token):
+    # each request then takes only the next note fragments that fit beside the record so far, so a growing record
+    # does not push prompts past it (Claude Haiku 5.5 costs five times as much above 100,000 prompt tokens).
+    prompt_tokens = values.get("prompt_tokens")
+    ratio = values.get("prompt_token_ratio", 1.0)
+    fragment_tokens = values.get("fragment_tokens", 8000)
+    if prompt_tokens is not None and (type(prompt_tokens) is not int or prompt_tokens < 1024):
+        raise ValueError(f"{SECTION}.prompt_tokens must be null or an integer of at least 1024")
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0.1 <= ratio <= 10:
+        raise ValueError(f"{SECTION}.prompt_token_ratio must be a number from 0.1 to 10")
+    if type(fragment_tokens) is not int or fragment_tokens <= 2 * overlap:
+        raise ValueError(f"{SECTION}.fragment_tokens must be an integer above twice chunk_overlap_tokens")
+    workers = values.get("tokenizer_workers", 1)
+    if type(workers) is not int or workers < 1:
+        raise ValueError(f"{SECTION}.tokenizer_workers must be a positive integer")
+    budget = None if prompt_tokens is None else int(prompt_tokens / ratio)
+    fragment_size = chunk_tokens - 64 if budget is None else min(chunk_tokens - 64, fragment_tokens)
+    context = values.get("context_tokens")
+    if context is None:
+        context = values.get("local", {}).get("engine", {}).get("max_model_len")
+    max_tokens = int(settings.runtime["sampling_params"].get("max_tokens", 0))
+    tokenizer_name = settings.runtime.get("tokenizer_name", settings.runtime["model_name"])
+    template = load_prompt_text(PROMPT_FILE)
+    guide = render_field_guide("patient", extra_types)
+    guidance = extension_guidance(extensions)
+    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
+    head = fill(template.split("{record}")[0], {
+        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
+    ncit_resource = values.get(
+        "ncit_resource", resolved.good_option_catalog.get("ncit_resource", "Thesaurus_26.07d.FLAT.zip")
+    )
+    contract = digest({
+        "schema_version": SCHEMA_VERSION, "template": template, "guide": guide,
+        "guidance": guidance, "schema": schema,
+    })
+    return (
+        extensions, item_types, schema, settings, values, chunk_tokens, overlap, prompt_tokens, budget,
+        fragment_size, context, max_tokens, tokenizer_name, template, guide, guidance, head, ncit_resource, contract
+    )
+
+
 def extract_patient_records(
     notes: pd.DataFrame,
     *,
@@ -316,51 +371,11 @@ def extract_patient_records(
     resolved = config or load_default_preset()
     if not isinstance(resolved, MMAIConfig):
         raise TypeError("config must be an MMAIConfig instance or None.")
+    (
+        extensions, item_types, schema, settings, values, chunk_tokens, overlap, prompt_tokens, budget,
+        fragment_size, context, max_tokens, tokenizer_name, template, guide, guidance, head, ncit_resource, contract
+    ) = _resolve_settings(resolved)
     frame, counts = normalize_notes(notes)
-    extensions = resolve_extensions((getattr(resolved, SECTION, None) or {}).get("extensions") or [])
-    extra_types = extension_item_types(extensions)
-    item_types = item_types_for("patient", extra_types)
-    schema = patient_response_schema(extra_types)
-    settings = section_settings(resolved, SECTION, "clinical_patient_record_update", schema)
-    values = settings.values
-    chunk_tokens = values.get("chunk_tokens", 40000)
-    overlap = values.get("chunk_overlap_tokens", 500)
-    if type(chunk_tokens) is not int or chunk_tokens < 256:
-        raise ValueError(f"{SECTION}.chunk_tokens must be an integer of at least 256")
-    if type(overlap) is not int or not 0 <= overlap < chunk_tokens // 2:
-        raise ValueError(f"{SECTION}.chunk_overlap_tokens must be from 0 to half of chunk_tokens")
-    # A prompt budget (prompt_tokens, in the model's tokens; prompt_token_ratio of them per chunk-tokenizer token):
-    # each request then takes only the next note fragments that fit beside the record so far, so a growing record
-    # does not push prompts past it (Claude Haiku 5.5 costs five times as much above 100,000 prompt tokens).
-    prompt_tokens = values.get("prompt_tokens")
-    ratio = values.get("prompt_token_ratio", 1.0)
-    fragment_tokens = values.get("fragment_tokens", 8000)
-    if prompt_tokens is not None and (type(prompt_tokens) is not int or prompt_tokens < 1024):
-        raise ValueError(f"{SECTION}.prompt_tokens must be null or an integer of at least 1024")
-    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0.1 <= ratio <= 10:
-        raise ValueError(f"{SECTION}.prompt_token_ratio must be a number from 0.1 to 10")
-    if type(fragment_tokens) is not int or fragment_tokens <= 2 * overlap:
-        raise ValueError(f"{SECTION}.fragment_tokens must be an integer above twice chunk_overlap_tokens")
-    budget = None if prompt_tokens is None else int(prompt_tokens / ratio)
-    fragment_size = chunk_tokens - 64 if budget is None else min(chunk_tokens - 64, fragment_tokens)
-    context = values.get("context_tokens")
-    if context is None:
-        context = values.get("local", {}).get("engine", {}).get("max_model_len")
-    max_tokens = int(settings.runtime["sampling_params"].get("max_tokens", 0))
-    tokenizer_name = settings.runtime.get("tokenizer_name", settings.runtime["model_name"])
-    template = load_prompt_text(PROMPT_FILE)
-    guide = render_field_guide("patient", extra_types)
-    guidance = extension_guidance(extensions)
-    # The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).
-    head = fill(template.split("{record}")[0], {
-        "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else ""})
-    ncit_resource = values.get(
-        "ncit_resource", resolved.good_option_catalog.get("ncit_resource", "Thesaurus_26.07d.FLAT.zip")
-    )
-    contract = digest({
-        "schema_version": SCHEMA_VERSION, "template": template, "guide": guide,
-        "guidance": guidance, "schema": schema,
-    })
     debug = resolved.debug_mode
     folder = Path(checkpoint_dir) / CHECKPOINT_SUBDIR if checkpoint_dir is not None else None
 

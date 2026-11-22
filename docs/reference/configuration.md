@@ -281,7 +281,10 @@ with `section="trial"` (the default). See [Trials](../api/trials.md).
 | `max_tokens` | `50000` | Output budget (`local.generation`, `remote.request_params`) |
 
 A remote backend keeps `chunk_size * chunks_in_flight` requests in flight, sending each as another returns, so one
-slow answer holds up only itself. A local backend gets batches of `chunk_size` requests of one step,
+slow answer holds up only itself. When the endpoints' ceilings add up to more (a server registry's
+`upstream_concurrency` values, re-read as servers come and go), it keeps that many in flight instead, and the
+endpoint pool holds each server to its own limit. This applies to every stage that queues requests this way,
+including structured extraction. A local backend gets batches of `chunk_size` requests of one step,
 `chunks_in_flight` at once. The default prompts are `trial.cohorts.screen.user.txt`, `trial.cohorts.list.user.txt`
 and `trial.cohorts.criteria.user.txt`, shared with full protocols.
 

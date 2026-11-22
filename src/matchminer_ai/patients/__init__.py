@@ -18,6 +18,7 @@ from .compression import (
     compress_patient_notes,
 )
 from .extraction import (
+    check_extraction_settings,
     extract_document_records,
     extract_patient_records,
     extraction_items,
@@ -269,6 +270,7 @@ __all__ = [
     "answer_patient_question_batch",
     "answer_patient_questions",
     "build_extraction_database",
+    "check_extraction_settings",
     "check_patient_summary",
     "check_workup_with_extractions",
     "check_workup_with_sql",

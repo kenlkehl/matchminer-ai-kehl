@@ -279,10 +279,15 @@ def main(argv=None):
             gateway_log = output.parent / f"{output.name}.gateway_requests.jsonl"
             os.environ["MMAI_GATEWAY_REQUEST_LOG"] = str(gateway_log)
             print(f"Gateway requests: {gateway_log}", flush=True)
-        notes, source = read_notes(settings, args)
-        print(f"{source['patients']:,} patients, {len(notes):,} notes", flush=True)
         config = build_config(settings, args, servers)
         import matchminer_ai.patients as patients
+
+        try:  # before the notes are read, which takes long for a large store
+            patients.check_extraction_settings(config, patient_level=args.levels == "document_and_patient")
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
+        notes, source = read_notes(settings, args)
+        print(f"{source['patients']:,} patients, {len(notes):,} notes", flush=True)
         from matchminer_ai.patients.extraction.notes import note_ids
 
         patient_records = patient_meta = None

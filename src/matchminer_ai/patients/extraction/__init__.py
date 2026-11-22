@@ -27,6 +27,25 @@ from .schema import (
 from .tables import extraction_items
 from .vocabulary import VOCABULARIES, Term, Vocabulary
 
+
+def check_extraction_settings(config=None, *, patient_level: bool = True) -> None:
+    """Check the extraction settings without notes: raise ``ValueError`` for a bad value.
+
+    The extractors check the same settings, but only after the caller has read the notes, which takes long for a
+    large store. ``patient_level`` also checks ``patient_extraction`` (and the document settings with linking).
+    """
+    from matchminer_ai.config import MMAIConfig, load_default_preset
+
+    from . import documents, patient_records
+
+    resolved = config or load_default_preset()
+    if not isinstance(resolved, MMAIConfig):
+        raise TypeError("config must be an MMAIConfig instance or None.")
+    if patient_level:
+        patient_records._resolve_settings(resolved)
+    documents._resolve_settings(resolved, patient_level)
+
+
 __all__ = [
     "CORE_ITEM_TYPES",
     "Extension",
@@ -36,6 +55,7 @@ __all__ = [
     "Term",
     "VOCABULARIES",
     "Vocabulary",
+    "check_extraction_settings",
     "document_response_schema",
     "extract_document_records",
     "extract_patient_records",

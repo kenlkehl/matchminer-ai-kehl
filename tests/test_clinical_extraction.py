@@ -609,3 +609,56 @@ def test_requests_added_while_an_answer_is_recorded_count_toward_the_queue_lengt
 
     queue._deliver(record, [(0, "", "", "stop", None), (1, "", "", "stop", None)])
     assert seen == [1, 2] and len(queue) == 2
+
+
+def test_extraction_settings_are_checked_without_notes():
+    """A large build reads its notes for a long time, so a bad setting must fail before that."""
+    from matchminer_ai.patients import check_extraction_settings
+
+    config = load_default_preset()
+    check_extraction_settings(config)
+    config.patient_extraction = {**config.patient_extraction, "batches_in_flight": 32}
+    with pytest.raises(ValueError, match="batches_in_flight"):
+        check_extraction_settings(config)
+    check_extraction_settings(config, patient_level=False)
+
+
+def test_a_request_queue_keeps_the_endpoints_ceilings_in_flight_when_above_its_window():
+    """With a server registry the endpoint pool limits each server; a fixed window would leave servers idle."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from matchminer_ai.llm.request_queue import RequestQueue
+
+    load = {"now": 0, "peak": 0}
+
+    class Session:
+        model_metadata = {}
+
+        def request_capacity(self):
+            return 6
+
+        async def generate(self, prompt, runtime):
+            load["now"] += 1
+            load["peak"] = max(load["peak"], load["now"])
+            await asyncio.sleep(0.01)
+            load["now"] -= 1
+            return SimpleNamespace(summary="{}", reasoning="", finish_reason="stop", response_metadata=None)
+
+    class Backend:
+        def open_request_session(self, config, cache_dir=None):
+            class Context:
+                async def __aenter__(self):
+                    return Session()
+
+                async def __aexit__(self, *exc):
+                    return None
+            return Context()
+
+    runtime = {"backend_mode": "remote", "sampling_params": {"max_tokens": 16}}
+    queue = RequestQueue(Backend(), {None: runtime}, chunk_size=2, chunks_in_flight=1)
+    for n in range(12):
+        queue.add(n, [{"role": "user", "content": str(n)}])
+    answered = []
+    queue.run(lambda item, *_: answered.append(item))
+    assert sorted(answered) == list(range(12)) and load["peak"] == 6

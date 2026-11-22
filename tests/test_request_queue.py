@@ -14,7 +14,7 @@ def test_remote_requests_are_sent_one_by_one_so_a_slow_answer_holds_up_only_itse
     from matchminer_ai.llm.endpoint_pool import _POOLS
     _POOLS.clear()
     registry = tmp_path / "servers.json"
-    registry.write_text(json.dumps({"ready": True, "servers": [{"url": "http://replica/v1", "upstream_concurrency": 8}]}))
+    registry.write_text(json.dumps({"ready": True, "servers": [{"url": "http://replica/v1", "upstream_concurrency": 2}]}))
     lines = ["Slow line.", "Line two.", "Line three.", "Line four.", "Line five."]
     lock, others_done, answered, sent = Lock(), Event(), [], []
 
