@@ -114,11 +114,6 @@ CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
-# The LLM alternative to the decision model wherever the dashboard scores a pair (``apps.dashboard.llm_decisions``):
-# match scores, common exclusions and per-criterion checks. It replaced the per-criterion-only ``criteria_llm`` task
-# (2026-11-22, user instruction); a connection saved under the old name is moved to it (``migrate_task_connections``).
-LLM_DECISIONS_TASK = "llm_decisions"
-RENAMED_TASKS = {"criteria_llm": LLM_DECISIONS_TASK}
 QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
 
 
@@ -164,6 +159,12 @@ def default_backend() -> str:
     2026-11-21), else Gemini 4 Hydrogen on Vertex."""
     return "claude_databricks" if connections.databricks_host() and claude_models().get("haiku") else DEFAULT_BACKEND
 
+
+# The LLM alternative to the decision model wherever the dashboard scores a pair (``apps.dashboard.llm_decisions``):
+# match scores, common exclusions and per-criterion checks. It replaced the per-criterion-only ``criteria_llm`` task
+# (2026-11-22, user instruction); a connection saved under the old name is moved to it (``migrate_task_connections``).
+LLM_DECISIONS_TASK = "llm_decisions"
+RENAMED_TASKS = {"criteria_llm": LLM_DECISIONS_TASK}
 
 # Every LLM task of the app, each with its own connection (until set: see Settings.for_task).
 LLM_TASKS = {

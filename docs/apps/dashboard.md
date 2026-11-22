@@ -73,6 +73,59 @@ TrialSpace model and says so on Data and models if they differ.
   26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's Claude
   endpoints).
 
+## Run
+
+From a source checkout:
+
+```bash
+uv pip install -e ".[apps]"          # add databricks for Claude in the SQL agent
+cd frontend/dashboard && pnpm install && pnpm build && cd -   # once, and after frontend changes
+mmai-dashboard --mode synthetic --site-config site.yaml --device cuda:0
+```
+
+`python -m matchminer_ai.apps.dashboard` is the same command. `mmai-dashboard --mode ... build` builds the trial
+store once and exits. `pnpm dev` serves the frontend on :5173 and proxies `/api` to a running server
+(`MMAI_DASH_API_URL`, default `http://127.0.0.1:8781`).
+
+**Access.** Real mode serves on loopback only, because it shows patient records and confidential protocol content;
+forward the port with `ssh -L` to reach it from another machine. It accepts only loopback Host headers, refuses
+cross-origin writes and requires the access token: `MMAI_DASH_ACCESS_TOKEN`, else a private
+`~/.config/mmai-dashboard/access_token` created on first use. That keeps out other accounts on the same machine. On an
+interactive terminal the server prints a one-click sign-in link; with redirected output it prints only where the token
+is. Each browser gets a session: its jobs, model connections, patient workspace and population are its own and
+expire after an hour unused.
+
+## Inputs
+
+Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DASH_STORE_DIR`), the site config
+(`dashboard.<mode>.<key>` for a mode's own data, `dashboard.<key>` for shared values), or folders under the data root
+(`--data-root`, `MMAI_DATA_ROOT` or `paths.data_root`):
+
+| Setting | Mode | Default under the data root | Contents |
+| --- | --- | --- | --- |
+| `--trial-data` (`dashboard.real.trial_data`) | real | `phi/real_time/trial_data` | The trial extraction run (`inputs.csv`, `protocol/` and `ctgov/` with per-trial results); new results appear within a poll (`--rebuild-poll-seconds`, 30) |
+| `--oa-db` (`dashboard.real.oa_db`) | real | `phi/real_time/oa_db_*.duckdb` | The DuckDB copy holding the trial table (the newest file of a glob) |
+| `--store-dir` (`dashboard.<mode>.store_dir`) | both | `phi/real_time/dashboard`, `no_phi/dashboard_synthetic` | The trial store, cohort vectors and caches (owner only) |
+| `--good-options-catalog` (`dashboard.<mode>.good_options_catalog`) | both | real: `phi/real_time/good_options_catalog/catalog`; synthetic: none | Trials' drugs and mechanism classes; missing: no drugs |
+| `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
+| `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
+| `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
+| `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
+
+The decision model is the synthetic run's trained model (`--decision-model` overrides it, with fallbacks while the
+run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
+the LLM (Benchmarking always uses it) and runs on `--device`, by default `cuda:0` when CUDA is available, else the
+CPU.
+
+The default model connection (`--llm-backend`, `--llm-model`) is Claude Haiku 5.5 through a Databricks AI Gateway
+when the site config names the gateway (`databricks.host`, `databricks.profile`) and a Haiku endpoint
+(`databricks.endpoints.haiku`), else the Vertex profile Gemini 4 Hydrogen (in the site's `vertex.project`). Claude
+serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
+endpoints the site names (`sonnet`, `opus`) can be chosen per task. An OpenAI-compatible endpoint is also offered
+(`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`). Each session can change the
+connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
+endpoints authorized for the data.
+
 ## Decision model or LLM
 
 Wherever the dashboard scores a patient-cohort pair, a **Scores from: Decision model | LLM** toggle chooses who
@@ -141,59 +194,6 @@ connection saved under the old name serves the new task.
 **Data.** The patient's summary sections and the cohort's criteria go to the task's connection, so use an endpoint
 authorized for the data, as for every LLM task. Answers and reasoning stay in the server's memory, visible only to the
 session; nothing patient-derived is logged or written to disk.
-
-## Run
-
-From a source checkout:
-
-```bash
-uv pip install -e ".[apps]"          # add databricks for Claude in the SQL agent
-cd frontend/dashboard && pnpm install && pnpm build && cd -   # once, and after frontend changes
-mmai-dashboard --mode synthetic --site-config site.yaml --device cuda:0
-```
-
-`python -m matchminer_ai.apps.dashboard` is the same command. `mmai-dashboard --mode ... build` builds the trial
-store once and exits. `pnpm dev` serves the frontend on :5173 and proxies `/api` to a running server
-(`MMAI_DASH_API_URL`, default `http://127.0.0.1:8781`).
-
-**Access.** Real mode serves on loopback only, because it shows patient records and confidential protocol content;
-forward the port with `ssh -L` to reach it from another machine. It accepts only loopback Host headers, refuses
-cross-origin writes and requires the access token: `MMAI_DASH_ACCESS_TOKEN`, else a private
-`~/.config/mmai-dashboard/access_token` created on first use. That keeps out other accounts on the same machine. On an
-interactive terminal the server prints a one-click sign-in link; with redirected output it prints only where the token
-is. Each browser gets a session: its jobs, model connections, patient workspace and population are its own and
-expire after an hour unused.
-
-## Inputs
-
-Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DASH_STORE_DIR`), the site config
-(`dashboard.<mode>.<key>` for a mode's own data, `dashboard.<key>` for shared values), or folders under the data root
-(`--data-root`, `MMAI_DATA_ROOT` or `paths.data_root`):
-
-| Setting | Mode | Default under the data root | Contents |
-| --- | --- | --- | --- |
-| `--trial-data` (`dashboard.real.trial_data`) | real | `phi/real_time/trial_data` | The trial extraction run (`inputs.csv`, `protocol/` and `ctgov/` with per-trial results); new results appear within a poll (`--rebuild-poll-seconds`, 30) |
-| `--oa-db` (`dashboard.real.oa_db`) | real | `phi/real_time/oa_db_*.duckdb` | The DuckDB copy holding the trial table (the newest file of a glob) |
-| `--store-dir` (`dashboard.<mode>.store_dir`) | both | `phi/real_time/dashboard`, `no_phi/dashboard_synthetic` | The trial store, cohort vectors and caches (owner only) |
-| `--good-options-catalog` (`dashboard.<mode>.good_options_catalog`) | both | real: `phi/real_time/good_options_catalog/catalog`; synthetic: none | Trials' drugs and mechanism classes; missing: no drugs |
-| `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
-| `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
-| `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
-| `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
-
-The decision model is the synthetic run's trained model (`--decision-model` overrides it, with fallbacks while the
-run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
-the LLM (Benchmarking always uses it) and runs on `--device`, by default `cuda:0` when CUDA is available, else the
-CPU.
-
-The default model connection (`--llm-backend`, `--llm-model`) is Claude Haiku 5.5 through a Databricks AI Gateway
-when the site config names the gateway (`databricks.host`, `databricks.profile`) and a Haiku endpoint
-(`databricks.endpoints.haiku`), else the Vertex profile Gemini 4 Hydrogen (in the site's `vertex.project`). Claude
-serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
-endpoints the site names (`sonnet`, `opus`) can be chosen per task. An OpenAI-compatible endpoint is also offered
-(`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`). Each session can change the
-connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
-endpoints authorized for the data.
 
 ## Real patients
 
