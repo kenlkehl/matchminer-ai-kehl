@@ -2328,14 +2328,17 @@ so use them where a written reason helps the reviewer and the endpoint is approv
   or on an OpenAI-compatible server. See <a href="../local-vs-remote/">choosing an inference setup</a> and
   <a href="../../reference/llm-runtime/">LLM runtime</a>.</li>
 <li><strong>TrialSpace.</strong> A sentence-embedding model fine-tuned from <code>google/embeddinggemma-2</code> by the training pipeline. The
-  default preset names none, so set <code>embedding.model_path</code> to your own. Vectors from different TrialSpace models are
-  not comparable: re-embed both sides after changing the model.</li>
+  default is the published <a href="https://huggingface.co/ksg-dfci/TrialSpace-1226"><code>ksg-dfci/TrialSpace-1226</code></a>, pinned;
+  <code>embedding.model_path</code>, or <code>paths.trialspace_model</code> in a site config, names another. Vectors from different
+  TrialSpace models are not comparable: re-embed both sides after changing the model.</li>
 <li><strong>Decision model.</strong> Runs in-process on a GPU with Transformers.</li>
 </ul>
 <p>The published models and synthetic datasets are on <a href="https://huggingface.co/ksg-dfci">Hugging Face</a>. The latest
-release, <a href="https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526">collection 0526</a>, comes from the earlier
-trial-space pipeline: its ModernBERT checkers are not used by this package, and its TrialSpace model was trained on
-a different text format than cohort key criteria.</p>
+release is <a href="https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c">collection 1226</a>
+(TrialSpace-1226, MatchEval-1226 and the mmai-synthetic-1226 dataset). The earlier
+<a href="https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526">collection 0526</a> comes from the trial-space pipeline:
+its ModernBERT checkers are not used by this package, and its TrialSpace model was trained on a different text format
+than cohort key criteria.</p>
 <h2 id="guideline-populations">Guideline populations<a class="headerlink" href="#guideline-populations" title="Permanent link">&para;</a></h2>
 <p>The same retrieval and match questions can run against guideline catalogs instead of trials. A catalog built from
 NCCN or NCI PDQ guidelines describes populations ("spaces", identified by <code>space_trial_id</code>) with cohort-style key

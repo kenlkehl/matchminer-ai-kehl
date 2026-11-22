@@ -1034,6 +1034,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Assistant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-this-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How this works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1049,6 +1071,17 @@
     <span class="md-ellipsis">
       
         Inputs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-model-or-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision model or LLM
       
     </span>
   </a>
@@ -1974,6 +2007,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Assistant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-this-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How this works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1989,6 +2044,17 @@
     <span class="md-ellipsis">
       
         Inputs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-model-or-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision model or LLM
       
     </span>
   </a>
@@ -2080,26 +2146,28 @@ population cache's vectors with cohort vectors made by the round's encoder, so i
 TrialSpace model and says so on Data and models if they differ.</p>
 <h2 id="tabs">Tabs<a class="headerlink" href="#tabs" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Trial-centric search:</strong> per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+<li><strong>Clinical trial management:</strong> per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   <strong>Find patients</strong>. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
-  the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
-  and GoodOption LLM checks run on demand. <strong>Screen with structured data</strong> checks the cohort's criteria lines on the
-  structured records of every candidate the mode's extraction store holds (each line's query is compiled once; see
+  the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model or the LLM (see
+  <a href="#decision-model-or-llm">Decision model or LLM</a>); the per-criterion check and the GoodOption check run on demand.
+  <strong>Screen with structured data</strong> checks the cohort's criteria lines on the structured records of every candidate the
+  mode's extraction store holds (each line's query is compiled once; see
   <a href="../../api/structured-criteria/">Structured-Record Criteria Screening</a>), and the search can be limited to patients
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until <strong>Show closed trials</strong> is checked, here and in
   the Patient-centric Trials view.</li>
-<li><strong>Population guideline concordance:</strong> load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
-  decision model's reasonableness, 0.75 by default), and check guideline concordance across the
+<li><strong>Guideline concordance reporting:</strong> load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
+  decision model's reasonableness, 0.75 by default, or the LLM's reasonableness answer), and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
   workup item or a patient, and export the cohort and its results.</li>
 <li><strong>Patient-centric search:</strong> one patient for three views. The patient is a corpus patient, an entered summary, or clinical
   notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are summarized.</li>
-<li><em>Trials:</em> the ranked trial cohorts with decision-model scores and the GoodOption check. A trial's criteria check
-    runs on the decision model, the LLM, or the patient's structured records (<strong>Check with structured data</strong>).</li>
-<li><em>Guidelines:</em> guideline spaces for the patient's summary, their workup and treatment menus with sources, a
-    workup review, and a Markdown report.</li>
+<li><em>Trials:</em> the ranked trial cohorts with the decision model's or the LLM's scores, and the GoodOption check. A
+    trial's criteria check runs on the decision model or the LLM (the toggle), or on the patient's structured records
+    (<strong>Check with structured data</strong>).</li>
+<li><em>Guidelines:</em> guideline spaces for the patient's summary (TrialSpace's candidates ranked by the decision model
+    or the LLM), their workup and treatment menus with sources, a workup review, and a Markdown report.</li>
 <li><em>Structured data:</em> the clinical facts extracted from the notes, patient level or note by note, each with its
     quotes and its raw JSON (each item, each note's record, the patient record). Imaging, labs and counseling are
     extracted note by note; Patient level lists each study or test once, merged from the notes in code.
@@ -2114,15 +2182,107 @@ TrialSpace model and says so on Data and models if they differ.</p>
     extraction of the notes (one with patient level also serves a document-level review), and they extract only
     when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
     patient search marks the patients it holds (<strong>Structured records</strong>) and, by default, lists only them.</li>
+<li><strong>Assistant:</strong> a chat over the mode's own data (see <a href="#assistant">Assistant</a> below).</li>
 <li><strong>Benchmarking:</strong> distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line (<a href="../../evaluation/">Evaluation</a>).</li>
+<li><strong>How this works:</strong> how the models are trained and fit together at run time, and the structured extraction data
+  model (see <a href="#how-this-works">How this works</a> below).</li>
 <li><strong>Data and models</strong> (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the <strong>model connections</strong>, one per LLM task for this browser session: patient summarization,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
-  GoodOption check and the per-criterion LLM check.</li>
+  GoodOption check, the LLM decision checks and the chat assistant. Three connectors: an OpenAI-compatible server
+  (<strong>Detect served model</strong> reads its <code>/v1/models</code>), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8
+  Flash or Gemma 4 26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's
+  Claude endpoints).</li>
 </ul>
+<h2 id="assistant">Assistant<a class="headerlink" href="#assistant" title="Permanent link">&para;</a></h2>
+<p>The Assistant tab answers questions about the mode's own data ("what trials are open for EGFR-mutant lung cancer?",
+"find patients with metastatic colorectal cancer") in a chat. It is an agent loop inside the app
+(<code>matchminer_ai.apps.dashboard.assistant</code>), not a separate agent runtime: each step is one request to the chosen
+model whose answer is one JSON action, validated in code, so it works with every connector the app offers. The
+action is a tool call, a clarifying question or the answer.</p>
+<p><strong>Tools.</strong> Read-only, over the running app's data, through the services the other tabs use; the model has no shell,
+file or network access:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>search_trials</code></td>
+<td>Regular-expression search over the dashboard cohorts (trial ID, titles, cohort names, key criteria, drug names), with the Clinical trial management filters: cancer type, center, phase, open status, GoodOption drugs and classes</td>
+</tr>
+<tr>
+<td><code>match_trials</code></td>
+<td>TrialSpace retrieval from a patient description (embedded as an entered summary is), one cohort per trial, optionally reranked by the decision model's match questions</td>
+</tr>
+<tr>
+<td><code>trial_details</code></td>
+<td>A trial's or cohort's status, phase, center, drugs and key (and, on request, boilerplate) criteria lines</td>
+</tr>
+<tr>
+<td><code>search_patients</code></td>
+<td>The patient list's search over the summaries</td>
+</tr>
+<tr>
+<td><code>match_patients</code></td>
+<td>Find patients: TrialSpace retrieval from a cohort, or from ad-hoc criteria text, optionally reranked</td>
+</tr>
+<tr>
+<td><code>patient_details</code></td>
+<td>A patient's summary sections and, when the extraction store holds the patient, the records' disease course</td>
+</tr>
+<tr>
+<td><code>screen_records</code></td>
+<td>Screen with structured data: criteria lines (a cohort's, or ad-hoc lines) compiled into queries by the query-writing connection and run in code over the store's records, with per-line counts and the patients documented to meet every checkable inclusion line. Absence never fails a line, and lines no item type can check are reported as not checkable</td>
+</tr>
+<tr>
+<td><code>score_pairs</code></td>
+<td>The match and boilerplate questions for given patient-cohort pairs, from the decision model or the LLM (the session's <strong>Scores from</strong>)</td>
+</tr>
+<tr>
+<td><code>guideline_spaces</code></td>
+<td>The guideline catalog's spaces nearest a patient description</td>
+</tr>
+</tbody>
+</table>
+<p>A user message gets at most 8 tool calls; then the model must answer or ask. Results list at most 25 rows with their
+totals, and a repeated call is not run again. Each tool step shows on the page as it runs, as a line that opens to
+the step's purpose.</p>
+<p><strong>Trial status.</strong> In real mode a trial's status is the institution's own accrual status (OnCore) from the OA trial
+table the store was built from; in synthetic mode it is the ClinicalTrials.gov overall status of the run's export
+(open: recruiting or not yet recruiting), not site-specific. Neither says which cohorts have open slots, and the
+assistant says what the status means rather than implying more.</p>
+<p><strong>Clarification.</strong> The assistant asks before searching when a clinical concept has materially different readings:
+metastatic (stage IV at diagnosis, recurrent metastatic disease, or either), first-line and line counting
+(maintenance, adjuvant therapy followed by early recurrence), EGFR mutant (any alteration, sensitizing exon 19
+deletion or L858R, exon 20 insertion, resistance mutations), lung cancer (NSCLC or SCLC), open, and time windows. It
+asks one question at a time with 2-5 options, shown as buttons (an answer can also be typed), carries the answer
+through the conversation, and states the interpretation it used under each answer. It does not ask when the reading
+would not change the result.</p>
+<p><strong>Answers</strong> are Markdown. Every trial, cohort and patient ID a tool returned is a link: a trial opens its details
+and a cohort its criteria in Clinical trial management, and a patient opens in Patient-centric search.</p>
+<p><strong>Model.</strong> The chat assistant is its own LLM task on Data and models (<strong>Change model</strong> on the tab edits the same
+connection). Its default is Claude Opus 5.5 through the Databricks gateway (<code>databricks.endpoints.opus</code>), at medium
+effort, with the conversation so far read from Claude's prompt cache on each step; without a gateway it uses the
+app's default connection. The page shows the conversation's requests and tokens. <strong>Stop</strong> ends a running turn, and
+<strong>New conversation</strong> starts over.</p>
+<p><strong>Data handling.</strong> A conversation lives in the server's memory for its browser session (it expires with the session)
+and is never written to disk or logged; an ad-hoc criteria line's compiled query is kept with the conversation only.
+Patient summaries and structured records go to the selected model connection, so use one authorized for the mode's
+data.</p>
+<h2 id="how-this-works">How this works<a class="headerlink" href="#how-this-works" title="Permanent link">&para;</a></h2>
+<p>The How this works tab shows a curated set of the documentation's pages: how matching works at run time, training
+(TrialSpace, the decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and
+criteria screening. The extraction data model page is generated from the schema's declarations (item types, fields,
+vocabularies, versions), so it matches the code. From a source checkout the pages are read from <code>docs/</code>; the frontend
+build copies them into the package (<code>static/docs/</code>) for an installed one. Only the pages listed in
+<code>docs_pages.json</code> are served.</p>
 <h2 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
 <p>From a source checkout:</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[apps]"</span><span class="w">          </span><span class="c1"># add databricks for Claude in the SQL agent</span>
@@ -2204,8 +2364,9 @@ expire after an hour unused.</p>
 </tbody>
 </table>
 <p>The decision model is the synthetic run's trained model (<code>--decision-model</code> overrides it, with fallbacks while the
-run is still training; Data and models shows which one loaded). It scores in every tab and runs on <code>--device</code>, by
-default <code>cuda:0</code> when CUDA is available, else the CPU.</p>
+run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
+the LLM (Benchmarking always uses it) and runs on <code>--device</code>, by default <code>cuda:0</code> when CUDA is available, else the
+CPU.</p>
 <p>The default model connection (<code>--llm-backend</code>, <code>--llm-model</code>) is Claude Haiku 5.5 through a Databricks AI Gateway
 when the site config names the gateway (<code>databricks.host</code>, <code>databricks.profile</code>) and a Haiku endpoint
 (<code>databricks.endpoints.haiku</code>), else the Vertex profile Gemini 4 Hydrogen (in the site's <code>vertex.project</code>). Claude
@@ -2214,6 +2375,107 @@ endpoints the site names (<code>sonnet</code>, <code>opus</code>) can be chosen 
 (<code>--llm-backend openai</code>, <code>--llm-endpoint</code>, default the site's <code>endpoints.teacher.url</code>). Each session can change the
 connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
 endpoints authorized for the data.</p>
+<h2 id="decision-model-or-llm">Decision model or LLM<a class="headerlink" href="#decision-model-or-llm" title="Permanent link">&para;</a></h2>
+<p>Wherever the dashboard scores a patient-cohort pair, a <strong>Scores from: Decision model | LLM</strong> toggle chooses who
+answers. The choice belongs to the browser session: the same toggle appears in every such view, changing it in one
+changes it in all, and it lasts until the browser tab closes. Benchmarking always uses the decision model (an
+evaluation must). The Assistant follows it too: each message carries the choice, and its reranks and <code>score_pairs</code>
+then use the LLM decision checks connection (at most 10 pairs per call, ranked by the LLM's 0-6 score), name the
+source and scale in their results, and list each LLM answer under the step, opening the same answer dialog.</p>
+<table>
+<thead>
+<tr>
+<th>View</th>
+<th>Decision model</th>
+<th>LLM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Clinical trial management, Find patients: the candidates' scores, ranking and <strong>Hide patients likely excluded</strong></td>
+<td>match questions and the common-exclusion question</td>
+<td><code>score_match_quality_with_llm</code> and <code>exclusion_criteria_check_with_llm</code></td>
+</tr>
+<tr>
+<td>Its patient dialog (Criteria check tab)</td>
+<td>the pair's answers and the per-criterion check</td>
+<td>the same, from the LLM</td>
+</tr>
+<tr>
+<td>Patient-centric search, Trials: the cohorts' scores, ranking and <strong>Hide trials with likely common exclusions</strong></td>
+<td>as Find patients</td>
+<td>as Find patients</td>
+</tr>
+<tr>
+<td>Its trial dialog</td>
+<td>the pair's answers and the per-criterion check</td>
+<td>the same, from the LLM</td>
+</tr>
+<tr>
+<td>The per-criterion check (both dialogs)</td>
+<td><code>check_eligibility_criteria</code></td>
+<td><code>check_eligibility_criteria_with_llm</code> (one request per line)</td>
+</tr>
+<tr>
+<td>Patient-centric search, Guidelines: ranking TrialSpace's candidate spaces</td>
+<td>the match score</td>
+<td>the LLM's match score</td>
+</tr>
+<tr>
+<td>Guideline concordance reporting: selecting and ranking a space's candidates</td>
+<td>P(reasonable) at least the threshold</td>
+<td>the LLM's reasonableness answer is yes</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Questions and scales.</strong> The LLM answers the prompts the training teacher labeled with (the package's LLM
+functions; the dashboard writes no prompt of its own), on their own scales, never mixed with the decision model's
+probabilities:</p>
+<ul>
+<li><em>Match:</em> five yes/no answers (reasonable candidate; cancer type, disease extent, treatment history and biomarker,
+  each "required by the cohort and documentedly met"), each with an evidence status and a reason, combined into the
+  package's 0-6 match score: 0 unless reasonable, else 1 plus 1 each for cancer type, extent and treatment history and
+  2 for biomarker. The badge reads <em>Possible match (LLM)</em> or <em>Unlikely match (LLM)</em> from the reasonableness answer,
+  with the score (for example 3/6).</li>
+<li><em>Common exclusions:</em> "Is this patient clearly excluded from this cohort?" from the cohort's common criteria and the
+  patient's other relevant history: yes or no.</li>
+<li><em>Per criterion:</em> per line, yes (does not clearly fail it) or no (clearly fails it), as the decision model's
+  question 7.</li>
+</ul>
+<p>Under the LLM, lists rank by the 0-6 score, then TrialSpace similarity; pairs the LLM has not scored follow by
+similarity. A guideline search ranks every TrialSpace candidate the same way and keeps the top N; a population
+search keeps the candidates the LLM finds reasonable, ranked the same way (the decision model's threshold does not
+apply). Both searches still come from the package's retrieval, whose decision-model scores are removed from what the
+view shows; the guideline report keeps the package's table, marked as the decision model's, below the LLM's ranking.
+When both have answered a pair's criteria, the criteria list shows the other scorer's answers too, labeled, with the
+lines they disagree on.</p>
+<p><strong>Cost and latency.</strong> LLM scoring is one request per pair and question (per line for the criteria check):</p>
+<ul>
+<li>Lists score only what the view shows: the first ten results as the page opens, then <strong>Score the next 10 ... with
+  the LLM</strong>. A run asks only what the session has no answer to.</li>
+<li>Every run is a background job of the browser session (its progress shows beside the list), with at most ten
+  requests in flight per question family.</li>
+<li>Before a run, the view shows its estimate: requests, the model, and approximate input tokens. A run of more than
+  25 requests (a long criteria list, a guideline or population search over many candidates) waits for <strong>confirm</strong>;
+  the server refuses it unconfirmed. A list run scores at most 50 pairs, and a search ranks at most 200 candidates.</li>
+<li>Answers are cached in the server's memory for the session, per pair texts, question, connection (backend, endpoint,
+  model) and prompt version, and expire with the session.</li>
+</ul>
+<p><strong>Reasoning.</strong> Every LLM answer opens (click the badge, <strong>reasoning</strong>, or <strong>raw output</strong>) to its parsed answer, the
+reasoning the backend returned, its raw output, and the whole record as JSON (Copy and Download). What reasoning
+there is depends on the backend: an OpenAI-compatible server returns its reasoning text (vLLM's
+<code>reasoning_content</code>, or what the package's reasoning parser splits off) when the model thinks; Claude through the
+Databricks gateway returns summaries of its thinking, which the dashboard requests (the 5.5 models otherwise omit
+them; the billing is the same); hosted Gemini on Vertex returns none through this connection. An answer without
+reasoning says so.</p>
+<p><strong>The model.</strong> One LLM task on Data and models, <strong>LLM decision checks</strong>, serves the match, common-exclusion and
+per-criterion questions. Its default is the app's default connection (Claude Haiku 5.5 through the gateway when the
+site names it), and any connector can serve it: an OpenAI-compatible server (<strong>Detect served model</strong>), a Vertex
+profile, or another of the gateway's Claude endpoints. It replaced the per-criterion task (<code>criteria_llm</code>); a
+connection saved under the old name serves the new task.</p>
+<p><strong>Data.</strong> The patient's summary sections and the cohort's criteria go to the task's connection, so use an endpoint
+authorized for the data, as for every LLM task. Answers and reasoning stay in the server's memory, visible only to the
+session; nothing patient-derived is logged or written to disk.</p>
 <h2 id="real-patients">Real patients<a class="headerlink" href="#real-patients" title="Permanent link">&para;</a></h2>
 <p>Real mode's patients are a preprocessed population cache: summaries with precomputed TrialSpace vectors, and the
 source notes, read on demand. It is built offline from a population DuckDB database (<code>dashboard.real.population_duckdb</code>)
