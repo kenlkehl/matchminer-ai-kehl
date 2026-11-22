@@ -22,11 +22,13 @@ hosted Gemini (thought summaries are not requested). ``reasoning_note`` says whi
 **Data handling.** Answers and reasoning stay in this process's memory, per browser session (``SessionResults``),
 keyed by the pair's texts, the question family, the connection and the prompt contract, and expire with the
 session. Runs are background jobs of the session (``core.jobs``: only it sees them, and errors are reduced to their
-type), with at most ``IN_FLIGHT`` requests in flight per run. Nothing patient-derived is logged. The patient summary
+type), with at most ``IN_FLIGHT`` requests in flight per question family. Nothing patient-derived is logged. The patient summary
 and the cohort's criteria go to the session's connection for the ``llm_decisions`` task (Data and Models).
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import contextvars
 from dataclasses import dataclass
 import hashlib
 import json
@@ -44,8 +46,9 @@ from .llm import NOTICE, Connection
 CACHE_VERSION = "mmai-dash-llm-decisions-v1"
 FAMILIES = ("match", "boilerplate", "criteria")
 SECTIONS = ("llm_match_quality", "llm_exclusion_criteria", "llm_criteria_check")
-#: Requests a run keeps in flight (a shared endpoint; the gateway sheds load above a few hundred).
-IN_FLIGHT = 8
+#: Requests a run keeps in flight per question family (a shared endpoint; the gateway sheds load above a few
+#: hundred): a page's first ten pairs are one round.
+IN_FLIGHT = 10
 #: A run of more requests than this is shown as an estimate and needs the user's confirmation first.
 LARGE_RUN = 25
 #: Pairs one list run may score; candidates a guideline-space or population search may rank with the LLM.
@@ -257,7 +260,7 @@ class LLMDecisions:
     def estimate(self, owner: str, pairs: list[PairText], families, connection: Connection, *,
                  fresh: bool = False) -> dict:
         """What scoring the pairs would send: requests per family (cached answers, unless ``fresh``, and skipped
-        questions are not asked again), the model and approximate input tokens (characters / 4)."""
+        questions are not asked again), the model and approximate input tokens (characters / 3)."""
         from matchminer_ai.llm.prompts import load_prompt_text
 
         base = self.base_config()
@@ -285,7 +288,7 @@ class LLMDecisions:
                                   for p in todo)
         total = sum(requests.values())
         return {"pairs": len(pairs), "requests": total, "by_family": requests, "cached": cached,
-                "approx_input_tokens": characters // 4, "model": connection.label, "backend": connection.backend,
+                "approx_input_tokens": characters // 3, "model": connection.label, "backend": connection.backend,
                 "large": total > LARGE_RUN, "large_run": LARGE_RUN}
 
     def check_size(self, estimate: dict, confirm: bool) -> None:
@@ -312,15 +315,27 @@ class LLMDecisions:
             wanted = {self.key(family, p, connection): p for p in pairs if self.asks(family, p)}
             found = {} if rerun else self.results.get_many(owner, list(wanted))
             todo[family] = [(k, p) for k, p in wanted.items() if k not in found]
-        total, done = sum(len(v) for v in todo.values()), 0
+        total, done, lock = sum(len(v) for v in todo.values()), [0], threading.Lock()
         progress(0, total, f"asking {connection.label}" if total else "cached")
-        for family, items in todo.items():
+
+        def ask_family(family, items):
+            ask = self._ask_match if family == "match" else self._ask_boilerplate
             for start in range(0, len(items), IN_FLIGHT):
                 chunk = items[start:start + IN_FLIGHT]
-                ask = self._ask_match if family == "match" else self._ask_boilerplate
-                self.results.put_many(owner, ask(chunk, connection, config))
-                done += len(chunk)
-                progress(done, total, f"{done} of {total} {'request' if total == 1 else 'requests'} answered")
+                self.results.put_many(owner, ask(chunk, connection, config))  # kept as each chunk answers
+                with lock:
+                    done[0] += len(chunk)
+                    now = done[0]
+                progress(now, total, f"{now} of {total} {'request' if total == 1 else 'requests'} answered")
+
+        # The families run side by side (each in the job's context, so a stop reaches the package's requests).
+        streams = [(family, items) for family, items in todo.items() if items]
+        if len(streams) == 1:
+            ask_family(*streams[0])
+        elif streams:
+            with ThreadPoolExecutor(len(streams), thread_name_prefix="mmai-llm-decisions") as pool:
+                for future in [pool.submit(contextvars.copy_context().run, ask_family, *stream) for stream in streams]:
+                    future.result()
         return self.lookup(owner, pairs, families, connection)
 
     def _common(self, key: str, family: str, connection: Connection, seconds: float) -> dict:

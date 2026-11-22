@@ -241,7 +241,8 @@ def router(state: DashState) -> APIRouter:
         chosen = connection(request, LLM_DECISIONS_TASK)
         pairs = search_pairs(body.direction, body.query_id, body.target_ids, MAX_PAIRS)
         return {"results": state.llm_decisions.lookup(owner(request), pairs, body.families, chosen),
-                "estimate": state.llm_decisions.estimate(owner(request), pairs, body.families, chosen)}
+                "estimate": state.llm_decisions.estimate(owner(request), pairs, body.families, chosen,
+                                                         fresh=body.rerun)}
 
     @api.post("/api/llm-decisions/score")
     def llm_score(body: LLMPairsRequest, request: Request):
