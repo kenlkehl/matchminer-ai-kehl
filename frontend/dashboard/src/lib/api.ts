@@ -493,6 +493,8 @@ export interface PatientSummary {
   histology?: string;
   cls?: string | null;
   cancer_types?: string[];
+  /** The mode's extraction store holds this patient (patient lists only). */
+  has_records?: boolean;
 }
 
 export interface PatientDetail extends PatientSummary {
@@ -507,6 +509,8 @@ export interface PatientList {
   offset: number;
   rows: PatientSummary[];
   search_ms: number;
+  /** Patients the mode's extraction store holds. */
+  with_records?: number;
 }
 
 export interface Note {

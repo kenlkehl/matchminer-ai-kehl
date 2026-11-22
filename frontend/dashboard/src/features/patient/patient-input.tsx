@@ -6,6 +6,8 @@ import { useEffect, useId, useState } from "react";
 import { SearchInput } from "@/components/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -222,7 +224,8 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
   const [q, setQ] = useState("");
   const [cancerType, setCancerType] = useState("");
   const [offset, setOffset] = useState(0);
-  const list = useQuery(patientsOptions(q, cancerType, "", offset));
+  const [records, setRecords] = useState(false);
+  const list = useQuery(patientsOptions(q, cancerType, "", offset, records));
   const pick = useMutation({
     mutationFn: (id: string) => api.get<PatientDetail>(`/api/patients/${encodeURIComponent(id)}`),
     onSuccess: pickCorpusPatient,
@@ -261,6 +264,18 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
               ))}
           </NativeSelect>
         </label>
+        {data?.with_records ? (
+          <Label className="gap-1.5 pb-2 text-sm font-normal">
+            <Checkbox
+              checked={records}
+              onCheckedChange={(checked) => {
+                setRecords(checked === true);
+                setOffset(0);
+              }}
+            />
+            Only patients with structured records ({data.with_records.toLocaleString()})
+          </Label>
+        ) : null}
       </div>
       <div className="overflow-hidden rounded-md border border-gray-200">
         {data ? (
@@ -281,6 +296,11 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
                     }}
                   >
                     <span className="flex-1 text-gray-800">{patientLine(p)}</span>
+                    {p.has_records ? (
+                      <Badge variant="secondary" className="shrink-0">
+                        Structured records
+                      </Badge>
+                    ) : null}
                     <span className="shrink-0 font-mono text-xs text-gray-400">{p.id}</span>
                     {pick.isPending && pick.variables === p.id ? (
                       <Spinner className="size-3.5" />

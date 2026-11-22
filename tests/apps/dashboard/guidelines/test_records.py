@@ -76,3 +76,12 @@ def test_records_extract_view_and_criteria_screen(make_client, monkeypatch):
     assert other.post("/api/criteria-records", json={**body, "cohort_id": cohort_id}).status_code == 400
     response = client.post(f"/api/cohorts/{cohort_id}/screen-records", json={"patient_ids": ["patient_a"]})
     assert response.status_code == 400 and "store" in response.json()["error"]
+
+
+def test_patient_list_marks_and_filters_stored_patients(make_client, monkeypatch):
+    client = make_client()
+    monkeypatch.setattr(client.app.state.mmai.guidelines.records, "patient_ids", lambda: frozenset({"patient_a"}))
+    every = client.get("/api/patients").json()
+    assert every["total"] > 1 and every["with_records"] == 1
+    assert {r["id"] for r in every["rows"] if r["has_records"]} == {"patient_a"}
+    assert [r["id"] for r in client.get("/api/patients?records=true").json()["rows"]] == ["patient_a"]

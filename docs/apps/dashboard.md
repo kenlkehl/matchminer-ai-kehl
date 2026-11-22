@@ -57,7 +57,8 @@ TrialSpace model and says so on Data and models if they differ.
     extracted on request with the guideline concordance connection. The Guidelines workup review (extraction
     queries or the SQL agent) and the criteria checks use the same records: the store's, else the session's
     extraction of the notes (one with patient level also serves a document-level review), and they extract only
-    when neither exists.
+    when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
+    patient search marks the patients it holds (**Structured records**) and can list only them.
 - **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs

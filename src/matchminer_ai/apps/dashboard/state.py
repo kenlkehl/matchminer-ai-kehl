@@ -306,6 +306,15 @@ class DashState:
             mask &= m
         return mask
 
+    def records_mask(self) -> np.ndarray:
+        """Corpus rows whose patient the mode's extraction store holds (the store's sample)."""
+        held = np.zeros(len(self.corpus.patients), dtype=bool)
+        for pid in self.guidelines.records.patient_ids():
+            row = self.corpus.patient_index.get(pid)
+            if row is not None:
+                held[row] = True
+        return held
+
     def patient_entity(self, pid: str) -> dict:
         if pid in self.custom:
             return self.custom[pid]

@@ -79,12 +79,19 @@ export const notesOptions = (patientId: string) =>
     refetchInterval: (query) => (query.state.data?.state === "ready" ? false : 3_000),
   });
 
-export const patientsOptions = (q: string, cancerType: string, sex: string, offset: number) =>
+export const patientsOptions = (q: string, cancerType: string, sex: string, offset: number, records = false) =>
   queryOptions({
-    queryKey: ["patients", q, cancerType, sex, offset],
+    queryKey: ["patients", q, cancerType, sex, offset, records],
     queryFn: () =>
       api.get<PatientList>(
-        `/api/patients?${new URLSearchParams({ q, cancer_type: cancerType, sex, offset: String(offset), limit: "25" }).toString()}`,
+        `/api/patients?${new URLSearchParams({
+          q,
+          cancer_type: cancerType,
+          sex,
+          offset: String(offset),
+          limit: "25",
+          ...(records ? { records: "true" } : {}),
+        }).toString()}`,
       ),
     placeholderData: (previous) => previous,
   });

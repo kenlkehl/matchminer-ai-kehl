@@ -55,10 +55,17 @@ def router(state: DashState) -> APIRouter:
     api = APIRouter()
 
     @api.get("/api/patients")
-    def patients(q: str = "", cancer_type: str = "", sex: str = "", offset: int = 0, limit: int = 50):
+    def patients(q: str = "", cancer_type: str = "", sex: str = "", records: bool = False, offset: int = 0,
+                 limit: int = 50):
+        """``records``: only patients the mode's extraction store holds. Each row says whether it has stored records."""
         mask = state.patient_mask(cancer_type, "", "")
+        if records:
+            held = state.records_mask()
+            mask = held if mask is None else mask & held
         out = state.corpus.search_patients(q, "", sex, max(0, offset), max(1, min(limit, 500)), mask, "text")
-        out["rows"] = [state.patient_summary(r["id"]) for r in out["rows"]]
+        stored = state.guidelines.records.patient_ids()
+        out["rows"] = [{**state.patient_summary(r["id"]), "has_records": r["id"] in stored} for r in out["rows"]]
+        out["with_records"] = len(stored)
         return out
 
     @api.get("/api/patients/{pid}")
@@ -100,11 +107,7 @@ def router(state: DashState) -> APIRouter:
             k = max(1, min(int(request.k or state.settings.default_k), state.settings.max_k))
             mask = state.patient_mask(request.cancer_type, request.sex, "")
             if request.with_records:
-                held = np.zeros(len(state.corpus.patients), dtype=bool)
-                for pid in state.guidelines.records.patient_ids():
-                    row = state.corpus.patient_index.get(pid)
-                    if row is not None:
-                        held[row] = True
+                held = state.records_mask()
                 mask = held if mask is None else mask & held
             hits = state.patient_vectors.search(vector, "patients", k, mask)
             searched = len(state.corpus.patients) if mask is None else int(mask.sum())

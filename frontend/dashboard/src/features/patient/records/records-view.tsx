@@ -140,7 +140,7 @@ export function RecordsView() {
       <div className="flex flex-col gap-3 rounded-md border border-gray-200 p-4">
         <p className="text-sm text-gray-800">
           {body.patient_id && data.store?.available
-            ? "The extraction store has no records of this patient."
+            ? `The extraction store holds the records of a sample of ${data.store.patients?.toLocaleString() ?? "the"} patients, and this patient is not one of them. Pick a patient marked “Structured records” in the patient search, or extract this patient’s notes here.`
             : "There are no structured records of these notes yet."}{" "}
           Extracting reads each note (and, with patient level, all notes together) with the model of
           the guideline concordance checks.
