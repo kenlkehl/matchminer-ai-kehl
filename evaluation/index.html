@@ -2081,7 +2081,9 @@ python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation
 python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.metrics<span class="w"> </span>--run-dir<span class="w"> </span>RUN
 </code></pre></div>
 <p><code>compare</code> compares the two judges whose answers the run holds (while only one has answered, the other is the first
-of Databricks and Azure not taken, and its units wait); name them with <code>--judges</code> when a run has more. The judge,
+of Databricks and Azure not taken, and its units wait); name them with <code>--judges</code> when a run has more. It queues
+disputed and single-judge units for adjudication; <code>--audit-fraction</code> also queues a seeded sample of agreed units
+(off by default). The judge,
 comparison, adjudication and metrics modules need only the package and the standard library (plus <code>anthropic</code> and
 <code>databricks-sdk</code> for the Databricks judge), so they can run on another machine that can read and write the run
 directory. Claude judges only through the Databricks gateway (Claude Opus 5.5): the site config's <code>databricks.host</code>
