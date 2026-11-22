@@ -7,7 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveBlob } from "@/lib/api";
+import { useScorer } from "@/lib/llm-decisions";
+import { llmOptions } from "@/lib/queries";
 
+import { ScorerToggle } from "../../matching/scorer-toggle";
 import { findGuidelineSpaces, say } from "../actions";
 import { Field, NativeSelect, StatusLine } from "../fields";
 import { JobProgress } from "../job-progress";
@@ -44,7 +47,22 @@ function SearchScope() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const busy = isBusy(s);
   const catalogs = library.data?.catalogs ?? [];
-  const ready = hasSummary(s.summary) && catalogs.length > 0 && !busy;
+  const scorer = useScorer();
+  const decisions = useQuery(llmOptions()).data?.decisions;
+  const usingLLM = scorer === "llm";
+  // The LLM is asked about every candidate (cached answers are not asked again).
+  const large = usingLLM && !!decisions && s.candidateK > decisions.large_run;
+  const [confirming, setConfirming] = useState(false);
+  const llmBlocked = usingLLM && (!decisions || !decisions.available);
+  const ready = hasSummary(s.summary) && catalogs.length > 0 && !busy && !llmBlocked;
+  const find = () => {
+    if (large && !confirming) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    findGuidelineSpaces(large);
+  };
   return (
     <section
       aria-label="Search scope"
@@ -106,7 +124,10 @@ function SearchScope() {
             ))}
           </NativeSelect>
         </Field>
-        <Field label="Candidate spaces to rerank" htmlFor={`${id}-k`}>
+        <Field
+          label={usingLLM ? "Candidate spaces for the LLM to rank" : "Candidate spaces to rerank"}
+          htmlFor={`${id}-k`}
+        >
           <Input
             id={`${id}-k`}
             type="number"
@@ -120,21 +141,44 @@ function SearchScope() {
             }}
           />
         </Field>
-        <Button
-          className="ml-auto"
-          disabled={!ready}
-          onClick={() => {
-            findGuidelineSpaces();
-          }}
-        >
+        <Button className="ml-auto" disabled={!ready} onClick={find}>
           <SearchIcon />
           Find guideline spaces →
         </Button>
       </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <ScorerToggle />
+        {usingLLM && decisions ? (
+          <span className="text-xs text-gray-500">
+            Ranking sends up to {s.candidateK} {s.candidateK === 1 ? "request" : "requests"} to{" "}
+            {decisions.connection.label} (one per candidate; answers this session already has are
+            reused).
+          </span>
+        ) : null}
+        {confirming ? (
+          <span className="flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-950">
+            This sends up to {s.candidateK} requests to {decisions?.connection.label}.
+            <Button size="xs" onClick={find}>
+              Rank them
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setConfirming(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
+        ) : null}
+      </div>
       <p className="text-xs text-gray-500">
-        {hasSummary(s.summary)
-          ? "Matched to the population and ranked by match quality: TrialSpace retrieves candidate spaces and the decision model's match questions rank their clinical fit. The candidate count must cover the spaces returned. Search uses local TrialSpace and decision models."
-          : "Add a patient summary above (choose a patient, enter one, or create one from clinical notes) to find guideline spaces."}
+        {!hasSummary(s.summary)
+          ? "Add a patient summary above (choose a patient, enter one, or create one from clinical notes) to find guideline spaces."
+          : usingLLM
+            ? "Matched to the population and ranked by the LLM: TrialSpace retrieves candidate spaces and the LLM answers the decision model's five match questions (the teacher prompt) for each; spaces are ranked by its 0–6 match score, then TrialSpace similarity. The summary and each space's key criteria go to the LLM connection."
+            : "Matched to the population and ranked by match quality: TrialSpace retrieves candidate spaces and the decision model's match questions rank their clinical fit. The candidate count must cover the spaces returned. Search uses local TrialSpace and decision models."}
       </p>
       {library.isError ? <p className="text-sm text-red-700">{library.error.message}</p> : null}
       {libraryOpen ? (
@@ -168,6 +212,11 @@ function Results({ result }: { result: RetrieveResult }) {
         <Badge variant="secondary">
           {rows.length} ranked {rows.length === 1 ? "space" : "spaces"}
         </Badge>
+        {result.ranking ? (
+          <Badge variant="outline">
+            Ranked by the LLM ({result.ranking.model}) of {result.ranking.candidates} candidates
+          </Badge>
+        ) : null}
         <span className="text-sm text-gray-600">
           {searched !== undefined ? searched.toLocaleString() : "Selected"} catalog spaces searched
         </span>

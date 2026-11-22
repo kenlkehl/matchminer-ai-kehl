@@ -46,7 +46,8 @@ def test_retrieval_defaults_parameters_and_session_isolation(setup):
     b = peer(a)
     # The default search reranks five candidates and returns one space.
     default = a.post("/api/guidelines/retrieve", json={"summary": "Synthetic"}).json()["job"]
-    assert wait(a, default["id"])["result"]["search"] == {"catalogs": [], "top_n": 1, "candidate_k": 5}
+    assert wait(a, default["id"])["result"]["search"] == {"catalogs": [], "top_n": 1, "candidate_k": 5,
+                                                          "scorer": "decision_model"}
     assert inference.calls[0][2:] == (1, 5)
     info = a.get("/api/guidelines/catalogs").json()
     assert "path" not in info["catalogs"][0]

@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 
+import { type LLMAnswer, LLMAnswerDialog, LLMMatchBadge } from "../../matching/llm-score-view";
 import { reviewWorkup } from "../actions";
 import { EndpointNotice } from "../fields";
 import { JobProgress } from "../job-progress";
@@ -48,6 +49,7 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
   const job = usePatient().job;
   const reviewing = job?.kind === "workup" && job.space === index ? job : null;
   const caveats = space.uncertainties.length;
+  const [answer, setAnswer] = useState<LLMAnswer | null>(null);
   return (
     <AccordionItem
       value={index}
@@ -64,17 +66,22 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
               {space.source.title} · {space.source.version}
             </span>
             <span className="flex flex-wrap items-center gap-2 text-xs font-normal">
-              <span
-                className={cn(
-                  "rounded-md px-2 py-0.5 font-semibold",
-                  space.match_quality_pass
-                    ? "bg-brand-blue/10 text-brand-midnight"
-                    : "bg-amber-100 text-amber-900",
-                )}
-              >
-                Match quality {Number(space.match_quality_score).toFixed(3)}
-                {space.match_quality_pass ? "" : " · Below cutoff"}
-              </span>
+              {space.llm_match !== undefined ? (
+                // In the accordion's trigger (a button): a plain badge; its answers open from the content.
+                <LLMMatchBadge answer={space.llm_match} scoring={false} />
+              ) : (
+                <span
+                  className={cn(
+                    "rounded-md px-2 py-0.5 font-semibold",
+                    space.match_quality_pass
+                      ? "bg-brand-blue/10 text-brand-midnight"
+                      : "bg-amber-100 text-amber-900",
+                  )}
+                >
+                  Match quality {Number(space.match_quality_score).toFixed(3)}
+                  {space.match_quality_pass ? "" : " · Below cutoff"}
+                </span>
+              )}
               <span className="text-gray-600">
                 {space.diagnostic_workup.length} workup · {space.treatment_options.length} treatment
                 {caveats ? ` · ${String(caveats)} ${caveats === 1 ? "caveat" : "caveats"}` : ""}
@@ -85,6 +92,20 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
       </AccordionTrigger>
       <AccordionContent className="flex flex-col gap-3 px-4">
         {reviewing ? <JobProgress job={reviewing} /> : null}
+        {space.llm_match ? (
+          <p className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+            Ranked by the LLM's match answers ({space.llm_match.connection.label}).
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setAnswer(space.llm_match ?? null);
+              }}
+            >
+              LLM answers and reasoning
+            </Button>
+          </p>
+        ) : null}
         <Tabs defaultValue="workup">
           <TabsList variant="line" className="w-full justify-start border-b">
             <TabsTrigger value="workup" className="flex-none">
@@ -116,6 +137,14 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
             <SourceTab space={space} />
           </TabsContent>
         </Tabs>
+        {answer ? (
+          <LLMAnswerDialog
+            answer={answer}
+            onClose={() => {
+              setAnswer(null);
+            }}
+          />
+        ) : null}
       </AccordionContent>
     </AccordionItem>
   );

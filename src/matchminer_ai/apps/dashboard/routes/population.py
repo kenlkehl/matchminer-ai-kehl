@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 
 from ..core.errors import BusyError, InputError
 from ..guidelines.state import GuidelineState
+from ..llm_decisions import search_connection
 from .common import owner as session_owner
 from ..guidelines.population import (
     PopulationInference,
@@ -55,6 +56,10 @@ class PopulationSearch(PopulationRequest):
     space_trial_id: str = Field(min_length=1, max_length=1000)
     candidate_k: int = Field(default=50, ge=1, le=100_000, strict=True)
     min_reasonableness: float | None = Field(default=0.75, ge=0, le=1)
+    # Who selects and ranks TrialSpace's candidates: the decision model (min_reasonableness), or the LLM decision
+    # checks' connection (its reasonableness answer; min_reasonableness does not apply).
+    scorer: Literal["decision_model", "llm"] = "decision_model"
+    confirm: bool = False  # the user confirmed a large LLM run's estimate
 
 
 class PopulationReview(PopulationRequest):
@@ -267,6 +272,13 @@ def router(g: GuidelineState) -> APIRouter:
         entry = entry_for(owner, body.version)
         paths = catalogs.resolve([body.catalog_id])
         worker = PopulationInference(current_settings(owner))
+        llm = None
+        if body.scorer == "llm":
+            candidates = min(body.candidate_k, len(entry["source"].summaries))
+            llm = search_connection(g, owner, candidates, body.confirm)
+
+        def select(selected, metadata, progress):
+            return g.llm_decisions.select_guideline_patients(owner, selected, metadata, llm, progress)
 
         def run(progress):
             active = worker.retrieve(
@@ -274,9 +286,10 @@ def router(g: GuidelineState) -> APIRouter:
                 paths,
                 body.space_trial_id,
                 body.candidate_k,
-                body.min_reasonableness,
+                None if llm else body.min_reasonableness,
                 progress,
                 embeddings=entry.get("embeddings"),
+                select=select if llm else None,
             )
             return sessions.save(owner, entry["source"], active, expected=entry)
 

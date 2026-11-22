@@ -1,5 +1,5 @@
 import { DownloadIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { download } from "@/lib/api";
+import { fetchAnswer } from "@/lib/llm-decisions";
 
+import { type LLMAnswer, LLMAnswerDialog } from "../matching/llm-score-view";
 import { Helper } from "./controls";
 import { APPLICABILITY_LABELS, count, isExtractionMethod, methodLabels, score } from "./labels";
 import type { AggregateRow, MatchRow, PopulationReport, PopulationView } from "./types";
@@ -60,6 +62,9 @@ function activeStatus(p: PopulationView | null): string {
     return "Load a population, then select a finalized trial space to find matching patients.";
   }
   const r = a.retrieval;
+  if (r.scorer?.kind === "llm") {
+    return `${count(a.patient_count)} active patients / ${count(r.scored_count ?? a.matches.length)} asked of the LLM (${r.scorer.model}) / ${count(r.population_count ?? p.source_count)} in source population. Kept when ${r.scorer.selection}. ${r.scorer.ranking} New selection settings apply when you fetch again.`;
+  }
   const threshold =
     r.min_match_score !== undefined
       ? `Score threshold: ${r.min_match_score === null ? "none" : String(r.min_match_score)}`
@@ -135,14 +140,36 @@ function MatchesTable({
   matches: MatchRow[];
   onPatient: (patientId: string) => void;
 }) {
+  // An LLM-selected cohort shows the LLM's answers, never the decision model's.
+  const llm = matches.some((m) => m.llm_answer_key !== undefined);
+  const [answer, setAnswer] = useState<LLMAnswer | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const open = (key: string) => {
+    setError(null);
+    fetchAnswer(key)
+      .then(setAnswer)
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+  };
   return (
     <div className="max-h-[28rem] overflow-y-auto border-t border-gray-200">
+      {error ? <p className="px-2 py-1 text-sm text-red-700">{error}</p> : null}
       <Table variant="list">
         <TableHeader>
           <TableRow>
             <TableHead>Patient</TableHead>
-            <TableHead className="text-right">Reasonableness</TableHead>
-            <TableHead className="text-right">Match quality</TableHead>
+            {llm ? (
+              <>
+                <TableHead className="text-right">LLM: reasonable</TableHead>
+                <TableHead className="text-right">LLM match score (0–6)</TableHead>
+              </>
+            ) : (
+              <>
+                <TableHead className="text-right">Reasonableness</TableHead>
+                <TableHead className="text-right">Match quality</TableHead>
+              </>
+            )}
             <TableHead className="text-right">TrialSpace similarity</TableHead>
             <TableHead className="text-right">Retrieval rank</TableHead>
           </TableRow>
@@ -161,18 +188,50 @@ function MatchesTable({
                   {m.patient_id}
                 </button>
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {score(m.match_quality_reasonableness)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {score(m.match_quality_score)}
-              </TableCell>
+              {llm ? (
+                <>
+                  <TableCell className="text-right">
+                    {m.llm_reasonable == null ? "?" : m.llm_reasonable ? "yes" : "no"}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {m.llm_match_score ?? "no valid answer"}
+                    {m.llm_answer_key ? (
+                      <button
+                        type="button"
+                        className="ml-2 link text-xs"
+                        onClick={() => {
+                          if (m.llm_answer_key) open(m.llm_answer_key);
+                        }}
+                      >
+                        reasoning
+                      </button>
+                    ) : null}
+                  </TableCell>
+                </>
+              ) : (
+                <>
+                  <TableCell className="text-right tabular-nums">
+                    {score(m.match_quality_reasonableness ?? null)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {score(m.match_quality_score ?? null)}
+                  </TableCell>
+                </>
+              )}
               <TableCell className="text-right tabular-nums">{score(m.similarity_score)}</TableCell>
               <TableCell className="text-right tabular-nums">{m.retrieval_rank}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      {answer ? (
+        <LLMAnswerDialog
+          answer={answer}
+          onClose={() => {
+            setAnswer(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

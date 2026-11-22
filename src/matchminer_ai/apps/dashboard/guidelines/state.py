@@ -38,6 +38,9 @@ class GuidelineState:
         # The mode's extraction record store (the Patient tab's Structured data, criteria screening).
         self.records = StoreHandle(settings)
         self.population_sessions = PopulationSessions(settings.ttl)
+        # The LLM decision checks (``apps.dashboard.llm_decisions``), for the guideline searches' LLM rankings; the
+        # app sets them.
+        self.llm_decisions = None
         self.workspace_settings: dict[str, dict] = {}
         self.lock = threading.RLock()
 

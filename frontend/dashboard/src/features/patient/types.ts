@@ -3,6 +3,7 @@
  * guidelines/services.py and guidelines/extraction_workup.py). Fields keep the server's snake_case.
  */
 import type { Job } from "@/lib/api";
+import type { LLMMatchAnswer, Scorer } from "@/lib/llm-decisions";
 
 // ---------------------------------------------------------------- notes
 
@@ -70,8 +71,12 @@ export interface GuidelineSpace {
   name: string;
   source: { title: string; version: string };
   space_trial_id: string;
-  match_quality_score: number;
-  match_quality_pass: boolean;
+  /** The decision model's ranking (absent when the LLM ranked the search: `llm_match`). */
+  match_quality_score?: number;
+  match_quality_pass?: boolean;
+  /** The LLM's match answer, when the LLM ranked the search. */
+  llm_match?: LLMMatchAnswer | null;
+  decision_model_rank?: number;
   similarity_score: number;
   retrieval_rank: number;
   diagnostic_workup: Consideration[];
@@ -87,6 +92,7 @@ export interface SearchScope {
   catalogs: string[];
   top_n: number;
   candidate_k: number;
+  scorer?: Scorer;
 }
 
 /** A finished guideline search (`/api/guidelines/retrieve`'s job result). */
@@ -99,6 +105,8 @@ export interface RetrieveResult {
     catalog?: { catalog_spaces?: number } & Record<string, unknown>;
   } & Record<string, unknown>;
   search?: SearchScope;
+  /** How the LLM ranked the candidates (an LLM-ranked search only). */
+  ranking?: { scorer: "llm"; model: string; candidates: number; top_n: number; ranking: string };
 }
 
 // ---------------------------------------------------------------- workup reviews

@@ -84,4 +84,4 @@ def test_haiku_through_the_gateway_is_the_default_when_the_site_names_it(tmp_pat
     settings = DashSettings(mode="synthetic", store_dir=tmp_path / "b", device="cpu")
     assert (settings.llm_backend, settings.llm_model) == ("claude_databricks", "catalog.schema.team-claude-haiku-5-5")
     tasks = guideline_settings(settings)
-    assert {tasks.for_task(t).llm_backend for t in ("summarize", "workup_sql", "criteria_llm")} == {"claude_databricks"}
+    assert {tasks.for_task(t).llm_backend for t in ("summarize", "workup_sql", "llm_decisions")} == {"claude_databricks"}

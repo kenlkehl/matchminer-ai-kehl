@@ -31,6 +31,7 @@ from .evidence import CatalogEvidence
 from .guidelines.state import GuidelineState
 from .llm import Connection
 from .llm_checks import LLMChecks
+from .llm_decisions import LLMDecisions
 from .pipeline import Builder, Sources, read_store, write_store
 from .vectors import CohortVectors, cohort_text_key
 
@@ -111,6 +112,11 @@ class DashState:
         self.llm = LLMChecks(settings, Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
                                                        settings.llm_tokenizer),
                              ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
+        # The LLM alternative to the decision model (answers in memory per session; runs on the LLM checks' pool),
+        # also for the guideline searches' rankings.
+        self.llm_decisions = LLMDecisions(self.guidelines.settings.ttl, jobs=self.llm.jobs,
+                                          metadata_dir=settings.cache_dir / "llm_model_metadata")
+        self.guidelines.llm_decisions = self.llm_decisions
         self.custom: dict[str, dict] = {}
         self.seed_cohort_vectors()
         # ---- benchmarks: evaluation runs under the mode's roots (Benchmarking tab)

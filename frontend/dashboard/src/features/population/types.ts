@@ -34,11 +34,15 @@ export interface CatalogInfo {
   updated: string;
 }
 
-/** A retrieved patient's scores (the active cohort's `matches`). */
+/** A retrieved patient's scores (the active cohort's `matches`): the decision model's, or (an LLM-selected
+ * cohort) the LLM's 0-6 match score and reasonableness answer, with the key of its full answer. */
 export interface MatchRow {
   patient_id: string;
-  match_quality_reasonableness: number | null;
-  match_quality_score: number | null;
+  match_quality_reasonableness?: number | null;
+  match_quality_score?: number | null;
+  llm_match_score?: number | null;
+  llm_reasonable?: boolean | null;
+  llm_answer_key?: string | null;
   similarity_score: number | null;
   retrieval_rank: number;
 }
@@ -50,6 +54,8 @@ export interface Retrieval {
   selected_count?: number;
   min_reasonableness?: number | null;
   min_match_score?: number | null;
+  /** An LLM-selected cohort: who selected and ranked it. */
+  scorer?: { kind: "llm"; model: string; selection: string; ranking: string };
 }
 
 /** One workup item's counts across the active cohort. */

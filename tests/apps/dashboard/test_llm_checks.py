@@ -1,6 +1,6 @@
-"""The LLM checks (matchminer_ai.apps.dashboard/llm.py, llm_checks.py) over the fabricated trials and catalog of test_dash.py, with fakes
-for the inference package's check_good_options and check_eligibility_criteria_with_llm and for the endpoint's
-/v1/models. No request leaves the machine."""
+"""The GoodOption check (matchminer_ai.apps.dashboard/llm.py, llm_checks.py) over the fabricated trials and catalog of
+test_dash.py, with fakes for the inference package's check_good_options and for the endpoint's /v1/models. No request
+leaves the machine. The LLM decision checks are test_llm_decisions.py's."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -17,9 +17,9 @@ GB300 = {"backend": "openai", "endpoint": TEACHER, "model": NEMOTRON}
 
 
 def use(client, backend, endpoint=TEACHER, model=NEMOTRON):
-    """Point this session's two checks at a connection (Data and Models); the check's state after."""
+    """Point this session's LLM checks at a connection (Data and Models); the checks' state after."""
     body = {"llm_backend": "local" if backend == "openai" else backend, "endpoint": endpoint, "model": model}
-    for task in ("good_option", "criteria_llm"):
+    for task in ("good_option", "llm_decisions"):
         assert client.post("/api/models", json={**body, "task": task}).status_code == 200
     return client.get("/api/llm").json()
 
@@ -87,7 +87,7 @@ def test_choosing_the_endpoint_and_its_models(dash_client, monkeypatch):
     changed = dash_client.post("/api/models", json={"llm_backend": "local", "endpoint": "otherhost:8001",
                                                     "model": NEMOTRON, "task": "good_option"}).json()
     assert changed["tasks"]["good_option"]["endpoint"] == "http://otherhost:8001/v1"
-    assert changed["tasks"]["criteria_llm"]["llm_backend"] == "gemini4_vertex"
+    assert changed["tasks"]["llm_decisions"]["llm_backend"] == "gemini4_vertex"
     assert dash_client.get("/api/llm").json()["connection"]["endpoint"] == "http://otherhost:8001/v1"
     bad = dash_client.post("/api/models", json={"llm_backend": "local", "endpoint": "http://h/v1?q", "model": "m",
                                                 "task": "good_option"})
@@ -147,7 +147,7 @@ def test_vertex_without_credentials_says_so_at_once(dash_client, monkeypatch, ve
     monkeypatch.setattr(server, "check_openai_endpoint", lambda *a, **k: pytest.fail("no request without credentials"))
     described = dash_client.get("/api/llm").json()
     assert described["good_option"]["reason"].startswith("Vertex credentials not available")
-    assert described["criteria"]["reason"].startswith("Vertex credentials not available")
+    assert described["decisions"]["reason"].startswith("Vertex credentials not available")
     response = dash_client.post("/api/good-option", json={"patient_id": "patient_a", "trial_id": "NCT90000001"})
     assert response.status_code == 400 and "Vertex credentials not available" in response.json()["error"]
     models = dash_client.post("/api/models/check", json={"llm_backend": "gemini4_vertex"}).json()
@@ -203,63 +203,3 @@ def test_good_option_errors_are_reduced_and_not_cached(dash_client, monkeypatch,
     assert job["status"] == "error" and job["error"].startswith("ConnectionError") and "patient" not in job["error"]
     assert "job" in dash_client.post("/api/good-option", json={"patient_id": "patient_a",
                                                                 "trial_id": "NCT90000001"}).json()
-
-
-def test_criteria_llm_check(dash_client, dash, monkeypatch):
-    import matchminer_ai.matching as matching
-    from matchminer_ai import load_default_preset
-
-    base = load_default_preset()  # an inference package with the check also has its preset section
-    base.raw.setdefault("llm_criteria_check", {"structured_outputs": True, "max_attempts": 3, "chunk_size": 64,
-                                               "chunks_in_flight": 1, "sampling_profile": "auto",
-                                               "remote": {"model_name": NEMOTRON,
-                                                          "request_params": {"max_tokens": 32768}}})
-    dash.llm._base = base
-    use(dash_client, **GB300)
-
-    monkeypatch.delattr(matching, "check_eligibility_criteria_with_llm", raising=False)
-    response = dash_client.post("/api/criteria-llm", json={"patient_id": "patient_a", "cohort_id": "NCT90000001-cohort-0"})
-    assert response.status_code == 400 and "criteria-llm-check" in response.json()["error"]
-    assert not dash_client.get("/api/llm").json()["criteria"]["available"]
-    calls = []
-
-    def check(frame, *, config, return_metadata=False, progress=None):
-        calls.append(frame.iloc[0].to_dict())
-        import json
-
-        items = json.loads(frame.iloc[0]["cohort_criteria_items"])
-        rows = [{"patient_id": "patient_a", "cohort_trial_id": "NCT90000001-cohort-0", "criterion_number": i["number"],
-                 "criterion_type": i["criterion_type"], "boilerplate": i["boilerplate"], "criterion_text": i["text"],
-                 "llm_criterion_answer": "no" if i["criterion_type"] == "exclusion" else "yes",
-                 "llm_criterion_clearly_fails": i["criterion_type"] == "exclusion",
-                 "llm_criterion_status": "met", "llm_criterion_reason": "Fabricated reason.",
-                 "llm_criterion_finish_reason": "stop", "llm_criterion_attempts": 1,
-                 "llm_criterion_parse_status": "parsed", "llm_criterion_reasoning_text": "Fabricated reasoning."}
-                for i in items]
-        if progress:
-            progress(len(rows), len(rows))
-        metadata = {"criteria_contract": "7a7eb230", "model_metadata": {"check_eligibility_criteria_with_llm": {
-            "requests": len(rows), "retries": 0, "parse_failures": 0, "unchecked_lines": 0,
-            "structured_outputs": True}}}
-        return (pd.DataFrame(rows), metadata) if return_metadata else pd.DataFrame(rows)
-
-    monkeypatch.setattr(matching, "check_eligibility_criteria_with_llm", check, raising=False)
-    started = dash_client.post("/api/criteria-llm", json={"patient_id": "patient_a",
-                                                          "cohort_id": "NCT90000001-cohort-0"}).json()
-    assert "job" in started, started
-    result = wait_job(dash_client, started["job"]["id"])["result"]
-    assert [line["fails"] for line in result["lines"]] == [False, False, True]
-    assert result["counts"]["clearly_fail"] == 1 and result["counts"]["lines"] == 3 and result["structured_outputs"]
-    assert calls[0]["general_exclusion_criteria_evidence"] == "ECOG 1. Creatinine 0.9 mg/dL."
-    cached = dash_client.post("/api/criteria-llm", json={"patient_id": "patient_a",
-                                                         "cohort_id": "NCT90000001-cohort-0"}).json()
-    assert cached["result"]["cached"] and len(calls) == 1
-    # Since 2026-11-17 (user) protocol criteria may go to the hosted (Vertex) endpoint too, as may CT.gov cohorts'.
-    hosted = use(dash_client, "gemini4_vertex")
-    assert hosted["criteria"]["available"] and "protocol_cohorts" not in hosted["criteria"]
-    protocol = dash_client.post("/api/criteria-llm", json={"patient_id": "patient_a",
-                                                           "cohort_id": "NCT90000001-cohort-0"}).json()
-    assert wait_job(dash_client, protocol["job"]["id"])["status"] == "done" and len(calls) == 2
-    public = dash_client.post("/api/criteria-llm", json={"patient_id": "patient_a",
-                                                         "cohort_id": "NCT90000001-ctgov-cohort-0"}).json()
-    assert wait_job(dash_client, public["job"]["id"])["status"] == "done" and len(calls) == 3

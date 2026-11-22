@@ -13,22 +13,34 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { type CohortHit, type PairScores, VERSION_LABELS } from "@/lib/api";
+import type { LLMPairResult, Scorer } from "@/lib/llm-decisions";
 import { cohortOptions } from "@/lib/queries";
 
 import { CriteriaCheck } from "../../matching/criteria-check";
+import type { LLMAnswer } from "../../matching/llm-score-view";
+import { PairScoresView } from "../../matching/patients-for-cohort-page";
 import { getPatient, recordsBody } from "../store";
-import { ExclusionLine, MatchBadge, Requirements } from "../../matching/score-view";
 
-/** A matched trial's cohort: its facts, the decision model's answers and the per-criterion check. */
+/** A matched trial's cohort: its facts, the session scorer's answers and the per-criterion check. */
 export function TrialDialog({
   row,
   patientId,
+  scorer,
   scores,
+  llm,
+  scoring,
+  onScoreLLM,
+  onAnswer,
   onClose,
 }: {
   row: CohortHit;
   patientId: string;
+  scorer: Scorer;
   scores: PairScores | undefined;
+  llm: LLMPairResult | undefined;
+  scoring: boolean;
+  onScoreLLM: () => void;
+  onAnswer: (answer: LLMAnswer) => void;
   onClose: () => void;
 }) {
   const cohort = useQuery(cohortOptions(row.cohort.cohort_id));
@@ -50,11 +62,14 @@ export function TrialDialog({
             criteria
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
-          <MatchBadge scores={scores} scoring={false} />
-          <Requirements match={scores?.match} />
-          <ExclusionLine boilerplate={scores?.boilerplate} scoring={false} />
-        </div>
+        <PairScoresView
+          scorer={scorer}
+          scores={scores}
+          llm={llm}
+          scoring={scoring}
+          onScoreLLM={onScoreLLM}
+          onAnswer={onAnswer}
+        />
         {cohort.data ? (
           <CriteriaCheck
             patientId={patientId}

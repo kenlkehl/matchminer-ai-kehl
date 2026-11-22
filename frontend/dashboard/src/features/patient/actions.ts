@@ -4,6 +4,7 @@
  * them, and restore the session's latest job after a reload (the guideline fetcher's app.js flow).
  */
 import { api, ApiError, type Job, type JobStart, type PatientDetail, stopJob } from "@/lib/api";
+import { currentScorer } from "@/lib/llm-decisions";
 
 import { corpusNotes } from "./notes";
 import {
@@ -416,8 +417,9 @@ export function summarize() {
   startJob("summarize", "/api/patient/summarize", notesBody(s));
 }
 
-/** Find the guideline spaces for the summary; false (with a message) when the scope is invalid. */
-export function findGuidelineSpaces(): boolean {
+/** Find the guideline spaces for the summary; false (with a message) when the scope is invalid. The session's
+ * scorer ranks TrialSpace's candidates (the LLM's large runs need `confirm`). */
+export function findGuidelineSpaces(confirm = false): boolean {
   const s = getPatient();
   if (!Number.isInteger(s.candidateK) || s.candidateK < s.topN || s.candidateK > 100) {
     say(
@@ -433,6 +435,8 @@ export function findGuidelineSpaces(): boolean {
     catalogs: s.catalog ? [s.catalog] : [],
     top_n: s.topN,
     candidate_k: s.candidateK,
+    scorer: currentScorer(),
+    confirm,
   });
   return true;
 }

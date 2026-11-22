@@ -76,8 +76,12 @@ export function ModelsPanel() {
             </dd>
           </div>
           <div>
-            <dt className="inline font-medium">Per-criterion LLM check: </dt>
-            <dd className="inline">{llm.criteria.available ? "available" : llm.criteria.reason}</dd>
+            <dt className="inline font-medium">LLM decision checks: </dt>
+            <dd className="inline">
+              {llm.decisions.available
+                ? `available (${llm.decisions.connection.label}; reasoning: ${llm.decisions.reasoning})`
+                : llm.decisions.reason}
+            </dd>
           </div>
           <div>
             <dt className="inline font-medium">Inference package: </dt>

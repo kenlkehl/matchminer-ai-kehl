@@ -83,9 +83,9 @@ def build_remote_request_config(
 
     request_params, extra_body = remote_sampling(llm_config)
     if remote_provider_name(llm_config) == DATABRICKS_ANTHROPIC_PROVIDER:
-        # Claude manages its own sampling and thinking: keep the token budget and effort only.
-        kept = {key: request_params[key] for key in ("max_tokens", "max_completion_tokens", "reasoning_effort")
-                if key in request_params}
+        # Claude manages its own sampling and thinking: keep the token budget, effort and thinking display only.
+        kept = {key: request_params[key] for key in ("max_tokens", "max_completion_tokens", "reasoning_effort",
+                                                     "thinking") if key in request_params}
         if "reasoning_effort" not in kept and llm_config.get("reasoning_effort"):
             kept["reasoning_effort"] = llm_config["reasoning_effort"]
         return kept, {}

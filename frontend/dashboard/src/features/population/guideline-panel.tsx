@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
+import { useScorer } from "@/lib/llm-decisions";
+import { llmOptions } from "@/lib/queries";
 
+import { ScorerToggle } from "../matching/scorer-toggle";
 import { Helper, LabeledField, SELECT, Step } from "./controls";
 import { useRemembered } from "./remember";
 import type { CatalogInfo, GuidelineSpace } from "./types";
@@ -66,7 +69,15 @@ export function GuidelinePanel({ pop }: { pop: PopulationController }) {
     }
   };
 
-  const ready = !!pop.population && !!space;
+  const scorer = useScorer();
+  const usingLLM = scorer === "llm";
+  const decisions = useQuery(llmOptions()).data?.decisions;
+  // The LLM is asked about every candidate TrialSpace finds (answers this session has are reused).
+  const llmRequests = Math.min(Number(candidates) || 0, pop.population?.source_count ?? 0);
+  const tooMany = usingLLM && !!decisions && llmRequests > decisions.max_candidates;
+  const large = usingLLM && !!decisions && llmRequests > decisions.large_run;
+  const [confirming, setConfirming] = useState(false);
+  const ready = !!pop.population && !!space && (!usingLLM || (!!decisions?.available && !tooMany));
   return (
     <Step number="02" eyebrow="Guideline population" title="Find matching patients">
       <form
@@ -74,12 +85,19 @@ export function GuidelinePanel({ pop }: { pop: PopulationController }) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!pop.population || !space) return;
+          if (large && !confirming) {
+            setConfirming(true);
+            return;
+          }
+          setConfirming(false);
           void pop.start("/api/population/retrieve", {
             version: pop.population.version,
             catalog_id: catalog,
             space_trial_id: space.space_trial_id,
             candidate_k: Number(candidates),
             min_reasonableness: Number(threshold),
+            scorer,
+            confirm: large,
           });
         }}
       >
@@ -162,6 +180,7 @@ export function GuidelinePanel({ pop }: { pop: PopulationController }) {
             {space ? spaceText(space) || "No key criteria recorded." : "No space selected."}
           </p>
         </div>
+        <ScorerToggle />
         <div className="grid grid-cols-2 gap-2">
           <LabeledField label="Candidates to score" htmlFor="pop-candidates">
             <Input
@@ -177,28 +196,66 @@ export function GuidelinePanel({ pop }: { pop: PopulationController }) {
               }}
             />
           </LabeledField>
-          <LabeledField label="Minimum reasonableness" htmlFor="pop-threshold">
-            <Input
-              id="pop-threshold"
-              type="number"
-              required
-              min={0}
-              max={1}
-              step={0.01}
-              value={threshold}
-              onChange={(e) => {
-                setThreshold(e.target.value);
-              }}
-            />
-          </LabeledField>
+          {usingLLM ? null : (
+            <LabeledField label="Minimum reasonableness" htmlFor="pop-threshold">
+              <Input
+                id="pop-threshold"
+                type="number"
+                required
+                min={0}
+                max={1}
+                step={0.01}
+                value={threshold}
+                onChange={(e) => {
+                  setThreshold(e.target.value);
+                }}
+              />
+            </LabeledField>
+          )}
         </div>
-        <Helper>
-          TrialSpace searches the full loaded population. The decision model's match questions score
-          up to this many candidates. A patient is kept when the decision model's reasonableness
-          answer (its probability that the patient is potentially eligible) is at least this value;
-          0 keeps all candidates. Kept patients are ranked by match quality.
-        </Helper>
-        <Button type="submit" className="w-full" disabled={!ready}>
+        {usingLLM ? (
+          <Helper>
+            TrialSpace searches the full loaded population. The LLM ({decisions?.connection.label})
+            answers the decision model's five match questions (the teacher prompt) for up to this
+            many candidates: {llmRequests.toLocaleString()} requests, at most{" "}
+            {decisions?.max_candidates ?? "?"}. A patient is kept when the LLM answers that the
+            patient is a reasonable candidate; kept patients are ranked by its 0–6 match score, then
+            TrialSpace similarity. The decision model's threshold does not apply. Each candidate's
+            summary and the space's key criteria go to the LLM connection.
+            {tooMany ? (
+              <span className="block text-red-700">Lower the candidate count for the LLM.</span>
+            ) : null}
+          </Helper>
+        ) : (
+          <Helper>
+            TrialSpace searches the full loaded population. The decision model's match questions
+            score up to this many candidates. A patient is kept when the decision model's
+            reasonableness answer (its probability that the patient is potentially eligible) is at
+            least this value; 0 keeps all candidates. Kept patients are ranked by match quality.
+          </Helper>
+        )}
+        {confirming ? (
+          <div className="flex flex-col gap-2 rounded-md bg-amber-50 p-2 text-sm text-amber-950">
+            This sends up to {llmRequests.toLocaleString()} requests to{" "}
+            {decisions?.connection.label}.
+            <div className="flex gap-2">
+              <Button type="submit" size="xs">
+                Ask the LLM
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setConfirming(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <Button type="submit" className="w-full" disabled={!ready || confirming}>
           Fetch matching patients
         </Button>
       </form>

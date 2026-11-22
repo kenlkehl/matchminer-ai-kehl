@@ -1,4 +1,5 @@
-"""The LLM endpoint the dashboard's LLM checks use (GoodOption check, per-criterion LLM check).
+"""The LLM endpoint the dashboard's LLM checks use (the GoodOption check and the LLM decision checks: match
+scores, common exclusions and per-criterion checks, ``llm_decisions``).
 
 The connection profiles are the package's (``matchminer_ai.llm.connections``, shared with the guideline features):
 ``normalize_endpoint``, the Vertex profiles and the parts of a section they fix, model discovery from
@@ -16,8 +17,11 @@ Sampling comes from the inference package's model profiles: each check's section
 loses the section's own fixed sampling keys (the GoodOption preset's greedy decoding), so the served model's profile
 applies (Nemotron 3.5 Super: NVIDIA's). Hosted Gemini gets ``sampling_profile: none`` and no sampling keys. The default is
 set at startup (``--llm-backend``, ``--llm-endpoint``, ``--llm-model``); each browser session can choose its own per check
-on Data and Models (``Connection.for_task`` of the session's ``good_option`` and ``criteria_llm`` tasks); nothing is
+on Data and Models (``Connection.for_task`` of the session's ``good_option`` and ``llm_decisions`` tasks); nothing is
 written to disk.
+
+Claude through the gateway returns its thinking only as summaries, and only when asked: ``configure(...,
+thinking_summaries=True)`` asks for them (the LLM decision checks show them; billing is the same).
 """
 from __future__ import annotations
 
@@ -66,7 +70,8 @@ def default_endpoint() -> str:
 
 
 NOTICE = "The patient summary is sent to the selected LLM endpoint; use an endpoint authorized for the data."
-# The per-criterion check also sends the cohort's criteria (protocol text, for a protocol cohort).
+# The LLM decision checks also send the cohort's criteria (protocol text, for a protocol cohort).
+CLAUDE_THINKING_SUMMARIES = {"type": "adaptive", "display": "summarized"}
 # Sampling keys a section may fix; removed so the served model's profile supplies them.
 SAMPLING_KEYS = ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty",
                  "frequency_penalty")
@@ -142,9 +147,11 @@ class Connection:
 
     # ------------------------------------------------------------------ the inference package's configuration
 
-    def configure(self, config, sections: tuple[str, ...]):
-        """A copy of ``config`` sending ``sections`` (``llm_good_option``, ``llm_criteria_check``) to this
-        connection, with the served model's sampling profile and debug mode (answers, reasoning, parse details)."""
+    def configure(self, config, sections: tuple[str, ...], *, thinking_summaries: bool = False):
+        """A copy of ``config`` sending ``sections`` (``llm_good_option``, ``llm_match_quality``,
+        ``llm_exclusion_criteria``, ``llm_criteria_check``) to this connection, with the served model's sampling
+        profile and debug mode (answers, reasoning, parse details). ``thinking_summaries``: Claude returns summaries
+        of its thinking (the 5.5 models omit them by default)."""
         if not self.configured:
             raise ValueError("No LLM endpoint is configured (Data and models).")
         c = deepcopy(config)
@@ -171,6 +178,8 @@ class Connection:
             if self.claude:
                 # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
                 params = {"max_tokens": min(65536, params.get("max_tokens", 32768)), "reasoning_effort": CLAUDE_EFFORT}
+                if thinking_summaries:
+                    params["thinking"] = dict(CLAUDE_THINKING_SUMMARIES)
                 extra = {}
                 local["chat_template_kwargs"] = {}
                 local["engine"] = {**(local.get("engine") or {}), "max_model_len": connections.CLAUDE_CONTEXT_TOKENS}

@@ -1,8 +1,11 @@
 import { cn } from "cn";
 import { CircleCheckIcon, CircleHelpIcon, CircleXIcon } from "lucide-react";
+import { useState } from "react";
 
-import type { CriteriaItem, CriterionLine, LLMCriterionLine } from "@/lib/api";
+import { JsonDialog } from "@/components/json-dialog";
+import type { CriteriaItem, CriterionLine } from "@/lib/api";
 import { percent } from "@/lib/format";
+import type { LLMCriterionLine } from "@/lib/llm-decisions";
 import { STATUS_LABELS, type StructuredLine } from "@/lib/records";
 
 /** Whether the decision model and the LLM both answered a line, differently. */
@@ -13,8 +16,8 @@ export function disagree(check: CriterionLine | undefined, llm: LLMCriterionLine
 /**
  * A cohort's criteria lines under Inclusion and Exclusion, common ("boilerplate") lines marked, and,
  * when a per-criterion check ran, each line's answer: a clear failure, or no clear failure. With
- * `llm`, the LLM's answer and reason follow the decision model's, and a line they answer differently
- * is highlighted. With `records`, the structured-record screen's status of each line follows, with the
+ * `llm`, the LLM's answer and reason follow the decision model's (with its reasoning and raw output on
+ * request), and a line they answer differently is highlighted. With `records`, the structured-record screen's status of each line follows, with the
  * extracted items it rests on.
  */
 export function CriteriaList({
@@ -116,6 +119,7 @@ function LLMMark({ line }: { line: LLMCriterionLine | undefined }) {
 }
 
 function LLMReason({ line, differ }: { line: LLMCriterionLine; differ: boolean }) {
+  const [raw, setRaw] = useState(false);
   return (
     <div className="text-xs text-gray-600">
       <span className="font-medium">
@@ -127,6 +131,15 @@ function LLMReason({ line, differ }: { line: LLMCriterionLine; differ: boolean }
           differs from the decision model
         </span>
       ) : null}
+      <button
+        type="button"
+        className="ml-1.5 text-gray-400 hover:text-gray-600 hover:underline"
+        onClick={() => {
+          setRaw(true);
+        }}
+      >
+        raw output
+      </button>
       {line.reasoning ? (
         <details className="mt-0.5">
           <summary className="cursor-pointer text-gray-400 hover:text-gray-600">Reasoning</summary>
@@ -134,6 +147,21 @@ function LLMReason({ line, differ }: { line: LLMCriterionLine; differ: boolean }
             {line.reasoning}
           </p>
         </details>
+      ) : (
+        <span className="ml-1.5 text-gray-400">· no reasoning text returned</span>
+      )}
+      {raw ? (
+        <JsonDialog
+          view={{
+            title: `LLM answer, line ${String(line.number)}`,
+            name: `llm-criterion-${String(line.number)}.json`,
+            value: line,
+            description: "The LLM's parsed answer, its raw output (output) and its reasoning.",
+          }}
+          onClose={() => {
+            setRaw(false);
+          }}
+        />
       ) : null}
     </div>
   );

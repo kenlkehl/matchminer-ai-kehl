@@ -5,16 +5,20 @@ import { useEffect, useRef, useState } from "react";
 import { CriteriaList, disagree } from "@/components/criteria-list";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   api,
   type CriteriaItem,
-  type CriteriaLLMResult,
   type CriteriaResult,
   type Job,
   runCheck,
   waitForJob,
 } from "@/lib/api";
+import {
+  estimateText,
+  type LLMCriteriaResult,
+  type LLMEstimate,
+  useScorer,
+} from "@/lib/llm-decisions";
 import { llmOptions } from "@/lib/queries";
 import {
   type CriteriaRecordsResult,
@@ -24,13 +28,16 @@ import {
   type RecordsBody,
 } from "@/lib/records";
 
+import { ScorerToggle } from "./scorer-toggle";
+
 /**
- * The decision model's per-criterion check of one patient against every line of one cohort: yes means the
- * patient does not clearly fail the line (an inclusion line clearly not met, or an exclusion line clearly met).
- * "Check with LLM" asks the configured LLM endpoint the same about each line (the per-criterion teacher
- * prompt), shown beside the decision model's answers with their disagreements. "Check with structured data"
- * runs each line's query (compiled once per line) on the patient's extraction records: the stored records
- * of a corpus patient, else (`records`) the Patient tab's extraction of its notes.
+ * The per-criterion check of one patient against every line of one cohort: yes means the patient does not
+ * clearly fail the line (an inclusion line clearly not met, or an exclusion line clearly met). The session's
+ * scorer (the toggle) says who answers: the decision model, or the LLM (the per-criterion teacher prompt, one
+ * request per line, its estimate shown first; a large run waits for confirmation). When both have answered, the
+ * other's answers stay beside, labeled, with their disagreements. "Check with structured data" runs each line's
+ * query (compiled once per line) on the patient's extraction records: the stored records of a corpus patient,
+ * else (`records`) the Patient tab's extraction of its notes.
  */
 export function CriteriaCheck({
   patientId,
@@ -46,6 +53,7 @@ export function CriteriaCheck({
   /** Which records to screen (default: the corpus patient's stored records). */
   records?: () => RecordsBody;
 }) {
+  const scorer = useScorer();
   const [progress, setProgress] = useState("");
   const check = useMutation({
     mutationFn: async () => {
@@ -58,29 +66,38 @@ export function CriteriaCheck({
       });
     },
   });
-  const started = useRef(false);
-  const { mutate } = check;
-  useEffect(() => {
-    if (autoStart && !started.current) {
-      started.current = true;
-      mutate();
-    }
-  }, [autoStart, mutate]);
   const result = check.data;
   const fails = result?.lines.filter((l) => l.fails) ?? [];
-  const llmStatus = useQuery(llmOptions()).data;
-  // Disabled until the endpoint's status is known.
-  const llmReason = !llmStatus
-    ? "Checking the LLM endpoint…"
-    : !llmStatus.criteria.available
-      ? llmStatus.criteria.reason
-      : null;
+  const status = useQuery(llmOptions()).data?.decisions;
+  const llmReason = !status
+    ? "Checking the LLM connection…"
+    : status.available
+      ? null
+      : status.reason;
+  // The session's answer and the run's estimate (no model calls), for the session's connection.
+  const lookup = useQuery({
+    queryKey: [
+      "llm-criteria",
+      patientId,
+      cohortId,
+      status?.connection.backend,
+      status?.connection.model,
+    ],
+    queryFn: () =>
+      api.post<{ result: LLMCriteriaResult | null; estimate: LLMEstimate }>(
+        "/api/llm-decisions/criteria",
+        { patient_id: patientId, cohort_id: cohortId, lookup: true },
+      ),
+    enabled: scorer === "llm" && !!status,
+    staleTime: Infinity,
+  });
   const [llmProgress, setLlmProgress] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const llm = useMutation({
-    mutationFn: (rerun: boolean) =>
-      runCheck<CriteriaLLMResult>(
-        "/api/criteria-llm",
-        { patient_id: patientId, cohort_id: cohortId, rerun },
+    mutationFn: ({ rerun, confirm }: { rerun: boolean; confirm: boolean }) =>
+      runCheck<LLMCriteriaResult>(
+        "/api/llm-decisions/criteria",
+        { patient_id: patientId, cohort_id: cohortId, rerun, confirm },
         (j) => {
           setLlmProgress(
             `${j.message || j.status}${j.seconds ? ` · ${String(Math.round(j.seconds))} s` : ""}`,
@@ -88,7 +105,31 @@ export function CriteriaCheck({
         },
       ),
   });
-  const answers = llm.data;
+  const answers = llm.data ?? lookup.data?.result ?? undefined;
+  const estimate = lookup.data?.estimate;
+  const askLLM = (rerun: boolean) => {
+    if (estimate?.large && !confirming) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    llm.mutate({ rerun, confirm: Boolean(estimate?.large) });
+  };
+  // Opened from a list: the chosen scorer answers at once (the LLM only when its run is small and not cached).
+  const started = useRef<string | null>(null);
+  const { mutate: runDecision } = check;
+  const { mutate: runLLM } = llm;
+  useEffect(() => {
+    if (!autoStart || started.current === scorer) return;
+    if (scorer === "decision_model") {
+      started.current = scorer;
+      runDecision();
+    } else if (lookup.data) {
+      started.current = scorer;
+      if (!lookup.data.result && !lookup.data.estimate.large && llmReason === null)
+        runLLM({ rerun: false, confirm: false });
+    }
+  }, [autoStart, scorer, lookup.data, llmReason, runDecision, runLLM]);
   const [engine, setEngine] = useState<Engine>("queries");
   const [recordsProgress, setRecordsProgress] = useState("");
   const structured = useMutation({
@@ -105,72 +146,97 @@ export function CriteriaCheck({
     },
   });
   const screened = structured.data;
-  const llmButton = (
-    <Button
-      size="sm"
-      variant="outline"
-      disabled={llm.isPending || llmReason !== null}
-      onClick={() => {
-        llm.mutate(Boolean(answers));
-      }}
-    >
-      {llm.isPending ? <Spinner /> : <BotIcon />}
-      {answers ? "Ask the LLM again" : "Check with LLM"}
-    </Button>
-  );
+  const decisionSummary = result ? (
+    <span className="text-sm text-gray-700">
+      {scorer === "llm" ? <strong>Decision model: </strong> : null}
+      {fails.length === 0 ? (
+        <>No line is clearly failed ({result.lines.length} checked).</>
+      ) : (
+        <>
+          <strong className="text-red-700">
+            {fails.length} {fails.length === 1 ? "line" : "lines"} clearly failed
+          </strong>{" "}
+          of {result.lines.length} checked.
+        </>
+      )}
+    </span>
+  ) : null;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          size="sm"
-          variant={result ? "outline" : "default"}
-          disabled={check.isPending}
-          onClick={() => {
-            check.mutate();
-          }}
-        >
-          {check.isPending ? <Spinner /> : <ListChecksIcon />}
-          {result ? "Check again" : "Check each criterion"}
-        </Button>
-        {check.isPending ? (
-          <span className="text-sm text-gray-500">{progress || "Checking each criterion…"}</span>
-        ) : null}
-        {check.isError ? <span className="text-sm text-red-700">{check.error.message}</span> : null}
-        {result ? (
-          <span className="text-sm text-gray-700">
-            {fails.length === 0 ? (
-              <>No line is clearly failed ({result.lines.length} checked).</>
-            ) : (
-              <>
-                <strong className="text-red-700">
-                  {fails.length} {fails.length === 1 ? "line" : "lines"} clearly failed
-                </strong>{" "}
-                of {result.lines.length} checked.
-              </>
-            )}
-          </span>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        {llmReason === null ? (
-          llmButton
-        ) : (
-          <Tooltip>
-            <TooltipTrigger render={<span className="inline-flex" tabIndex={0} />}>
-              {llmButton}
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">{llmReason}</TooltipContent>
-          </Tooltip>
-        )}
-        {llm.isPending ? (
-          <span className="text-sm text-gray-500">{llmProgress || "Asking the LLM…"}</span>
-        ) : null}
-        {llm.isError ? <span className="text-sm text-red-700">{llm.error.message}</span> : null}
-        {answers ? <LLMSummary answers={answers} decisions={result} /> : null}
-        {llmStatus ? (
-          <span className="w-full text-xs text-gray-500">{llmStatus.notice}</span>
-        ) : null}
-      </div>
+      <ScorerToggle />
+      {scorer === "decision_model" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            variant={result ? "outline" : "default"}
+            disabled={check.isPending}
+            onClick={() => {
+              check.mutate();
+            }}
+          >
+            {check.isPending ? <Spinner /> : <ListChecksIcon />}
+            {result ? "Check again" : "Check each criterion"}
+          </Button>
+          {check.isPending ? (
+            <span className="text-sm text-gray-500">{progress || "Checking each criterion…"}</span>
+          ) : null}
+          {check.isError ? (
+            <span className="text-sm text-red-700">{check.error.message}</span>
+          ) : null}
+          {decisionSummary}
+          {answers ? <LLMSummary answers={answers} decisions={result} /> : null}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            variant={answers ? "outline" : "default"}
+            disabled={llm.isPending || llmReason !== null || !estimate}
+            title={llmReason ?? undefined}
+            onClick={() => {
+              askLLM(Boolean(answers));
+            }}
+          >
+            {llm.isPending ? <Spinner /> : <BotIcon />}
+            {answers ? "Ask the LLM again" : "Check each criterion with the LLM"}
+          </Button>
+          {estimate && !answers && !llm.isPending ? (
+            <span className="text-xs text-gray-500">{estimateText(estimate)}</span>
+          ) : null}
+          {confirming && estimate ? (
+            <span className="flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-950">
+              This sends {estimateText(estimate)}.
+              <Button
+                size="xs"
+                onClick={() => {
+                  askLLM(Boolean(answers));
+                }}
+              >
+                Check them
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setConfirming(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </span>
+          ) : null}
+          {llm.isPending ? (
+            <span className="text-sm text-gray-500">{llmProgress || "Asking the LLM…"}</span>
+          ) : null}
+          {llm.isError ? <span className="text-sm text-red-700">{llm.error.message}</span> : null}
+          {lookup.isError ? (
+            <span className="text-sm text-red-700">{lookup.error.message}</span>
+          ) : null}
+          {answers ? <LLMSummary answers={answers} decisions={result} /> : null}
+          {decisionSummary}
+          {status ? <span className="w-full text-xs text-gray-500">{status.notice}</span> : null}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <select
           aria-label="Structured data engine"
@@ -223,7 +289,7 @@ function LLMSummary({
   answers,
   decisions,
 }: {
-  answers: CriteriaLLMResult;
+  answers: LLMCriteriaResult;
   decisions: CriteriaResult | undefined;
 }) {
   const byNumber = new Map((decisions?.lines ?? []).map((l) => [l.number, l]));
