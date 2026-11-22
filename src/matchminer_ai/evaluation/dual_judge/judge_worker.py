@@ -190,6 +190,9 @@ class AzureJudge:
             return 'refusal', '', meta
         if raw.get('status') == 'incomplete':
             meta['incomplete_reason'] = (raw.get('incomplete_details') or {}).get('reason')
+            if meta['incomplete_reason'] == 'content_filter':  # Azure's content filter stopped it, not the budget
+                meta['refusal_category'] = 'content_filter'
+                return 'refusal', '', meta
             return 'max_tokens', ''.join(text), meta
         if raw.get('status') != 'completed':
             raise RuntimeError(f'Azure response status {raw.get("status")}')
