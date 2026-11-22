@@ -21,11 +21,10 @@ import {
 } from "./labels";
 import type { Assessment, Evidence, QueryCriterion, QueryEntry } from "./types";
 
-/** Where a quote points: a note of the dialog's list, its span, and which text (original or compressed). */
+/** Where a quote points: a note of the dialog's list and its span. */
 export interface NoteTarget {
   index: number;
   span: Span | null;
-  compressed: boolean;
 }
 
 const LINK = "text-left text-xs font-medium text-brand-blue hover:underline";
@@ -66,13 +65,11 @@ function Json({ value }: { value: unknown }) {
 export function FullNoteAssessment({
   item,
   open,
-  compressed,
   locate,
   onShow,
 }: {
   item: Assessment;
   open: boolean;
-  compressed: boolean;
   /** The note and span an excerpt points to, or null when its note is not in the list. */
   locate: (evidence: Evidence) => NoteTarget | null;
   onShow: (target: NoteTarget) => void;
@@ -84,7 +81,7 @@ export function FullNoteAssessment({
       summary={
         <>
           <span className="font-medium">{item.name || item.recommendation.name}</span> ·{" "}
-          {workupStatusLabel(item.status, "full_notes", compressed)}
+          {workupStatusLabel(item.status, "full_notes")}
         </>
       }
     >
@@ -95,9 +92,7 @@ export function FullNoteAssessment({
       {(item.limitations ?? []).map((l, i) => (
         <Helper key={i}>{l}</Helper>
       ))}
-      <Block
-        summary={`${compressed ? "Reviewed compressed-note excerpts" : "Reviewed patient-note excerpts"} · ${String(evidence.length)}`}
-      >
+      <Block summary={`Reviewed patient-note excerpts · ${String(evidence.length)}`}>
         <Helper>
           Automatically retained review context, including potentially irrelevant passages.
         </Helper>

@@ -498,20 +498,6 @@ class PopulationInference:
         notes = create_patient_cohort(active.summaries, cache.notes(ids)).notes
         return replace(active, notes=notes)
 
-    def compress(self, cohort, progress):
-        from matchminer_ai.population import compress_patient_cohort
-
-        selected = self.settings.for_task("compress")
-        result = compress_patient_cohort(
-            cohort,
-            config=selected.inference_config(),
-            thinking="on" if selected.reasoning else "off",
-            progress_callback=progress,
-        )
-        return replace(
-            result, compression={**result.compression, "connection": self.connection(selected)}
-        )
-
     @staticmethod
     def connection(settings):
         from .settings import VERTEX_BACKENDS, vertex_profiles
@@ -581,8 +567,8 @@ class PopulationInference:
             },
         })
 
-    def review(self, cohort, note_source, progress, *, max_concurrent_patients=4):
-        """Full-note review of every patient, as in the patient view's full-note method."""
+    def review(self, cohort, progress, *, max_concurrent_patients=4):
+        """Full-note review of every patient's original notes, as in the patient view's full-note method."""
         from matchminer_ai.population import review_population_workup
 
         selected = self.settings.for_task("workup")
@@ -590,7 +576,6 @@ class PopulationInference:
         result = review_population_workup(
             cohort,
             config=selected.inference_config(),
-            note_source=note_source,
             backup_config=backup.inference_config() if backup.backup_enabled else None,
             max_consecutive_failures=backup.failure_threshold,
             max_concurrent_patients=max_concurrent_patients,
@@ -661,7 +646,6 @@ class PopulationSessions:
                 "note_count": len(active.notes),
                 "space": active.space,
                 "matches": active.matches,
-                "compression": active.compression,
                 "report": None
                 if active.report is None
                 else {k: v for k, v in active.report.items() if k != "patients"},

@@ -23,63 +23,44 @@ def connection(task):
 
 
 @pytest.mark.parametrize("thinking", [False, True])
-def test_each_task_routes_to_its_endpoint_and_reuses_compression_after_other_changes(
-        tmp_path, monkeypatch, make_client, thinking):
+def test_each_task_routes_to_its_endpoint(tmp_path, monkeypatch, make_client, thinking):
     from matchminer_ai import patients
 
     catalog(tmp_path)
     calls = []
-
-    def compress(frame, **kwargs):
-        assert_config(kwargs["config"], "compress", thinking)
-        assert kwargs["thinking"] == ("on" if thinking else "off")
-        assert kwargs["max_concurrent_requests"] == 8
-        calls.append("compress")
-        return frame.assign(compressed_note_text="CT done.")
+    originals = [n["note_text"] for n in SOURCE["notes"]]
 
     def summarize(frame, **kwargs):
         assert_config(kwargs["config"], "summarize", thinking)
-        assert frame.note_text.tolist() == ["CT done.", "CT done."]
+        assert frame.note_text.tolist() == originals
         calls.append("summarize")
         return pd.DataFrame([{"cancer_history_summary": "Fabricated summary"}])
 
     def review(frame, items, **kwargs):
         assert_config(kwargs["config"], "workup", thinking)
-        assert frame.note_text.tolist() == ["CT done.", "CT done."]
+        assert frame.note_text.tolist() == originals
         if "thinking" in kwargs:
             assert kwargs["thinking"] is None  # inherit the selected task mode
         calls.append("workup")
         return {"assessments": [], "metadata": {}, "notice": "Fabricated review."}
 
-    monkeypatch.setattr(patients, "compress_patient_notes", compress)
     monkeypatch.setattr(patients, "summarize_patients", summarize)
     monkeypatch.setattr(patients, "review_patient_workup", review)
     monkeypatch.setattr(patients, "review_patient_workup_with_note_search", review)
     monkeypatch.setattr(Inference, "retrieve", WorkupInference.retrieve)
     client = make_client(settings_for(tmp_path))
-    config = client.post("/api/models", json=selection("compress", thinking)).json()
-    assert config["tasks"]["summarize"]["model"] == "default-model"
-    job(client, "/api/patient/compress", SOURCE)
-    saved = client.get("/api/patient/note-compression").json()["note_compression"]
-    for task in ("summarize", "workup"):
+    for task in ("workup", "summarize"):
         updated = client.post("/api/models", json=selection(task, thinking)).json()
         assert updated["tasks"][task]["reasoning"] is thinking
         assert updated["tasks"][task]["sampling"]["temperature"] == (1.0 if thinking else 0.7)
-        assert client.get("/api/patient/note-compression").json()["note_compression"] == saved
-    job(client, "/api/patient/summarize", {**SOURCE, "note_source": "compressed"})
+        if task == "workup":
+            assert updated["tasks"]["summarize"]["model"] == "default-model"
+    job(client, "/api/patient/summarize", SOURCE)
     retrieval = job(client, "/api/guidelines/retrieve", {"summary": "Fabricated summary"})["id"]
     for method in ("full_notes", "agentic"):
-        job(client, "/api/guidelines/workup", {**SOURCE, "note_source": "compressed", "method": method,
-                                               "retrieval_job_id": retrieval, "space_index": 0})
-    assert calls == ["compress", "summarize", "workup", "workup"]
-    assert client.get("/api/patient/note-compression").json()["note_compression"] == saved
-    # An unchanged compression connection keeps the saved compression; a changed one discards it.
-    client.post("/api/models", json=selection("compress", thinking))
-    assert client.get("/api/patient/note-compression").json()["note_compression"] == saved
-    client.post("/api/models", json=selection("compress", not thinking))
-    assert client.get("/api/patient/note-compression").json()["note_compression"] is None
-    job(client, "/api/patient/summarize", {**SOURCE, "note_source": "compressed"}, status="error")
-    assert calls == ["compress", "summarize", "workup", "workup"]
+        job(client, "/api/guidelines/workup", {**SOURCE, "method": method, "retrieval_job_id": retrieval,
+                                               "space_index": 0})
+    assert calls == ["summarize", "workup", "workup"]
 
 
 def test_task_settings_are_private_and_running_job_keeps_submitted_endpoint_and_thinking(
@@ -127,11 +108,11 @@ def test_discovery_uses_selected_task_without_modifying_other_tasks(tmp_path, mo
     monkeypatch.setattr(httpx, "AsyncClient",
                         lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     client = make_client(settings_for(tmp_path))
-    client.post("/api/models", json=selection("compress"))
+    client.post("/api/models", json=selection("summarize"))
     before = client.get("/api/models").json()
-    assert client.post("/api/models/check", json={"task": "compress"}).json()["available"] is True
+    assert client.post("/api/models/check", json={"task": "summarize"}).json()["available"] is True
     assert client.get("/api/models").json() == before
-    assert len(seen) == 1 and str(seen[0].url) == "http://compress.invalid/v1/models"
+    assert len(seen) == 1 and str(seen[0].url) == "http://summarize.invalid/v1/models"
     assert seen[0].method == "GET" and not seen[0].content
 
 
@@ -177,7 +158,7 @@ def test_copy_from_backup_saves_only_its_own_backup_controls(tmp_path, make_clie
     assert result["workup_agent_backup"]["failure_threshold"] == 9
     assert result["workup_full_backup"]["backup_enabled"]
     assert result["workup_full_backup"]["failure_threshold"] == 4
-    assert not any(result[t]["backup_enabled"] for t in ("summarize", "compress", "workup"))
+    assert not any(result[t]["backup_enabled"] for t in ("summarize", "workup"))
 
 
 @pytest.mark.parametrize("provider", ["gemini4_vertex", "gemini_vertex", "gemma_vertex"])
@@ -204,26 +185,6 @@ def test_invalid_connection_request_changes_no_task(tmp_path, make_client, overr
     before = client.get("/api/models").json()
     assert client.post("/api/models", json=shared(**overrides)).status_code == 422
     assert client.get("/api/models").json() == before
-
-
-def test_bulk_model_change_only_invalidates_compression_if_connection_changed(tmp_path, monkeypatch, make_client):
-    from matchminer_ai import patients
-
-    catalog(tmp_path)
-    monkeypatch.setattr(patients, "compress_patient_notes",
-                        lambda frame, **kw: frame.assign(compressed_note_text="Fabricated compact note."))
-    client = make_client(settings_for(tmp_path))
-    client.post("/api/models", json=shared(reasoning=False))
-    job(client, "/api/patient/compress", SOURCE)
-    saved = client.get("/api/patient/note-compression").json()["note_compression"]
-    client.post("/api/models", json=shared("summarize", reasoning=False))
-    # Backups switched on keep it too.
-    for task in ("workup_full_backup", "workup_agent_backup"):
-        client.post("/api/models", json={**shared(task, reasoning=False), "apply_to_all": False,
-                                         "backup_enabled": True})
-    assert client.get("/api/patient/note-compression").json()["note_compression"] == saved
-    client.post("/api/models", json=shared(model="changed-model", reasoning=False))
-    assert client.get("/api/patient/note-compression").json()["note_compression"] is None
 
 
 # ---------------------------------------------------------------------------------------------- backups

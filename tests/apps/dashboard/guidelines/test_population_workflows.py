@@ -1,5 +1,4 @@
-"""Population workflows: tables, samples and archives, guideline-space retrieval, compression and review, per-task
-connections, and real mode's DuckDB sampling and browsing (synthetic mode never opens DuckDB)."""
+"""Population workflows: tables, samples and archives, guideline-space retrieval and review, per-task connections, and real mode's DuckDB sampling and browsing (synthetic mode never opens DuckDB)."""
 import pandas as pd
 import pytest
 
@@ -40,7 +39,7 @@ def tables(client):
 @pytest.fixture
 def harness(tmp_path, monkeypatch, make_client):
     catalog(tmp_path)
-    calls = {"retrieval": [], "compression": [], "review": [], "embedded": []}
+    calls = {"retrieval": [], "review": [], "embedded": []}
 
     def embed(summaries, *, config=None, progress_callback=None, **kwargs):
         calls["embedded"].append(len(summaries))
@@ -61,10 +60,6 @@ def harness(tmp_path, monkeypatch, make_client):
             "population_count": 2,
             "min_reasonableness": kwargs["min_reasonableness"],
         }
-
-    def compress(frame, **kwargs):
-        calls["compression"].append(kwargs)
-        return frame.assign(compressed_note_text=frame.note_text + " Compact.")
 
     def review(notes, recommendations, **kwargs):
         # One patient's complete selected notes per call (review_population_workup).
@@ -92,7 +87,6 @@ def harness(tmp_path, monkeypatch, make_client):
 
     monkeypatch.setattr("matchminer_ai.matching.embed_guideline_patients", embed)
     monkeypatch.setattr("matchminer_ai.matching.retrieve_guideline_patients", retrieve)
-    monkeypatch.setattr("matchminer_ai.patients.compress_patient_notes", compress)
     monkeypatch.setattr("matchminer_ai.patients.review_patient_workup", review)
     monkeypatch.setattr(
         "matchminer_ai.trials.load_guideline_catalog", lambda *a, **kw: pd.DataFrame([SPACE])
@@ -135,15 +129,8 @@ def test_full_workflow_restore_drilldown_download_and_isolation(harness):
         other.get("/api/population/patient", params={**v(), "patient_id": "a"}).status_code
         == 400
     )
-    job(client, "/api/population/compress", v())
-    job(
-        client,
-        "/api/population/review",
-        {**v(), "note_source": "compressed", "max_concurrent_patients": 3},
-    )
-    assert sorted(text for text, _ in calls["review"]) == [
-        "CT completed. Compact.", "CT planned. Compact."
-    ]
+    job(client, "/api/population/review", {**v(), "max_concurrent_patients": 3})
+    assert sorted(text for text, _ in calls["review"]) == ["CT completed.", "CT planned."]
     assert all(
         kw["population_context"] == SPACE["cohort_key_criteria"]
         and kw["backup_config"] is None
@@ -159,11 +146,7 @@ def test_full_workflow_restore_drilldown_download_and_isolation(harness):
     assert len(item["patients"]) == 2 and "evidence" not in item["patients"][0]
     patient = client.get("/api/population/patient", params={**v(), "patient_id": "a"}).json()
     assert patient["notes"][0]["note_text"] == "CT completed."
-    assert (
-        patient["review"]["assessments"][0]["evidence"][0]["quote"] == "CT completed. Compact."
-    )
-    assert patient["review"]["metadata"]["note_source"] == "compressed"
-    assert patient["review"]["metadata"]["evidence_source"] == "llm_compressed_notes"
+    assert patient["review"]["assessments"][0]["evidence"][0]["quote"] == "CT completed."
     for format in ["json", "csv"]:
         response = client.get("/api/population/results", params={**v(), "format": format})
         assert (
@@ -186,21 +169,19 @@ def test_full_workflow_restore_drilldown_download_and_isolation(harness):
     assert other.get("/api/population").json()["population"] is not None
 
 
-def test_stale_version_and_unavailable_compressed_notes_rejected(harness):
+def test_stale_version_and_invalid_review_options_rejected(harness):
     client, calls = harness
     loaded = selected(client)
     old = {"version": loaded["version"]}
-    response = client.post("/api/population/review", json={**old, "note_source": "compressed"})
-    assert response.status_code == 400 and "Compress the cohort" in response.json()["error"]
-    job(client, "/api/population/compress", old)
+    job(client, "/api/population/review", old)  # a finished stage saves a new version
+    reviewed = len(calls["review"])
     assert client.post("/api/population/review", json=old).status_code == 400
-    assert calls["review"] == []
+    assert len(calls["review"]) == reviewed
     # ColBERT encoding and its retrieval controls were removed with ColBERT.
     assert client.post("/api/population/encode", json=old).status_code in {404, 405}
     for route, change in [
         ("review", {"top_n": 20}),
         ("review", {"chunk_size": 64}),
-        ("review", {"note_source": "summary"}),
         ("review", {"max_concurrent_patients": 0}),
         ("review", {"max_concurrent_patients": 33}),
         ("review", {"max_concurrent_patients": True}),
@@ -449,7 +430,7 @@ def test_synthetic_mode_never_opens_a_duckdb_database(tmp_path, database, monkey
 
 def test_task_specific_model_connections(harness):
     client, calls = harness
-    for task in ["compress", "workup", "workup_full_backup"]:
+    for task in ["workup", "workup_full_backup"]:
         response = client.post(
             "/api/models",
             json={
@@ -468,11 +449,7 @@ def test_task_specific_model_connections(harness):
     def v():
         return {"version": client.get("/api/population").json()["population"]["version"]}
 
-    job(client, "/api/population/compress", v())
     job(client, "/api/population/review", v())
-    assert calls["compression"][0]["config"].remote["server_urls"] == [
-        "http://compress:8000/v1"
-    ]
     options = calls["review"][0][1]
     assert options["config"].remote["server_urls"] == ["http://workup:8000/v1"]
     assert options["backup_config"].remote["server_urls"] == [

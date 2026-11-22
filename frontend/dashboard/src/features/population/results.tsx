@@ -121,9 +121,8 @@ export function ActiveCohort({
         </details>
       ) : null}
       <Helper>
-        Export cohort saves the active patients, source notes, summaries, compressed notes,
-        guideline sources and any completed results in one ZIP. Downloads contain the patient
-        record.
+        Export cohort saves the active patients, source notes, summaries, guideline sources and any
+        completed results in one ZIP. Downloads contain the patient record.
       </Helper>
     </Panel>
   );
@@ -192,7 +191,7 @@ function reportStatus(r: PopulationReport | null | undefined): string {
     }
     return `${count(r.patient_count)} patients checked with extraction queries · ${records} · queries ${count(c.compiled)}/${count(c.distinct)} compiled (${count(c.cached)} cached, ${count(c.requests)} requests) by ${model}. Review aids, not determinations.`;
   }
-  return `${count(r.patient_count)} patients reviewed · full ${r.note_source} notes · ${String(r.max_concurrent_patients ?? 1)} at once${r.connection?.model ? ` · ${r.connection.model}` : ""}.`;
+  return `${count(r.patient_count)} patients reviewed · full notes · ${String(r.max_concurrent_patients ?? 1)} at once${r.connection?.model ? ` · ${r.connection.model}` : ""}.`;
 }
 
 /** Workup documentation by guideline item, with the results downloads. */

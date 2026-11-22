@@ -27,24 +27,6 @@ export interface ImportedNotes extends NotesInput {
   label?: string;
 }
 
-export type NoteSource = "original" | "compressed";
-
-export interface CompressionStats {
-  note_count: number;
-  input_characters: number;
-  output_characters: number;
-  reused?: boolean;
-  losslessness_verified?: boolean;
-}
-
-/** The session's saved note compression (`/api/patient/note-compression`). */
-export interface SavedCompression {
-  notes_input: NotesInput;
-  notes: (GuidelineNote & { compressed_note_text: string })[];
-  metadata: CompressionStats;
-  model: string;
-}
-
 // ---------------------------------------------------------------- the guideline library and retrieval
 
 export interface Catalog {
@@ -212,7 +194,6 @@ export interface ReviewMetadata extends BackupMetadata {
   note_count?: number;
   requests?: number;
   model?: string | null;
-  compression?: CompressionStats | null;
   evidence_selection?: string;
   followup_review?: FollowupReview | null;
   extraction?: {
@@ -267,14 +248,12 @@ export interface ExtractionCost {
 
 // ---------------------------------------------------------------- jobs and the saved workspace
 
-export type GuidelineJobKind = "summarize" | "compress" | "retrieve" | "workup";
+export type GuidelineJobKind = "summarize" | "retrieve" | "workup";
 
 export interface SummaryResult {
   summary: string;
   exclusion_evidence: string;
-  compression: CompressionStats | null;
   notes_input?: NotesInput;
-  note_source?: NoteSource;
 }
 
 /** A workup job's result, and (without `review`) what it restores while it runs. */
@@ -283,25 +262,12 @@ export interface WorkupResult {
   space_index: number;
   method?: WorkupMethod;
   extraction_levels?: ExtractionLevels;
-  note_source?: NoteSource;
   retrieval_job_id: string;
   retrieval: RetrieveResult;
   notes_input?: NotesInput;
 }
 
-/** A compression job's result (and restore): the workspace it ran in. */
-export interface CompressionResult {
-  notes_input?: NotesInput;
-  summary?: string;
-  note_source?: NoteSource;
-  retrieval?: RetrieveResult;
-  retrieval_job_id?: string;
-  summary_result?: SummaryResult;
-  workup_result?: WorkupResult;
-}
-
-/** `/api/patient/session`: the session's latest guideline job and its saved compression. */
+/** `/api/patient/session`: the session's latest guideline job. */
 export interface SessionView {
   job: Job | null;
-  note_compression: SavedCompression | null;
 }

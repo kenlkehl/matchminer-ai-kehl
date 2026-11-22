@@ -7,7 +7,6 @@ export type Backend =
   "local" | "gemini4_vertex" | "gemini_vertex" | "gemma_vertex" | "claude_databricks";
 export type Task =
   | "summarize"
-  | "compress"
   | "workup"
   | "workup_sql"
   | "workup_full_backup"

@@ -5,7 +5,6 @@
 import type { Job } from "@/lib/api";
 
 export type ReviewMethod = "full_notes" | "extraction_queries" | "extraction_sql";
-export type NoteSource = "original" | "compressed";
 export type Applicability = "applies" | "not_applicable" | "uncertain";
 
 /** One diagnostic-workup item of a guideline space. */
@@ -53,12 +52,6 @@ export interface Retrieval {
   min_match_score?: number | null;
 }
 
-export interface Compression {
-  note_count: number;
-  input_characters: number;
-  output_characters: number;
-}
-
 /** One workup item's counts across the active cohort. */
 export interface AggregateRow {
   recommendation_index: number;
@@ -91,7 +84,6 @@ export interface QueryEntry {
 
 export interface PopulationReport {
   method: ReviewMethod;
-  note_source: NoteSource;
   max_concurrent_patients?: number;
   patient_count: number;
   aggregate: AggregateRow[];
@@ -119,7 +111,6 @@ export interface ActiveCohort {
   note_count: number;
   space: GuidelineSpace | null;
   matches: MatchRow[];
-  compression: Compression | null;
   report: PopulationReport | null;
   retrieval: Retrieval;
 }
@@ -245,9 +236,7 @@ export interface PatientReview {
   notice: string;
   metadata?: {
     method?: string;
-    note_source?: string;
     model?: string;
-    compression?: unknown;
     coverage?: {
       documents?: number;
       patient_records?: number;
@@ -263,7 +252,6 @@ export interface PopulationNote {
   note_date: string | null;
   note_type: string | null;
   note_id?: string | null;
-  compressed_note_text?: string | null;
 }
 
 /** `GET /api/population/patient`. */

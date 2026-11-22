@@ -1,7 +1,7 @@
 /** The patient's notes as the guideline APIs take them, and where a quote sits in a note. */
 import type { Note } from "@/lib/api";
 
-import type { GuidelineNote, NotesInput, SavedCompression } from "./types";
+import type { GuidelineNote, NotesInput } from "./types";
 
 /** The server's limit on a request's note text (routes/guidelines.py, NotesRequest). */
 export const MAX_NOTE_CHARACTERS = 2_000_000;
@@ -23,25 +23,6 @@ export function corpusNotes(rows: Note[]): NotesInput {
       ...(r.type?.trim() ? { note_type: r.type } : {}),
     }));
   return { text: joinedNotes(notes), notes: notes.length ? notes : null };
-}
-
-const normalize = (rows: GuidelineNote[] | null | undefined) =>
-  rows?.length
-    ? rows.map((row) => ({
-        note_text: row.note_text,
-        note_date: row.note_date ?? null,
-        note_type: row.note_type ?? null,
-      }))
-    : null;
-
-/** Whether the saved compression was made from exactly these notes (text, rows, dates and types). */
-export function savedCompressionMatches(
-  saved: SavedCompression | null | undefined,
-  text: string,
-  notes: GuidelineNote[] | null,
-): saved is SavedCompression {
-  if (!saved || saved.notes_input.text !== text) return false;
-  return JSON.stringify(normalize(saved.notes_input.notes)) === JSON.stringify(normalize(notes));
 }
 
 /** The notes as rows: the separate notes, else the whole text as one undated note. */

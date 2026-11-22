@@ -3,8 +3,8 @@
 - **Model connections:** the app's default connection (``Settings``) and, per session, the connection the user
   chose for each LLM task (``LLM_TASKS``). A job takes a snapshot of its task's connection when it is submitted,
   so a later change cannot redirect a running or queued job's patient text to another endpoint.
-- **The patient workspace:** a session's guideline jobs (summaries, guideline searches, workup reviews), its saved
-  note compression and its extraction records.
+- **The patient workspace:** a session's guideline jobs (summaries, guideline searches, workup reviews) and its
+  extraction records.
 - **Populations:** a session's population and its guideline-space cohort (``population.PopulationSessions``).
 
 Everything is in memory and expires ``settings.ttl`` seconds after its last use.
@@ -17,7 +17,6 @@ import time
 
 from ..core.jobs import JobManager
 from .extraction_workup import SessionExtractions
-from .note_compressions import NoteCompressions
 from .population import PopulationSessions
 from .services import Catalogs, Inference, synthetic_note_sources
 from .settings import (
@@ -33,7 +32,6 @@ class GuidelineState:
         self.catalogs = Catalogs(settings.catalog_root)
         # Guideline inference: one job at a time, one active job per session.
         self.jobs = JobManager(ttl=settings.ttl, exclusive=True, name="mmai-guidelines")
-        self.note_compressions = NoteCompressions(settings.ttl)
         self.session_extractions = SessionExtractions(settings.ttl)
         from .records import StoreHandle
 
@@ -53,14 +51,12 @@ class GuidelineState:
             for owner in expired:
                 del self.workspace_settings[owner]
         self.jobs.clean()
-        self.note_compressions.clean()
         self.session_extractions.clean()
         self.population_sessions.clean(active_owners if active_owners is not None else self.jobs.active_owners())
 
     def clear(self, owner: str) -> None:
         """Clear a session's patient workspace and population (refused while one of its jobs runs)."""
         self.jobs.clear(owner)
-        self.note_compressions.clear(owner)
         self.session_extractions.clear(owner)
         self.population_sessions.clear(owner)
 
@@ -82,13 +78,10 @@ class GuidelineState:
         workspace = self.current_settings(owner)
         selected = workspace.for_task(task)
         worker = self.inference if selected is self.settings else self.inference.with_settings(selected)
-        if isinstance(worker, Inference):
-            worker = worker.with_compression_cache(self.note_compressions.bind(owner),
-                                                   settings=workspace.for_task("compress"))
-            if task == "workup":
-                worker = worker.with_workup_backups(
-                    full=workspace.for_task("workup_full_backup"), agent=workspace.for_task("workup_agent_backup"),
-                ).with_extractions(self.session_extractions, owner, self.records)
+        if isinstance(worker, Inference) and task == "workup":
+            worker = worker.with_workup_backups(
+                full=workspace.for_task("workup_full_backup"), agent=workspace.for_task("workup_agent_backup"),
+            ).with_extractions(self.session_extractions, owner, self.records)
         return worker
 
     def update(self, owner: str, values: dict, *, task: str | None, apply_to_all: bool) -> Settings:
@@ -113,8 +106,6 @@ class GuidelineState:
                 values = {**values, "task_connections": {}}
             updated = replace(self.settings, **values)
             self.workspace_settings[owner] = {"values": values, "updated": time.monotonic()}
-            if connection_view(previous.for_task("compress")) != connection_view(updated.for_task("compress")):
-                self.note_compressions.clear(owner)
             return updated
 
     def config_view(self, selected: Settings) -> dict:
@@ -124,7 +115,6 @@ class GuidelineState:
             **connection_view(selected),
             tasks={task: {"label": label, **connection_view(selected.for_task(task))}
                    for task, label in LLM_TASKS.items()},
-            note_compression_available=True,
             vertex_profiles={key: {**profile, "label": VERTEX_LABELS[key], "project": project}
                              for key, profile in vertex_profiles().items()},
             claude_profiles={key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile()}

@@ -16,7 +16,7 @@ records and compiled queries live for the app:
   ``workup_query_cache_key`` (requirement text, population context, extraction
   schema and query language versions, prompt and response-schema hashes).
 * **On-demand extraction** for the patient view's one patient keeps its records
-  in server memory for the browser session, like saved note compressions.
+  in server memory for the browser session.
 * **SQL agent** (``matchminer_ai.patients.workup_sql``): each store gets an
   exploration database, a DuckDB file built once from the whole store into the
   mode's own app cache (``extraction_databases/``, private in PHI mode). It holds

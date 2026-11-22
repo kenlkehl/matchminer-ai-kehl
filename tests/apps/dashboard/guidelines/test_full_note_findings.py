@@ -2,17 +2,13 @@
 
 import json
 
-import pytest
-
 from matchminer_ai.apps.dashboard.guidelines.services import Inference
 from matchminer_ai.apps.dashboard.guidelines.settings import Settings
 
 from .conftest import catalog, wait
 
 
-@pytest.mark.parametrize("source", ["original", "compressed"])
-def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_path, monkeypatch, source, make_client):
-    from matchminer_ai import patients
+def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_path, monkeypatch, make_client):
     from matchminer_ai.llm import structured
     from matchminer_ai.patients import workup
 
@@ -39,11 +35,6 @@ def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_pat
                 }
             ],
         },
-    )
-    monkeypatch.setattr(
-        patients,
-        "compress_patient_notes",
-        lambda frame, **kw: frame.assign(compressed_note_text="Fabricated CT done."),
     )
     monkeypatch.setattr(
         workup,
@@ -105,11 +96,6 @@ def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_pat
     client = make_client(settings)
     retrieval = client.post("/api/guidelines/retrieve", json={"summary": "Fabricated summary"}).json()["job"]["id"]
     assert wait(client, retrieval)["status"] == "done"
-    if source == "compressed":
-        compression = client.post(
-            "/api/patient/compress", json={"text": raw, "notes": input_notes}
-        ).json()["job"]["id"]
-        assert wait(client, compression)["status"] == "done"
     key = client.post(
         "/api/guidelines/workup",
         json={
@@ -118,7 +104,6 @@ def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_pat
             "retrieval_job_id": retrieval,
             "space_index": 0,
             "method": "full_notes",
-            "note_source": source,
         },
     ).json()["job"]["id"]
     done = wait(client, key)
@@ -130,7 +115,7 @@ def test_full_note_job_uses_findings_only_and_returns_code_owned_context(tmp_pat
             "note_number": 1,
             "note_date": "2026-01-01T00:00:00+00:00",
             "note_type": "Exam",
-            "quote": raw if source == "original" else "Fabricated CT done.",
+            "quote": raw,
         }
     ]
     assert len(calls) == 1

@@ -163,7 +163,6 @@ def default_backend() -> str:
 # Every LLM task of the app, each with its own connection (until set: see Settings.for_task).
 LLM_TASKS = {
     "summarize": "Patient summarization",
-    "compress": "Note compression",
     "workup": "Guideline concordance checks",
     SQL_TASK: "Query writing: guideline workup and trial criteria (compiled queries and SQL agent)",
     "workup_full_backup": "Guideline concordance checks: Full note backup",
@@ -394,8 +393,7 @@ class Settings:
         c.patient["reasoning_effort"] = "xhigh"
         c.patient["prompt_build_workers"] = 1
         # Only send model-specific thinking controls for models with a known
-        # switch. Unknown models retain their own defaults; compression also
-        # retries without a rejected disable-thinking argument.
+        # switch. Unknown models retain their own defaults.
         template = {"enable_thinking": self.reasoning} if self.thinking_supported else {}
         c.patient.setdefault("local", {})["chat_template_kwargs"] = template.copy()
         c.patient["remote"]["extra_body"] = (

@@ -58,7 +58,6 @@ class PopulationSearch(PopulationRequest):
 
 
 class PopulationReview(PopulationRequest):
-    note_source: Literal["original", "compressed"] = "original"
     max_concurrent_patients: int = Field(default=4, ge=1, le=32, strict=True)
     # full_notes: the LLM reads every patient's notes. extraction_queries: compiled queries
     # run in code on precomputed extraction records (no patient text reaches an LLM).
@@ -297,35 +296,22 @@ def router(g: GuidelineState) -> APIRouter:
 
         return submit(owner, kind, run)
 
-    @api.post("/api/population/compress", status_code=202)
-    def compress(body: PopulationRequest, request: Request):
-        return stage(
-            session_owner(request), body, "population-compress", lambda w, c, p: w.compress(c, p)
-        )
-
     @api.post("/api/population/review", status_code=202)
     def review(body: PopulationReview, request: Request):
-        entry = entry_for(session_owner(request), body.version, active=True)
+        entry_for(session_owner(request), body.version, active=True)  # a changed cohort is reported first
         if body.method in ("extraction_queries", "extraction_sql"):
             from ..guidelines.extraction_workup import resolve_store
 
-            if body.note_source != "original":
-                raise InputError("Extraction records quote the original notes; select "
-                                 "original notes.")
             path = resolve_store(settings, body.extraction_records)
             return stage(
                 session_owner(request), body, "population-review",
                 lambda w, c, p: w.review_extractions(c, path, p, method=body.method),
             )
-        if body.note_source == "compressed" and entry["active"].compressed_notes is None:
-            raise InputError("Compress the cohort notes first, or select original notes.")
         return stage(
             session_owner(request),
             body,
             "population-review",
-            lambda w, c, p: w.review(
-                c, body.note_source, p, max_concurrent_patients=body.max_concurrent_patients,
-            ),
+            lambda w, c, p: w.review(c, p, max_concurrent_patients=body.max_concurrent_patients),
         )
 
     @api.get("/api/population/items/{number}")
@@ -364,10 +350,9 @@ def router(g: GuidelineState) -> APIRouter:
         )
         from matchminer_ai.patients.extraction.notes import note_ids
 
-        notes = cohort.compressed_notes if cohort.compressed_notes is not None else cohort.notes
-        mine = notes.loc[notes.patient_id == patient_id]
+        mine = cohort.notes.loc[cohort.notes.patient_id == patient_id]
         # Extraction evidence names notes by the extraction stages' note ids.
-        mine = mine.assign(note_id=note_ids(cohort.notes.loc[cohort.notes.patient_id == patient_id]))
+        mine = mine.assign(note_id=note_ids(mine))
         return {
             "patient": records(frame)[0],
             "notes": records(mine),

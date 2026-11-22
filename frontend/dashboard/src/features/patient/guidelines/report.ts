@@ -80,42 +80,29 @@ export function isAgentic(review: WorkupReview | undefined): boolean {
   return review?.metadata.method === "agentic" || review?.metadata.scope === "searched_excerpts";
 }
 
-export function isCompressed(review: WorkupReview | undefined): boolean {
-  return Boolean(review?.metadata.compression);
-}
-
 export function reviewMethodLabel(review: WorkupReview): string {
   if (isExtractionReview(review)) {
     return review.metadata.method === "extraction_sql"
       ? "SQL agent over extraction records"
       : "Structured extraction queries";
   }
-  const method = !isAgentic(review)
+  return !isAgentic(review)
     ? "Full-note review"
     : (review.metadata.followup_review?.max_review_passes ?? 0) > 0
       ? "Agentic note search · coverage review"
       : "Agentic note search · selected excerpts";
-  return method + (isCompressed(review) ? " · compressed notes" : "");
 }
 
 export function workupStatusLabel(item: WorkupAssessment, review: WorkupReview): string {
   if (isExtractionReview(review)) return label(extractionStatusLabels, item.status);
   const complete = item.metadata?.followup_review?.full_record?.complete;
   if (isAgentic(review) && item.status === "not_documented") {
-    if (isCompressed(review)) {
-      return complete
-        ? "Not documented in compressed notes"
-        : "Not located in searched compressed excerpts";
-    }
     return complete ? "Not documented in supplied notes" : "Not located in searched excerpts";
-  }
-  if (isCompressed(review) && item.status === "not_documented") {
-    return "Not documented in compressed notes";
   }
   return label(statusLabels, item.status);
 }
 
-export function workupReviewDetail(item: WorkupAssessment, review: WorkupReview): string {
+export function workupReviewDetail(item: WorkupAssessment): string {
   const audit = item.metadata?.followup_review;
   if (!audit) return "";
   const parts: string[] = [];
@@ -129,8 +116,7 @@ export function workupReviewDetail(item: WorkupAssessment, review: WorkupReview)
       ? "Follow-up review incomplete; see limitations."
       : "Search coverage review finished.",
   );
-  const detail = parts.join(" ");
-  return isCompressed(review) ? detail.replaceAll("supplied notes", "compressed notes") : detail;
+  return parts.join(" ");
 }
 
 export function workupBackupDetail(metadata: BackupMetadata | null | undefined): string {
@@ -163,11 +149,6 @@ export function automaticExcerpts(item: WorkupAssessment, review: WorkupReview):
 
 export function patientEvidenceLabel(item: WorkupAssessment, review: WorkupReview): string {
   if (isExtractionReview(review)) return "Extracted-item evidence";
-  if (isCompressed(review)) {
-    return automaticExcerpts(item, review)
-      ? "Reviewed compressed-note excerpts"
-      : "Compressed-note excerpts";
-  }
   return automaticExcerpts(item, review)
     ? "Reviewed patient-note excerpts"
     : "Patient-note evidence";
@@ -182,11 +163,6 @@ export function patientEvidenceCountLabel(item: WorkupAssessment, review: Workup
 export function missingEvidenceLabel(item: WorkupAssessment, review: WorkupReview): string {
   if (isExtractionReview(review)) return "No extracted item quotes for this result.";
   if (item.status === "error") return "No documentation assessment available.";
-  if (isCompressed(review)) {
-    return automaticExcerpts(item, review)
-      ? "No compressed-note excerpts retained for review."
-      : "No supporting evidence located in the compressed notes.";
-  }
   return automaticExcerpts(item, review)
     ? "No patient-note excerpts retained for review."
     : "No supporting evidence located in the supplied notes.";
@@ -261,25 +237,14 @@ export function buildExportReport(
     if (metadata.note_count != null) {
       const counted = isExtractionReview(review)
         ? "Notes extracted"
-        : isCompressed(review)
-          ? isAgentic(review)
-            ? "Compressed notes available to search"
-            : "Compressed notes reviewed"
-          : isAgentic(review)
-            ? "Raw notes available to search"
-            : "Raw notes reviewed";
+        : isAgentic(review)
+          ? "Raw notes available to search"
+          : "Raw notes reviewed";
       lines.push(`**${counted}:** ${markdownText(metadata.note_count)}`, "");
     }
     if (metadata.model) lines.push(`**Review model:** ${markdownText(metadata.model)}`, "");
     const backup = workupBackupDetail(metadata);
     if (backup) lines.push(markdownText(backup), "");
-    if (metadata.compression) {
-      lines.push(
-        `**Compression:** ${markdownText(metadata.compression.input_characters)} → ` +
-          `${markdownText(metadata.compression.output_characters)} characters; losslessness unverified.`,
-        "",
-      );
-    }
     review.assessments.forEach((item, itemIndex) => {
       lines.push(
         `#### ${String(itemIndex + 1)}. ${markdownText(item.name ?? item.recommendation?.name)}`,
@@ -291,7 +256,7 @@ export function buildExportReport(
         markdownText(item.bottom_line),
         "",
       );
-      const detail = workupReviewDetail(item, review);
+      const detail = workupReviewDetail(item);
       const itemBackup = workupBackupDetail(item.metadata);
       if (itemBackup) lines.push(markdownText(itemBackup), "");
       if (detail) lines.push(`**Review coverage:** ${markdownText(detail)}`, "");
@@ -300,9 +265,6 @@ export function buildExportReport(
       }
       if (item.evidence?.length) {
         lines.push(`**${patientEvidenceLabel(item, review)}**`, "");
-        if (isCompressed(review)) {
-          lines.push("LLM-compressed text; confirm findings against the original notes.", "");
-        }
         if (automaticExcerpts(item, review)) {
           lines.push(
             "Automatically retained review context; each excerpt is not necessarily support for the assessment.",

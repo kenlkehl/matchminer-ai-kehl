@@ -17,7 +17,6 @@ import { metaOptions, notesOptions, patientsOptions } from "@/lib/queries";
 import {
   clearSummary,
   clearWorkspace,
-  compressNotes,
   corpusNotesFailed,
   editNotes,
   editSummary,
@@ -40,7 +39,6 @@ import {
   setPatient,
   usePatient,
 } from "./store";
-import type { NoteSource } from "./types";
 
 /** "synthetic patient" in synthetic mode, "patient" in real mode. */
 function usePatientNoun(): string {
@@ -82,8 +80,7 @@ export function PatientInput() {
   const busy = isBusy(s);
   const id = useId();
   const noteCount = noteRows(s.notesText, s.notes).length;
-  const inputJob =
-    s.job && (s.job.kind === "summarize" || s.job.kind === "compress") ? s.job : null;
+  const inputJob = s.job?.kind === "summarize" ? s.job : null;
   return (
     <section aria-labelledby={`${id}-title`} className="rounded-lg border border-gray-200 bg-white">
       <CorpusNotesLoader />
@@ -394,14 +391,6 @@ function SummaryPane() {
           Clear summary
         </Button>
       </div>
-      {s.summaryCompression ? (
-        <p className="text-xs text-gray-600">
-          {s.summaryCompression.reused ? "Saved compression reused" : "Compression"}:{" "}
-          {s.summaryCompression.input_characters.toLocaleString()} →{" "}
-          {s.summaryCompression.output_characters.toLocaleString()} characters. Losslessness is
-          unverified; confirm the summary against the original notes.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -422,7 +411,6 @@ function NotesPane({ noun }: { noun: string }) {
   const tooLong = s.notesText.length > MAX_NOTE_CHARACTERS;
   const [table, setTable] = useState(false);
   const syntheticCase = s.syntheticCase || sources[0]?.id || "";
-  const saved = s.noteCompression;
   return (
     <div className="flex flex-col gap-4">
       <div className="grid items-start gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -526,24 +514,12 @@ function NotesPane({ noun }: { noun: string }) {
             <TableIcon />
             View notes table
           </Button>
-          <Button
-            variant="outline"
-            disabled={busy || !hasNotes || tooLong || !!saved}
-            onClick={compressNotes}
-          >
-            {saved ? "Compression saved" : "Compress notes"}
-          </Button>
-          <NoteSourceField id={`${id}-source`} />
           <Button className="ml-auto" disabled={busy || !hasNotes || tooLong} onClick={summarize}>
             Create patient summary →
           </Button>
         </div>
-        <p className="text-xs text-gray-600">
-          {saved
-            ? `${String(saved.metadata.note_count)} notes saved · ${saved.metadata.input_characters.toLocaleString()} → ${saved.metadata.output_characters.toLocaleString()} characters. Choose original or compressed notes for the next summary or workup review. Losslessness is unverified.`
-            : "Compressing is optional and may lose information; the original notes stay intact. The summary fills Patient summary for both views."}
-        </p>
-        <EndpointNotice tasks={["summarize", "compress"]} />
+        <p className="text-xs text-gray-600">The summary fills Patient summary for both views.</p>
+        <EndpointNotice tasks={["summarize"]} />
       </div>
       {table ? (
         <NotesDialog
@@ -552,37 +528,6 @@ function NotesPane({ noun }: { noun: string }) {
           }}
         />
       ) : null}
-    </div>
-  );
-}
-
-/** Which notes the next summary or workup review reads: the originals, or the saved compression. */
-export function NoteSourceField({
-  id,
-  forceOriginal = false,
-}: {
-  id: string;
-  forceOriginal?: boolean;
-}) {
-  const s = usePatient();
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs font-medium text-gray-600">
-        Notes to use
-      </label>
-      <NativeSelect
-        id={id}
-        value={forceOriginal ? "original" : s.noteSource}
-        disabled={isBusy(s) || forceOriginal}
-        onChange={(e) => {
-          setPatient({ noteSource: e.target.value as NoteSource });
-        }}
-      >
-        <option value="original">Original notes</option>
-        <option value="compressed" disabled={!s.noteCompression}>
-          {s.noteCompression ? "Saved compressed notes" : "Saved compressed notes · unavailable"}
-        </option>
-      </NativeSelect>
     </div>
   );
 }

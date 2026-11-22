@@ -8,15 +8,15 @@ import { Input } from "@/components/ui/input";
 import { connectionLabel, modelsOptions } from "@/lib/models";
 
 import { CheckStatus, Helper, LabeledField, SELECT, Step, usePathCheck } from "./controls";
-import { count, isExtractionMethod, METHOD_OPTIONS, storeLine } from "./labels";
+import { isExtractionMethod, METHOD_OPTIONS, storeLine } from "./labels";
 import { useRemembered } from "./remember";
-import type { ExtractionStoreInfo, NoteSource, ReviewMethod } from "./types";
+import type { ExtractionStoreInfo, ReviewMethod } from "./types";
 import type { PopulationController } from "./use-population";
 
 /** The cohort version whose report last set the review method. */
 let syncedVersion: string | null = null;
 
-/** 03: optionally compress the active cohort's notes, then check guideline concordance. */
+/** 03: check the active cohort's guideline concordance. */
 export function ReviewPanel({ pop }: { pop: PopulationController }) {
   const population = pop.population;
   const active = population?.active ?? null;
@@ -25,24 +25,20 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
   const models = useQuery(modelsOptions()).data;
 
   const [method, setMethod] = useRemembered<ReviewMethod>("population.method", "full_notes");
-  const [source, setSource] = useRemembered<NoteSource>("population.noteSource", "original");
   const [concurrency, setConcurrency] = useRemembered("population.concurrency", "4");
   const [records, setRecords] = useRemembered<string | null>("population.extractions", null);
   const recordsValue = records ?? pop.defaults?.extraction_records ?? "";
   const store = usePathCheck<ExtractionStoreInfo>("extractions", "/api/population/extractions");
   const extraction = isExtractionMethod(method);
-  // Compressed notes only for a full-note review of a compressed cohort.
-  const noteSource: NoteSource = active?.compression && !extraction ? source : "original";
 
-  // A new cohort or run shows the method and notes its report used (once per version, so a choice made
-  // since survives leaving the tab).
+  // A new cohort or run shows the method its report used (once per version, so a choice made since
+  // survives leaving the tab).
   const report = active?.report;
   useEffect(() => {
     if (!population || syncedVersion === population.version) return;
     syncedVersion = population.version;
     if (report?.method) setMethod(report.method);
-    if (report?.note_source) setSource(report.note_source);
-  }, [population, report, setMethod, setSource]);
+  }, [population, report, setMethod]);
 
   // Check the store when an extraction method is chosen (and on the path's changes).
   const storeChecked = useRef(false);
@@ -52,33 +48,16 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
     store.check(recordsValue);
   }, [extraction, pop.defaults, recordsValue, store]);
 
-  const task = (name: "compress" | "workup" | "workup_sql") =>
+  const task = (name: "workup" | "workup_sql") =>
     models ? connectionLabel(models, models.tasks[name]) : "…";
 
   return (
-    <Step number="03" eyebrow="Prepare & review" title="Active cohort notes">
+    <Step number="03" eyebrow="Review" title="Active cohort notes">
       {models?.notice ? (
         <p role="note" className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {models.notice}
         </p>
       ) : null}
-      <Button
-        variant="outline"
-        className="w-full"
-        disabled={!patients}
-        onClick={() => {
-          if (population)
-            void pop.start("/api/population/compress", { version: population.version });
-        }}
-      >
-        Compress cohort notes · optional
-      </Button>
-      <Helper>
-        {active?.compression
-          ? `${count(active.compression.note_count)} notes compressed · ${count(active.compression.input_characters)} → ${count(active.compression.output_characters)} characters. Original notes retained; losslessness unverified.`
-          : "Optional. Original notes are retained; compression may lose information."}{" "}
-        Compression: {task("compress")}.
-      </Helper>
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {
@@ -95,7 +74,6 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
               : {
                   version: population.version,
                   method,
-                  note_source: noteSource,
                   max_concurrent_patients: Number(concurrency),
                 },
           );
@@ -115,21 +93,6 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
                 {o.label}
               </option>
             ))}
-          </select>
-        </LabeledField>
-        <LabeledField label="Notes to review" htmlFor="pop-note-source">
-          <select
-            id="pop-note-source"
-            className={SELECT}
-            value={noteSource}
-            onChange={(e) => {
-              setSource(e.target.value as NoteSource);
-            }}
-          >
-            <option value="original">Original notes</option>
-            <option value="compressed" disabled={!active?.compression || extraction}>
-              Saved compressed notes
-            </option>
           </select>
         </LabeledField>
         {extraction ? (
@@ -206,8 +169,8 @@ export function ReviewPanel({ pop }: { pop: PopulationController }) {
               />
             </LabeledField>
             <Helper>
-              Each patient's selected notes are reviewed in full, chunk by chunk, for every workup
-              item. Each request contains only one patient's notes.
+              Each patient's notes are reviewed in full, chunk by chunk, for every workup item. Each
+              request contains only one patient's notes.
             </Helper>
           </>
         )}

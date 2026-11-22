@@ -22,7 +22,6 @@ const JOB_TITLES: Record<string, string> = {
   "population-cache": "Loading the cached population",
   "population-tables": "Loading the cohort tables",
   "population-retrieve": "Fetching matching patients",
-  "population-compress": "Compressing cohort notes",
   "population-review": "Checking guideline concordance",
 };
 

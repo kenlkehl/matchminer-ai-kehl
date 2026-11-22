@@ -12,16 +12,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { noteDate, noteRows, savedCompressionMatches } from "./notes";
+import { noteDate, noteRows } from "./notes";
 import { usePatient } from "./store";
 
-/** The patient's notes as a table: each note's date and type, its text, and its saved compression. */
+/** The patient's notes as a table: each note's date and type, and its text. */
 export function NotesDialog({ onClose }: { onClose: () => void }) {
   const s = usePatient();
   const rows = noteRows(s.notesText, s.notes);
-  const compressed = savedCompressionMatches(s.noteCompression, s.notesText, s.notes)
-    ? s.noteCompression
-    : null;
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const all = rows.length > 0 && expanded.size === rows.length;
   const toggle = (i: number) => {
@@ -48,9 +45,7 @@ export function NotesDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
           <p className="flex-1 text-xs text-gray-600">
-            {compressed
-              ? `Saved compression from ${compressed.model}, available for optional reuse in summaries and workup checks. Compression may lose information; compare with the original notes.`
-              : "Compress notes adds compressed text beside the originals. Each note scrolls in its own box; Show whole note expands it."}
+            Each note scrolls in its own box; Show whole note expands it.
           </p>
           <Button
             size="sm"
@@ -71,13 +66,8 @@ export function NotesDialog({ onClose }: { onClose: () => void }) {
                   Date / note
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Original note
+                  Note
                 </th>
-                {compressed ? (
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Compressed note
-                  </th>
-                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -109,25 +99,10 @@ export function NotesDialog({ onClose }: { onClose: () => void }) {
                       </div>
                     </th>
                     <td className="px-3 py-2">
-                      <div
-                        tabIndex={0}
-                        aria-label={`Original note ${String(i + 1)}`}
-                        className={box}
-                      >
+                      <div tabIndex={0} aria-label={`Note ${String(i + 1)}`} className={box}>
                         {row.note_text}
                       </div>
                     </td>
-                    {compressed ? (
-                      <td className="px-3 py-2">
-                        <div
-                          tabIndex={0}
-                          aria-label={`Compressed note ${String(i + 1)}`}
-                          className={box}
-                        >
-                          {compressed.notes[i]?.compressed_note_text ?? ""}
-                        </div>
-                      </td>
-                    ) : null}
                   </tr>
                 );
               })}

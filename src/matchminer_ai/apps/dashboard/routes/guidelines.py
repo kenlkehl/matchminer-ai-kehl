@@ -1,7 +1,7 @@
 """The Patient tab's notes and guideline workup, and the model connections of every LLM task.
 
-- ``/api/patient/*``: a session's patient notes (upload, synthetic examples in synthetic mode), note compression,
-  summarization and the saved workspace.
+- ``/api/patient/*``: a session's patient notes (upload, synthetic examples in synthetic mode), summarization and
+  the saved workspace.
 - ``/api/guidelines/*``: the guideline library, guideline-space retrieval for a summary, and workup reviews
   (with an extraction-cost estimate that makes no model calls).
 - ``/api/models*``: the session's connection per LLM task (``guidelines.settings.LLM_TASKS``) and connection
@@ -33,8 +33,8 @@ from ..guidelines.state import GuidelineState
 from .common import owner as session_owner
 
 LLMBackend = Literal["local", "gemini4_vertex", "gemini_vertex", "gemma_vertex", "claude_databricks"]
-LLMTask = Literal["summarize", "compress", "workup", "workup_sql", "workup_full_backup", "workup_agent_backup",
-                  "good_option", "criteria_llm"]
+LLMTask = Literal["summarize", "workup", "workup_sql", "workup_full_backup", "workup_agent_backup", "good_option",
+                  "criteria_llm"]
 EXTRACTION_METHODS = {"extractions", "extraction_sql"}
 
 
@@ -97,17 +97,6 @@ class NotesRequest(BaseModel):
     notes: list[Note] | None = Field(default=None, max_length=5000)
 
 
-class SummaryRequest(NotesRequest):
-    note_source: Literal["original", "compressed"] = "original"
-
-
-class CompressionRequest(NotesRequest):
-    # Preserve the current patient workspace while the independent action runs.
-    summary: str = Field(default="", max_length=100_000)
-    retrieval_job_id: str | None = Field(default=None, min_length=1, max_length=100)
-    note_source: Literal["original", "compressed"] = "original"
-
-
 class SearchRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=100_000)
     catalogs: list[str] = Field(default_factory=list, max_length=100)
@@ -121,7 +110,7 @@ class SearchRequest(BaseModel):
         return self
 
 
-class WorkupRequest(SummaryRequest):
+class WorkupRequest(NotesRequest):
     retrieval_job_id: str = Field(min_length=1, max_length=100)
     space_index: int = Field(ge=0, le=19)
     # extractions: compiled extraction queries; extraction_sql: the SQL agent's queries.
@@ -260,68 +249,28 @@ def router(g: GuidelineState) -> APIRouter:
             raise InputError("Too much note text.")
         return notes
 
-    def preprocessing_restore(body, owner, notes):
-        restore = {"notes_input": {"text": body.text, "notes": notes}, "summary": body.summary,
-                   "note_source": body.note_source}
-        retrieval = finished(owner, body.retrieval_job_id, "retrieve") if body.retrieval_job_id else None
-        if retrieval is not None:  # an expired search is simply not restored
-            restore.update(retrieval=retrieval.result, retrieval_job_id=body.retrieval_job_id)
-        previous = jobs.latest(owner, exclude_prefix="population-")
-        if previous and previous.status == "done":
-            result = previous.result
-            if result.get("notes_input") == restore["notes_input"]:
-                if previous.kind == "summarize" and result["summary"] == body.summary:
-                    restore["summary_result"] = result
-                elif previous.kind == "workup" and result["retrieval_job_id"] == body.retrieval_job_id:
-                    restore["workup_result"] = result
-        return restore
-
-    @api.post("/api/patient/compress", status_code=202)
-    def compress(body: CompressionRequest, request: Request):
-        owner = session_owner(request)
-        notes = source_notes(body)
-        restore = preprocessing_restore(body, owner, notes)
-        worker = g.patient_inference(owner, "compress")
-
-        def compression_job(progress):
-            return {**restore, **worker.compress(body.text, notes, progress)}
-
-        return submit(owner, "compress", "note compression", compression_job, restore=restore)
-
     @api.post("/api/patient/summarize", status_code=202)
-    def summarize(body: SummaryRequest, request: Request):
+    def summarize(body: NotesRequest, request: Request):
         owner = session_owner(request)
         notes = source_notes(body)
         worker = g.patient_inference(owner, "summarize")
 
         def summary_job(progress):
-            options = {"note_source": "compressed"} if body.note_source == "compressed" else {}
-            result = worker.summarize(body.text, notes, progress, **options)
-            result.update(notes_input={"text": body.text, "notes": notes}, note_source=body.note_source)
+            result = worker.summarize(body.text, notes, progress)
+            result.update(notes_input={"text": body.text, "notes": notes})
             return result
 
         return submit(owner, "summarize", "patient summary", summary_job,
-                      restore={"notes_input": {"text": body.text, "notes": notes}, "note_source": body.note_source})
+                      restore={"notes_input": {"text": body.text, "notes": notes}})
 
     @api.get("/api/patient/session")
     def workspace(request: Request):
-        owner = session_owner(request)
-        latest = jobs.latest(owner, exclude_prefix="population-")
-        return {"job": latest.describe() if latest else None,
-                "note_compression": g.note_compressions.latest(owner)}
+        latest = jobs.latest(session_owner(request), exclude_prefix="population-")
+        return {"job": latest.describe() if latest else None}
 
     @api.delete("/api/patient/session", status_code=204)
     def clear(request: Request):
         g.clear(session_owner(request))
-        return Response(status_code=204)
-
-    @api.get("/api/patient/note-compression")
-    def saved_compression(request: Request):
-        return {"note_compression": g.note_compressions.latest(session_owner(request))}
-
-    @api.delete("/api/patient/note-compression", status_code=204)
-    def discard_compression(request: Request):
-        g.note_compressions.clear(session_owner(request))
         return Response(status_code=204)
 
     # ------------------------------------------------------------------ guideline spaces and workup
@@ -373,26 +322,22 @@ def router(g: GuidelineState) -> APIRouter:
         owner = session_owner(request)
         notes = source_notes(body)
         retrieval, space = workup_space(owner, body.retrieval_job_id, body.space_index)
-        if body.method in EXTRACTION_METHODS and body.note_source != "original":
-            raise InputError("Structured extraction quotes the original notes; select Original notes.")
         worker = g.patient_inference(owner, "workup")
         result = retrieval.result
 
         def review_job(progress):
             options = {"patient_summary": result.get("summary")} if body.method == "agentic" else {}
-            if body.note_source == "compressed":
-                options["note_source"] = "compressed"
             if body.method in EXTRACTION_METHODS:
                 options.update(extraction_levels=body.extraction_levels, patient_id=body.patient_id)
             review = worker.review_workup(body.text, notes, space, progress, method=body.method, **options)
             return {"review": review, "space_index": body.space_index, "method": body.method,
-                    "extraction_levels": body.extraction_levels, "note_source": body.note_source,
+                    "extraction_levels": body.extraction_levels,
                     "retrieval_job_id": body.retrieval_job_id, "retrieval": result,
                     "notes_input": {"text": body.text, "notes": notes}}
 
         return submit(owner, "workup", "workup review", review_job, restore={
             "retrieval": result, "retrieval_job_id": body.retrieval_job_id,
             "notes_input": {"text": body.text, "notes": notes}, "method": body.method,
-            "note_source": body.note_source, "space_index": body.space_index})
+            "space_index": body.space_index})
 
     return api

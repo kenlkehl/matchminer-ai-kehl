@@ -5,7 +5,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { saveBlob } from "@/lib/api";
 
-import { findQuote, noteByNumber, noteDate, savedCompressionMatches } from "../notes";
+import { findQuote, noteByNumber, noteDate } from "../notes";
 import { getPatient } from "../store";
 import type {
   GuidelineSpace,
@@ -21,7 +21,6 @@ import {
   extractionReasonLabels,
   extractionStatusLabels,
   isAgentic,
-  isCompressed,
   isExtractionReview,
   missingEvidenceLabel,
   patientEvidenceCountLabel,
@@ -62,17 +61,13 @@ export function Findings({ review, space }: { review: WorkupReview; space: Guide
     if (!number) return;
     const s = getPatient();
     const original = noteByNumber(s.notesText, s.notes, number);
-    const compressed =
-      isCompressed(review) && savedCompressionMatches(s.noteCompression, s.notesText, s.notes)
-        ? s.noteCompression.notes[number - 1]?.compressed_note_text
-        : undefined;
-    const text = compressed ?? original?.note_text;
-    if (text === undefined) return;
-    const title = `Note ${String(number)} · ${noteDate(evidence.note_date ?? original?.note_date)}${
-      evidence.note_type || original?.note_type
-        ? ` · ${evidence.note_type ?? original?.note_type ?? ""}`
+    if (!original) return;
+    const text = original.note_text;
+    const title = `Note ${String(number)} · ${noteDate(evidence.note_date ?? original.note_date)}${
+      evidence.note_type || original.note_type
+        ? ` · ${evidence.note_type ?? original.note_type ?? ""}`
         : ""
-    }${compressed !== undefined ? " · compressed" : ""}`;
+    }`;
     const span =
       extraction && typeof evidence.start === "number" && typeof evidence.end === "number"
         ? { start: evidence.start, end: evidence.end }
@@ -141,14 +136,8 @@ export function Findings({ review, space }: { review: WorkupReview; space: Guide
       {!extraction ? (
         <Helper>
           {review.metadata.note_count ?? 0}{" "}
-          {isCompressed(review)
-            ? isAgentic(review)
-              ? "compressed notes available to search"
-              : "compressed notes reviewed"
-            : isAgentic(review)
-              ? "notes available to search"
-              : "raw notes reviewed"}{" "}
-          · {review.metadata.requests ?? 0} LLM {isCompressed(review) ? "review " : ""}requests
+          {isAgentic(review) ? "notes available to search" : "raw notes reviewed"} ·{" "}
+          {review.metadata.requests ?? 0} LLM requests
         </Helper>
       ) : null}
       {note ? (
@@ -164,20 +153,7 @@ export function Findings({ review, space }: { review: WorkupReview; space: Guide
 }
 
 function ReviewStats({ review }: { review: WorkupReview }) {
-  const compression = review.metadata.compression;
-  return (
-    <>
-      {compression ? (
-        <Helper>
-          {compression.reused ? "Saved compression reused" : "Compression"}:{" "}
-          {compression.input_characters.toLocaleString()} →{" "}
-          {compression.output_characters.toLocaleString()} characters · losslessness unverified.
-          Confirm findings against the original notes.
-        </Helper>
-      ) : null}
-      <Helper>{workupBackupDetail(review.metadata)}</Helper>
-    </>
-  );
+  return <Helper>{workupBackupDetail(review.metadata)}</Helper>;
 }
 
 function ExtractionStats({ review }: { review: WorkupReview }) {
@@ -261,7 +237,7 @@ function NoteReviewAssessment({
         Applicability: {label(applicabilityLabels, item.applicability)}
       </p>
       <p className="text-sm whitespace-pre-wrap text-gray-800">{item.bottom_line}</p>
-      <Helper>{workupReviewDetail(item, review)}</Helper>
+      <Helper>{workupReviewDetail(item)}</Helper>
       <Helper>{workupBackupDetail(item.metadata)}</Helper>
       {item.limitations?.length ? (
         <Helper>Limitations: {item.limitations.join("; ")}</Helper>

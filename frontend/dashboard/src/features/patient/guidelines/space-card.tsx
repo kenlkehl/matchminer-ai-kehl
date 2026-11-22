@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import { reviewWorkup } from "../actions";
 import { EndpointNotice } from "../fields";
 import { JobProgress } from "../job-progress";
 import { MAX_NOTE_CHARACTERS } from "../notes";
-import { NoteSourceField } from "../patient-input";
 import { getPatient, isBusy, recordsBody, setPatient, usePatient, usesExtraction } from "../store";
 import type { ExtractionCost, GuidelineSpace, WorkupMethod } from "../types";
 import { Considerations, PopulationTab, SourceTab } from "./considerations";
@@ -122,10 +121,9 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
   );
 }
 
-/** "Was this workup done?": the review method and notes, the review's cost, and its findings. */
+/** "Was this workup done?": the review method, the review's cost, and its findings. */
 function WorkupReviewPanel({ index, space }: { index: number; space: GuidelineSpace }) {
   const s = usePatient();
-  const id = useId();
   const busy = isBusy(s);
   const extraction = usesExtraction(s.workupMethod);
   const hasNotes = !!s.notesText.trim();
@@ -133,12 +131,10 @@ function WorkupReviewPanel({ index, space }: { index: number; space: GuidelineSp
   const review = s.reviews[index];
   const action =
     s.workupMethod === "extraction_sql"
-      ? "Check workup with the SQL agent · original notes"
+      ? "Check workup with the SQL agent"
       : s.workupMethod === "extractions"
-        ? "Check workup with extraction queries · original notes"
-        : s.noteSource === "compressed"
-          ? "Review workup in saved compressed notes"
-          : "Review workup in original notes";
+        ? "Check workup with extraction queries"
+        : "Review workup in the notes";
   return (
     <section className="flex flex-col gap-3 rounded-md border border-gray-200 bg-slate-50 p-3">
       <div>
@@ -185,7 +181,6 @@ function WorkupReviewPanel({ index, space }: { index: number; space: GuidelineSp
         </div>
       ) : null}
       <div className="flex flex-wrap items-end gap-2">
-        <NoteSourceField id={`${id}-source`} forceOriginal={extraction} />
         <Button
           disabled={busy || !hasNotes || tooLong || !s.retrievalJobId}
           onClick={() => {

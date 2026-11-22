@@ -3,13 +3,10 @@ import { useSyncExternalStore } from "react";
 import type { JobStatus } from "@/lib/api";
 
 import type {
-  CompressionStats,
   ExtractionLevels,
   GuidelineJobKind,
   GuidelineNote,
-  NoteSource,
   RetrieveResult,
-  SavedCompression,
   WorkupMethod,
   WorkupReview,
 } from "./types";
@@ -65,7 +62,7 @@ export type NotesOrigin =
   | { kind: "pasted" }
   | { kind: "restored" };
 
-/** The session's running guideline job (summary, compression, guideline search or workup review). */
+/** The session's running guideline job (summary, guideline search or workup review). */
 export interface ActiveJob {
   id: string | null;
   kind: GuidelineJobKind;
@@ -108,8 +105,6 @@ export interface PatientState {
   otherHistory: string;
   /** Where the summary came from, when it was generated or restored. */
   summaryNote: string | null;
-  /** The compression a generated summary was made from. */
-  summaryCompression: CompressionStats | null;
   notesText: string;
   /** The separate notes, when the source has them (CSV, corpus patient); else the text is one note. */
   notes: GuidelineNote[] | null;
@@ -124,8 +119,6 @@ export interface PatientState {
   /** An upload or a synthetic example is being read. */
   loading: boolean;
   syntheticCase: string;
-  noteSource: NoteSource;
-  noteCompression: SavedCompression | null;
 
   catalog: string;
   topN: number;
@@ -154,7 +147,6 @@ export function initialPatientState(): PatientState {
     summary: CANCER_SUMMARY_SCAFFOLD,
     otherHistory: "",
     summaryNote: null,
-    summaryCompression: null,
     notesText: "",
     notes: null,
     notesOrigin: null,
@@ -164,8 +156,6 @@ export function initialPatientState(): PatientState {
     recordsJob: false,
     loading: false,
     syntheticCase: "",
-    noteSource: "original",
-    noteCompression: null,
     catalog: "",
     topN: 1,
     candidateK: 5,

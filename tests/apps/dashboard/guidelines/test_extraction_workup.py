@@ -216,9 +216,6 @@ def test_population_review_with_extraction_queries(population_app, backend, phi)
     assert info["counts"]["patients"] == 2 and info["levels"] == ["document"]
     cohort = active_cohort(client)
     version = {"version": cohort["version"]}
-    response = client.post("/api/population/review", json={
-        **version, "method": "extraction_queries", "note_source": "compressed"})
-    assert response.status_code == 400
     done = job(client, "/api/population/review", {**version, "method": "extraction_queries"},
                timeout=60)  # a loaded host takes longer than the default 15 s
     report = done["result"]["active"]["report"]
@@ -304,8 +301,6 @@ def test_patient_view_extracts_on_demand_and_reuses_session_records(
     cost = client.post("/api/guidelines/workup/extraction-cost", json=body).json()
     assert cost["document_requests"] == 2 and cost["compile_requests"] == 1
     assert cost["reused_extraction"] is False and backend.requests == 0
-    assert client.post("/api/guidelines/workup", json={**body, "method": "extractions",
-                                            "note_source": "compressed"}).status_code == 400
     response = client.post("/api/guidelines/workup", json={**body, "method": "extractions"})
     done = wait(client, response.json()["job"]["id"])
     assert done["status"] == "done", done
@@ -528,8 +523,6 @@ def test_population_review_with_the_sql_agent(population_app, agent, phi):
     client, settings = population_app(phi)
     cohort = active_cohort(client)
     version = {"version": cohort["version"]}
-    assert client.post("/api/population/review", json={
-        **version, "method": "extraction_sql", "note_source": "compressed"}).status_code == 400
     done = job_long(client, "/api/population/review", {**version, "method": "extraction_sql"})
     report = done["result"]["active"]["report"]
     assert report["method"] == "extraction_sql" and report["extraction_store"]["name"] == "records"

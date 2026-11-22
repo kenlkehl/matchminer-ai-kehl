@@ -256,20 +256,15 @@ def synthetic_notes(settings, source="demo"):
 
 
 class Inference:
-    def __init__(self, settings, *, compression_cache=None, compression_settings=None,
-                 workup_backups=None, extractions=None):
+    def __init__(self, settings, *, workup_backups=None, extractions=None):
         self.settings = settings
-        self.compression_cache = compression_cache
-        self.compression_settings = compression_settings
         self.workup_backups = workup_backups or {}
         # (SessionExtractions, owner, StoreHandle): this session's on-demand extraction records and the mode's
         # extraction store.
         self.extractions = extractions
 
     def _copy(self, **changes):
-        values = dict(settings=self.settings, compression_cache=self.compression_cache,
-                      compression_settings=self.compression_settings,
-                      workup_backups=self.workup_backups, extractions=self.extractions)
+        values = dict(settings=self.settings, workup_backups=self.workup_backups, extractions=self.extractions)
         values.update(changes)
         settings = values.pop("settings")
         return type(self)(settings, **values)
@@ -277,10 +272,6 @@ class Inference:
     def with_settings(self, settings):
         """Bind a job to an immutable choice of workspace settings."""
         return self._copy(settings=settings)
-
-    def with_compression_cache(self, cache, *, settings=None):
-        return self._copy(compression_cache=cache,
-                          compression_settings=settings or self.compression_settings)
 
     def with_workup_backups(self, *, full, agent):
         return self._copy(workup_backups={"full_notes": full, "agentic": agent})
@@ -331,84 +322,12 @@ class Inference:
                 "records_source": "store" if stored is not None else "session" if saved else None,
                 "model": config.document_extraction["remote"]["model_name"]}
 
-    def _compress_notes(self, text, notes, progress, config):
-        from matchminer_ai.patients import compress_patient_notes
-
-        if self.compression_cache is not None:
-            saved = self.compression_cache.lookup(text, notes, config)
-            if saved is not None:
-                progress(f"Reusing saved compressed notes · {len(saved['notes'])} notes")
-                frame = pd.DataFrame(saved["notes"])
-                metadata = {**saved["metadata"], "reused": True}
-                return frame.drop(columns="note_text").rename(
-                    columns={"compressed_note_text": "note_text"}
-                ), metadata
-        frame = pd.DataFrame(notes or [{"note_text": text, "note_date": None}])
-        compressed = compress_patient_notes(
-            frame, config=config, thinking="on" if self.settings.reasoning else "off",
-            max_concurrent_requests=8,
-            progress_callback=lambda completed, total: progress(
-                f"Compressing clinical notes · {completed}/{total} complete"
-            ),
-        )
-        metadata = {
-            "note_count": len(frame),
-            "input_characters": int(frame.note_text.str.len().sum()),
-            "output_characters": int(compressed.compressed_note_text.str.len().sum()),
-            "max_concurrent_requests": 8,
-            "thinking_requested": "on" if self.settings.reasoning else "off",
-            "thinking": compressed.attrs.get("note_compression", {}).get(
-                "thinking", "on_if_supported" if self.settings.reasoning else "off_if_supported"
-            ),
-            "losslessness_verified": False,
-            "reused": False,
-        }
-        if self.compression_cache is not None:
-            rows = notes or [{"note_text": text, "note_date": None}]
-            self.compression_cache.save(
-                text, notes, config,
-                [{**row, "compressed_note_text": value}
-                 for row, value in zip(rows, compressed.compressed_note_text, strict=True)],
-                metadata,
-            )
-        # Preserve row metadata and keep the original inputs in job restore state.
-        return compressed.drop(columns="note_text").rename(
-            columns={"compressed_note_text": "note_text"}
-        ), metadata
-
-    def compress(self, text, notes, progress):
-        """Compress and save notes independently of any clinical workflow."""
-        _, metadata = self._compress_notes(text, notes, progress, self.settings.inference_config())
-        return {"compression": metadata}
-
-    def _selected_notes(self, text, notes, config, note_source, progress):
-        if note_source not in {"original", "compressed"}:
-            raise InputError("Choose original or saved compressed notes.")
-        compression_config = (self.compression_settings.inference_config()
-                              if self.compression_settings is not None else config)
-        saved = (self.compression_cache.lookup(text, notes, compression_config)
-                 if self.compression_cache is not None else None)
-        if note_source == "original":
-            return pd.DataFrame(notes) if notes else text, None
-        if saved is None:
-            raise InputError(
-                "Saved compressed notes are unavailable for this record. "
-                "Run Compress notes first, or select Original notes."
-            )
-        progress(f"Using saved compressed notes · {len(saved['notes'])} notes")
-        frame = pd.DataFrame(saved["notes"])
-        return frame.drop(columns="note_text").rename(
-            columns={"compressed_note_text": "note_text"}
-        ), {**saved["metadata"], "reused": True}
-
-    def summarize(self, text, notes, progress, *, note_source="original"):
+    def summarize(self, text, notes, progress):
         from matchminer_ai.patients import summarize_patients
 
         progress("Preparing notes for serial summarization")
         config = self.settings.inference_config()
-        frame, compression = self._selected_notes(text, notes, config, note_source, progress)
-        if isinstance(frame, str):
-            frame = pd.DataFrame([{"note_text": frame, "note_date": None}])
+        frame = pd.DataFrame(notes or [{"note_text": text, "note_date": None}])
         frame["patient_id"] = "workspace-patient"
         # NaT stays unavailable; never substitute a made-up clinical date.
         frame["note_date"] = pd.to_datetime(frame["note_date"], errors="coerce", format="mixed")
@@ -421,12 +340,11 @@ class Inference:
             "exclusion_evidence": str(
                 result.iloc[0].get("general_exclusion_criteria_evidence", "")
             ),
-            "compression": compression,
         }
 
     def review_workup(
         self, text, notes, space, progress, *, method="full_notes",
-        patient_summary=None, note_source="original", extraction_levels="document", patient_id=None,
+        patient_summary=None, extraction_levels="document", patient_id=None,
     ):
         from matchminer_ai.patients import (
             review_patient_workup,
@@ -436,9 +354,6 @@ class Inference:
         if method in {"extractions", "extraction_sql"}:
             from .extraction_workup import patient_review
 
-            if note_source != "original":
-                raise InputError(
-                    "Structured extraction quotes the original notes; select Original notes.")
             sessions, owner, records = self.extractions or (None, None, None)
             return patient_review(
                 text, notes, space, settings=self.settings,
@@ -451,14 +366,14 @@ class Inference:
         if method not in {"full_notes", "agentic"}:
             raise InputError("Choose full-note review, agentic search, extraction queries or the "
                              "SQL agent.")
-        raw, compression = self._selected_notes(text, notes, config, note_source, progress)
+        raw = pd.DataFrame(notes) if notes else text
         if method == "agentic":
             review = review_patient_workup_with_note_search
             # All workup questions are eligible to run at once in this job.
             # Summarization and full-note jobs retain their one-request limit.
             config.remote["max_concurrent_requests"] = len(space["diagnostic_workup"])
             options.update(
-                history=text if notes and note_source == "original" else None,
+                history=text if notes else None,
                 patient_summary=patient_summary,
                 # Inherit this task's known-model switch; avoid the public
                 # agent's off default overriding the user's thinking choice.
@@ -473,29 +388,12 @@ class Inference:
                 backup_config.remote["max_concurrent_requests"] = len(space["diagnostic_workup"])
             options.update(backup_config=backup_config,
                            max_consecutive_failures=backup.failure_threshold)
-        review_progress = progress
-        if compression is not None:
-            def review_progress(message):
-                progress(message.replace("raw-note", "compressed-note")
-                         .replace("raw notes", "compressed notes"))
-        result = review(
+        return review(
             raw, space["diagnostic_workup"], config=config,
-            progress_callback=review_progress,
+            progress_callback=progress,
             population_context=space.get("cohort_key_criteria") or space.get("clinical_space_summary"),
             **options,
         )
-        if compression is not None:
-            result["metadata"].update(
-                scope=("searched_compressed_excerpts" if method == "agentic"
-                       else "all_supplied_compressed_notes"),
-                evidence_source="llm_compressed_notes", compression=compression,
-            )
-            result["notice"] += (
-                " This review uses LLM-compressed notes. Losslessness is unverified. "
-                "Quoted excerpts match the compressed text and may differ from the "
-                "original notes; confirm findings against the original record."
-            )
-        return result
 
     def retrieve(self, summary, paths, top_n, candidate_k, progress):
         import torch

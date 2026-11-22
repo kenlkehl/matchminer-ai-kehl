@@ -5,7 +5,7 @@
  */
 import { api, ApiError, type Job, type JobStart, type PatientDetail, stopJob } from "@/lib/api";
 
-import { corpusNotes, savedCompressionMatches } from "./notes";
+import { corpusNotes } from "./notes";
 import {
   CANCER_SUMMARY_SCAFFOLD,
   getPatient,
@@ -22,13 +22,10 @@ import {
 } from "./store";
 import { resetTrials } from "./trials/store";
 import type {
-  CompressionResult,
   GuidelineJobKind,
   ImportedNotes,
-  NoteSource,
   NotesInput,
   RetrieveResult,
-  SavedCompression,
   SessionView,
   SummaryResult,
   WorkupMethod,
@@ -36,7 +33,7 @@ import type {
 } from "./types";
 
 const POLL_MS = 2000;
-const KINDS: GuidelineJobKind[] = ["summarize", "compress", "retrieve", "workup"];
+const KINDS: GuidelineJobKind[] = ["summarize", "retrieve", "workup"];
 const METHODS: WorkupMethod[] = ["full_notes", "agentic", "extractions", "extraction_sql"];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,60 +56,10 @@ const noGuidelines = (): Partial<PatientState> => ({
   openSpaces: [],
 });
 
-// ---------------------------------------------------------------- the saved note compression
-
-/** A pending DELETE of the server's saved compression; jobs wait for it. */
-let compressionReset: Promise<unknown> = Promise.resolve();
-
-function discardSavedCompression(clearServer = true) {
-  const had = Boolean(getPatient().noteCompression);
-  setPatient({ noteCompression: null, noteSource: "original" });
-  if (clearServer && had) {
-    compressionReset = compressionReset
-      .catch(() => undefined)
-      .then(() => api.delete("/api/patient/note-compression"));
-    compressionReset.catch((e: unknown) => {
-      say("input", "error", errorText(e));
-    });
-  }
-}
-
-/** Keep the server's saved compression when it was made from the current notes. */
-function restoreSavedCompression(saved: SavedCompression | null, restoreNotes = false) {
-  const s = getPatient();
-  let { notesText, notes } = s;
-  const patch: Partial<PatientState> = {};
-  if (saved && restoreNotes && !notesText) {
-    ({ text: notesText, notes } = saved.notes_input);
-    Object.assign(patch, {
-      notesText,
-      notes,
-      notesOrigin: { kind: "restored" },
-      notesVersion: s.notesVersion + 1,
-    } satisfies Partial<PatientState>);
-  }
-  const match = savedCompressionMatches(saved, notesText, notes) ? saved : null;
-  setPatient({ ...patch, noteCompression: match, ...(match ? {} : { noteSource: "original" }) });
-}
-
-async function refreshSavedCompression() {
-  try {
-    const saved = await api.get<{ note_compression: SavedCompression | null }>(
-      "/api/patient/note-compression",
-    );
-    restoreSavedCompression(saved.note_compression);
-  } catch {
-    // The finished job's results stay available if this refresh fails.
-  }
-}
-
 // ---------------------------------------------------------------- the patient
 
-/** Replace the notes: their workup reviews go, and a compression made from other notes. */
+/** Replace the notes: their workup reviews go. */
 function setNotes(input: NotesInput, origin: NotesOrigin | null, notice: string | null) {
-  if (!savedCompressionMatches(getPatient().noteCompression, input.text, input.notes)) {
-    discardSavedCompression();
-  }
   setPatient((s) => ({
     notesText: input.text,
     notes: input.notes,
@@ -131,7 +78,6 @@ export function pickCorpusPatient(p: PatientDetail) {
     summary: p.key,
     otherHistory: p.boilerplate,
     summaryNote: null,
-    summaryCompression: null,
     corpusNotesPending: p.id,
     status: null,
     ...noGuidelines(),
@@ -160,7 +106,7 @@ export function corpusNotesFailed(patientId: string, message: string) {
 }
 
 export function editSummary(patch: { summary?: string; otherHistory?: string }) {
-  setPatient({ ...patch, fromCorpus: false, summaryNote: null, summaryCompression: null });
+  setPatient({ ...patch, fromCorpus: false, summaryNote: null });
 }
 
 export function clearSummary() {
@@ -190,7 +136,6 @@ export async function loadSyntheticNotes(source: string) {
       summary: CANCER_SUMMARY_SCAFFOLD,
       otherHistory: "",
       summaryNote: "Create a summary from the synthetic notes",
-      summaryCompression: null,
       corpusNotesPending: null,
       ...noGuidelines(),
     });
@@ -212,7 +157,6 @@ export async function uploadRecord(file: File, maxMb: number) {
   setPatient({ loading: true, status: null, notesNotice: "Reading the uploaded record…" });
   try {
     const data = await api.upload<ImportedNotes>("/api/patient/upload", { file });
-    discardSavedCompression();
     setNotes(data, { kind: "upload", name: file.name }, data.notice);
     setPatient({ corpusNotesPending: null });
     say("input", "info", "Record imported. Review the text, then create a summary.");
@@ -248,40 +192,32 @@ export async function clearWorkspace() {
 
 // ---------------------------------------------------------------- restoring results
 
-function restoreNoteInput(result: { notes_input?: NotesInput; note_source?: NoteSource }) {
+function restoreNoteInput(result: { notes_input?: NotesInput }) {
   const input = result.notes_input;
-  if (input) {
-    const s = getPatient();
-    const same =
-      s.notesText === input.text && JSON.stringify(s.notes) === JSON.stringify(input.notes);
-    if (!same) {
-      setPatient({
-        notesText: input.text,
-        notes: input.notes,
-        notesOrigin: { kind: "restored" },
-        notesVersion: s.notesVersion + 1,
-      });
-    }
+  if (!input) return;
+  const s = getPatient();
+  const same =
+    s.notesText === input.text && JSON.stringify(s.notes) === JSON.stringify(input.notes);
+  if (!same) {
+    setPatient({
+      notesText: input.text,
+      notes: input.notes,
+      notesOrigin: { kind: "restored" },
+      notesVersion: s.notesVersion + 1,
+    });
   }
-  setPatient({ noteSource: result.note_source ?? "original" });
 }
 
 function restoreSummary(result: SummaryResult, how: "generated" | "restored") {
   restoreNoteInput(result);
-  const compressed = Boolean(result.compression);
   setPatient({
     summary: result.summary,
     otherHistory: result.exclusion_evidence,
     fromCorpus: false,
-    summaryCompression: result.compression,
     summaryNote:
       how === "generated"
-        ? compressed
-          ? "Generated from compressed notes · review before searching"
-          : "Generated summary · review before searching"
-        : compressed
-          ? "Restored summary from compressed notes"
-          : "Restored from this browser session",
+        ? "Generated summary · review before searching"
+        : "Restored from this browser session",
   });
 }
 
@@ -333,37 +269,20 @@ function restoreWorkup(result: WorkupResult) {
   restoreNoteInput(result);
 }
 
-function restoreCompression(result: CompressionResult) {
-  if (result.summary_result) restoreSummary(result.summary_result, "restored");
-  if (result.workup_result) restoreWorkup(result.workup_result);
-  else if (result.retrieval && result.retrieval_job_id) {
-    restoreRetrieval(result.retrieval, result.retrieval_job_id);
-  }
-  restoreNoteInput(result);
-  if (result.summary && !hasSummary(getPatient().summary)) setPatient({ summary: result.summary });
-}
-
 // ---------------------------------------------------------------- jobs
 
 function jobTitle(kind: GuidelineJobKind, s: PatientState): string {
-  const compressed = s.noteSource === "compressed";
   switch (kind) {
     case "retrieve":
       return "Finding relevant guideline spaces";
-    case "compress":
-      return "Compressing clinical notes";
     case "workup":
       return s.workupMethod === "extraction_sql"
         ? "Checking workup with the SQL agent"
         : s.workupMethod === "extractions"
           ? "Checking workup with extraction queries"
-          : compressed
-            ? "Reviewing workup in saved compressed notes"
-            : "Reviewing workup in original notes";
+          : "Reviewing workup in the notes";
     case "summarize":
-      return compressed
-        ? "Creating the summary from saved compressed notes"
-        : "Creating the patient summary from original notes";
+      return "Creating the patient summary from the notes";
   }
 }
 
@@ -383,13 +302,6 @@ function finish(kind: GuidelineJobKind, job: Job) {
         "input",
         "info",
         "Summary ready. Review or edit it, then find trials or guideline spaces.",
-      );
-      break;
-    case "compress":
-      say(
-        "input",
-        "info",
-        "Notes compressed and saved. Choose original or compressed notes for the next summary or workup check.",
       );
       break;
     case "workup":
@@ -432,7 +344,6 @@ async function followJob(
     status: null,
   });
   try {
-    await compressionReset.catch(() => undefined);
     const id = running?.id ?? (await (start as () => Promise<JobStart>)()).job.id;
     patchJob({ id });
     let failures = 0;
@@ -476,7 +387,6 @@ async function followJob(
     say(areaOf(kind), "error", errorText(e));
   } finally {
     setPatient({ job: null });
-    await refreshSavedCompression();
   }
 }
 
@@ -503,17 +413,7 @@ const notesBody = (s: PatientState) => ({ text: s.notesText, notes: s.notes });
 
 export function summarize() {
   const s = getPatient();
-  startJob("summarize", "/api/patient/summarize", { ...notesBody(s), note_source: s.noteSource });
-}
-
-export function compressNotes() {
-  const s = getPatient();
-  startJob("compress", "/api/patient/compress", {
-    ...notesBody(s),
-    summary: hasSummary(s.summary) ? s.summary : "",
-    retrieval_job_id: s.retrievalJobId,
-    note_source: s.noteSource,
-  });
+  startJob("summarize", "/api/patient/summarize", notesBody(s));
 }
 
 /** Find the guideline spaces for the summary; false (with a message) when the scope is invalid. */
@@ -554,7 +454,6 @@ export function reviewWorkup(spaceIndex: number) {
       retrieval_job_id: s.retrievalJobId,
       space_index: spaceIndex,
       method: s.workupMethod,
-      note_source: extraction ? "original" : s.noteSource,
       ...(extraction
         ? { extraction_levels: s.extractionLevels, patient_id: recordsBody(s).patient_id }
         : {}),
@@ -582,14 +481,13 @@ export async function restoreSession() {
   if (job && kind && !hasSummary(s.summary) && !s.notesText && !s.retrieval && !s.job) {
     if (job.restore) {
       if (kind === "workup") restoreWorkup(job.restore as WorkupResult);
-      else if (kind === "compress") restoreCompression(job.restore as CompressionResult);
       else if (kind === "retrieve") {
         // A server that saves a search's inputs: its summary and scope.
         const restore = job.restore as { summary?: string; search?: RetrieveResult["search"] };
         if (restore.summary) setPatient({ summary: restore.summary });
         if (restore.search) setPatient(scopeOf({ search: restore.search } as RetrieveResult));
       } else {
-        restoreNoteInput(job.restore as { notes_input?: NotesInput; note_source?: NoteSource });
+        restoreNoteInput(job.restore as { notes_input?: NotesInput });
       }
     }
     if (job.status === "error") {
@@ -599,16 +497,12 @@ export async function restoreSession() {
     } else if (job.status === "done") {
       if (kind === "retrieve") restoreRetrieval(job.result as RetrieveResult, job.id);
       else if (kind === "workup") restoreWorkup(job.result as WorkupResult);
-      else if (kind === "compress") restoreCompression(job.result as CompressionResult);
       else restoreSummary(job.result as SummaryResult, "restored");
-      if (kind !== "compress" && kind !== "summarize") {
-        setPatient({ summaryNote: "Restored from this browser session" });
-      }
+      if (kind !== "summarize") setPatient({ summaryNote: "Restored from this browser session" });
     } else {
       void followJob(kind, job);
     }
   }
-  restoreSavedCompression(saved.note_compression, true);
   const after = getPatient();
   if (after.input === "corpus" && !after.patientId) {
     if (hasSummary(after.summary)) setPatient({ input: "summary" });

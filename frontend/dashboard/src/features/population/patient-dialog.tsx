@@ -72,21 +72,18 @@ export function PatientDialog({
   const review = data?.review ?? null;
   const method = review?.metadata?.method;
   const extraction = isExtractionMethod(method);
-  const compressed = review?.metadata?.note_source === "compressed";
   const notes = data?.notes ?? [];
   const byNoteId = useMemo(
     () => new Map(notes.map((n, i) => [n.note_id ?? "", i] as const)),
     [notes],
   );
 
-  /** A full-note excerpt: its note by number, the quote located in the text the review read. */
+  /** A full-note excerpt: its note by number, the quote located in the note's text. */
   const locateExcerpt = (v: Evidence): NoteTarget | null => {
     const index = (v.note_number ?? 0) - 1;
     const note = notes[index];
     if (!note) return null;
-    const useCompressed = compressed && !!note.compressed_note_text;
-    const text = useCompressed ? (note.compressed_note_text ?? "") : note.note_text;
-    return { index, span: locateQuote(text, v.quote), compressed: useCompressed };
+    return { index, span: locateQuote(note.note_text, v.quote) };
   };
   /** An extraction quote: its note by note id; the offsets index the original note text. */
   const locateExtraction = (v: Evidence) => {
@@ -96,7 +93,7 @@ export function PatientDialog({
       typeof v.start === "number" && typeof v.end === "number"
         ? { start: v.start, end: v.end }
         : null;
-    return { target: { index, span, compressed: false }, number: index + 1 };
+    return { target: { index, span }, number: index + 1 };
   };
 
   const coverage = review?.metadata?.coverage ?? {};
@@ -170,7 +167,7 @@ export function PatientDialog({
                     {review.notice}
                   </p>
                   <Helper>
-                    {review.metadata?.note_source ?? "original"} notes · Full-note review ·{" "}
+                    Full-note review ·{" "}
                     {review.metadata?.model ?? "See individual findings for model provenance"}
                   </Helper>
                   {review.assessments.map((a) => (
@@ -178,7 +175,6 @@ export function PatientDialog({
                       key={a.recommendation_index}
                       item={a}
                       open={a.recommendation_index === item}
-                      compressed={compressed}
                       locate={locateExcerpt}
                       onShow={show}
                     />
@@ -246,26 +242,9 @@ function SourceNote({
         ) : null}
       </summary>
       <div className="flex flex-col gap-2 border-t border-gray-200 p-3">
-        <h4 className="text-xs font-semibold text-gray-700">Original note</h4>
         <pre className="max-h-[60svh] overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-          <HighlightedText
-            text={note.note_text}
-            span={marked && !marked.compressed ? marked.span : null}
-          />
+          <HighlightedText text={note.note_text} span={marked?.span ?? null} />
         </pre>
-        {note.compressed_note_text ? (
-          <>
-            <h4 className="text-xs font-semibold text-gray-700">
-              Saved compressed note · losslessness unverified
-            </h4>
-            <pre className="max-h-[60svh] overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-              <HighlightedText
-                text={note.compressed_note_text}
-                span={marked?.compressed ? marked.span : null}
-              />
-            </pre>
-          </>
-        ) : null}
       </div>
     </details>
   );

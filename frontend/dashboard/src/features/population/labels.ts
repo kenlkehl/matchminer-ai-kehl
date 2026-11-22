@@ -87,9 +87,8 @@ export function methodLabels(method: string | null | undefined): Record<string, 
 }
 
 /** One patient's status for an item, as the patient view words it. */
-export function workupStatusLabel(status: string, method: string | undefined, compressed: boolean) {
+export function workupStatusLabel(status: string, method: string | undefined) {
   if (isExtractionMethod(method)) return EXTRACTION_STATUS_LABELS[status] ?? status;
-  if (compressed && status === "not_documented") return "Not documented in compressed notes";
   return STATUS_LABELS[status] ?? status;
 }
 
