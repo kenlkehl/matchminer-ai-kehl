@@ -457,7 +457,11 @@ class PopulationInference:
             progress("TrialSpace embedding failed; patients will be embedded when they are searched")
             return None
 
-    def retrieve(self, source, paths, space_id, candidate_k, min_reasonableness, progress, embeddings=None):
+    def retrieve(self, source, paths, space_id, candidate_k, min_reasonableness, progress, embeddings=None,
+                 select=None):
+        """The space's cohort from the population: TrialSpace's ``candidate_k`` nearest patients, kept by the
+        decision model's reasonableness (``min_reasonableness``), or by ``select(selected, metadata, progress)``
+        (the LLM decision checks; ``min_reasonableness`` is then None, so every candidate reaches it)."""
         import torch
 
         torch.set_num_threads(8)
@@ -481,6 +485,8 @@ class PopulationInference:
             progress_callback=progress,
             patient_embeddings=cache.embeddings if cache is not None else embeddings,
         )
+        if select is not None:
+            selected, metadata = select(selected, metadata, progress)
         ids = selected.patient_id.tolist()
         active = subset_patient_cohort(
             source,

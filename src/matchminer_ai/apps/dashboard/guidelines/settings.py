@@ -114,6 +114,11 @@ CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
+# The LLM alternative to the decision model wherever the dashboard scores a pair (``apps.dashboard.llm_decisions``):
+# match scores, common exclusions and per-criterion checks. It replaced the per-criterion-only ``criteria_llm`` task
+# (2026-11-22, user instruction); a connection saved under the old name is moved to it (``migrate_task_connections``).
+LLM_DECISIONS_TASK = "llm_decisions"
+RENAMED_TASKS = {"criteria_llm": LLM_DECISIONS_TASK}
 QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
 
 
@@ -168,11 +173,22 @@ LLM_TASKS = {
     "workup_full_backup": "Guideline concordance checks: Full note backup",
     "workup_agent_backup": "Guideline concordance checks: Agent backup",
     "good_option": "GoodOption checks",
-    "criteria_llm": "Per-criterion LLM checks",
+    LLM_DECISIONS_TASK: "LLM decision checks: match scores, common exclusions and per-criterion checks",
 }
 
 
 normalize_endpoint = connections.normalize_endpoint
+
+
+def migrate_task_connections(values: dict) -> dict:
+    """Task connections under their current names: a renamed task's connection (``criteria_llm``) moves to its new
+    task (``llm_decisions``) unless that one has its own."""
+    moved = dict(values or {})
+    for old, new in RENAMED_TASKS.items():
+        if old in moved:
+            connection = moved.pop(old)
+            moved.setdefault(new, connection)
+    return moved
 
 
 def mode_side_error(phi, path):
@@ -244,6 +260,7 @@ class Settings:
     task_connections: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        self.task_connections = migrate_task_connections(self.task_connections)
         if self.cache is None:
             self.cache = data_path(PHI_CACHE if self.phi else NO_PHI_CACHE)
         self.cache = Path(self.cache)

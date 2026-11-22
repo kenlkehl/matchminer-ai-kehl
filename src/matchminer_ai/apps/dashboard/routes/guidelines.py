@@ -30,11 +30,12 @@ from ..guidelines.settings import (
     databricks_profile, normalize_endpoint, vertex_profiles, vertex_project,
 )
 from ..guidelines.state import GuidelineState
+from ..llm_decisions import search_connection
 from .common import owner as session_owner
 
 LLMBackend = Literal["local", "gemini4_vertex", "gemini_vertex", "gemma_vertex", "claude_databricks"]
 LLMTask = Literal["summarize", "workup", "workup_sql", "workup_full_backup", "workup_agent_backup", "good_option",
-                  "criteria_llm"]
+                  "llm_decisions"]
 EXTRACTION_METHODS = {"extractions", "extraction_sql"}
 
 
@@ -102,6 +103,9 @@ class SearchRequest(BaseModel):
     catalogs: list[str] = Field(default_factory=list, max_length=100)
     top_n: int = Field(default=1, ge=1, le=20)
     candidate_k: int = Field(default=5, ge=1, le=100)
+    # Who ranks TrialSpace's candidates: the decision model, or the LLM decision checks' connection.
+    scorer: Literal["decision_model", "llm"] = "decision_model"
+    confirm: bool = False  # the user confirmed a large LLM run's estimate
 
     @model_validator(mode="after")
     def check(self):
@@ -283,17 +287,24 @@ def router(g: GuidelineState) -> APIRouter:
 
     @api.post("/api/guidelines/retrieve", status_code=202)
     def retrieve(body: SearchRequest, request: Request):
+        owner = session_owner(request)
         paths = catalogs.resolve(body.catalogs)
         worker = g.inference
+        # LLM ranking: every TrialSpace candidate is asked about, then the top N kept (llm_decisions).
+        llm = search_connection(g, owner, body.candidate_k, body.confirm) if body.scorer == "llm" else None
+        search = {"catalogs": body.catalogs, "top_n": body.top_n, "candidate_k": body.candidate_k,
+                  "scorer": body.scorer}
 
         def retrieve_job(progress):
-            result = worker.retrieve(body.summary, paths, body.top_n, body.candidate_k, progress)
-            result["search"] = {"catalogs": body.catalogs, "top_n": body.top_n, "candidate_k": body.candidate_k}
+            result = worker.retrieve(body.summary, paths, body.candidate_k if llm else body.top_n, body.candidate_k,
+                                     progress)
+            if llm:
+                result = g.llm_decisions.rank_guideline_spaces(owner, result, body.top_n, llm, progress)
+            result["search"] = search
             return result
 
-        return submit(session_owner(request), "retrieve", "guideline spaces", retrieve_job,
-                      restore={"summary": body.summary, "search": {"catalogs": body.catalogs, "top_n": body.top_n,
-                                                                   "candidate_k": body.candidate_k}})
+        return submit(owner, "retrieve", "guideline spaces", retrieve_job,
+                      restore={"summary": body.summary, "search": search})
 
     def workup_space(owner, retrieval_job_id, space_index):
         retrieval = finished(owner, retrieval_job_id, "retrieve")

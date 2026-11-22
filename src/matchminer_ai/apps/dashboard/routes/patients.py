@@ -1,14 +1,19 @@
-"""Patients and matching: the patient corpus, both matching directions, decision-model scoring and the LLM checks."""
+"""Patients and matching: the patient corpus, both matching directions, decision-model scoring and the LLM checks
+(the GoodOption check, and the LLM decision checks: the LLM alternative to the decision model's scores)."""
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ..core.errors import InputError
+from ..guidelines.settings import LLM_DECISIONS_TASK
 from ..llm import Connection
+from ..llm_decisions import MAX_PAIRS
 from ..state import DashState
 from .common import cohort_detail, cohort_row, owner, type_labels
 
@@ -46,9 +51,29 @@ class PairRequest(BaseModel):
 
 class LLMCheckRequest(BaseModel):
     patient_id: str
-    cohort_id: str | None = None  # the per-criterion check
     trial_id: str | None = None  # the GoodOption check
     rerun: bool = False
+
+
+class LLMPairsRequest(BaseModel):
+    """The LLM decision checks of a search's pairs: the query (a cohort or a patient) and its results."""
+    direction: str
+    query_id: str
+    target_ids: list[str] = Field(default_factory=list, max_length=MAX_PAIRS)
+    families: list[Literal["match", "boilerplate"]] = Field(default_factory=lambda: ["match", "boilerplate"],
+                                                            min_length=1, max_length=2)
+    rerun: bool = False
+    #: A run of more than LARGE_RUN requests needs the user's confirmation (the page shows the estimate first).
+    confirm: bool = False
+
+
+class LLMCriteriaRequest(BaseModel):
+    patient_id: str
+    cohort_id: str
+    rerun: bool = False
+    confirm: bool = False
+    #: Only the session's cached answer and an estimate of the run (no model calls).
+    lookup: bool = False
 
 
 def router(state: DashState) -> APIRouter:
@@ -160,18 +185,20 @@ def router(state: DashState) -> APIRouter:
                 "k": k, "searched": len(ids), "of": len(scope), "round": state.round.number,
                 "search_ms": round((time.monotonic() - started) * 1000, 1), "results": rows}
 
+    def search_pairs(direction: str, query_id: str, target_ids: list[str], limit: int):
+        if direction not in DIRECTIONS:
+            raise ValueError(f"direction must be one of {DIRECTIONS}")
+        if not target_ids:
+            raise ValueError("give target_ids")
+        if len(target_ids) > limit:
+            raise ValueError(f"score at most {limit} pairs at a time")
+        if direction == "patients_for_cohort":
+            return [state.pair(t, query_id) for t in target_ids]
+        return [state.pair(query_id, t) for t in target_ids]
+
     @api.post("/api/score")
     def score(request: ScoreRequest):
-        if request.direction not in DIRECTIONS:
-            raise ValueError(f"direction must be one of {DIRECTIONS}")
-        if not request.target_ids:
-            raise ValueError("give target_ids")
-        if len(request.target_ids) > state.settings.max_score_n:
-            raise ValueError(f"score at most {state.settings.max_score_n} pairs at a time")
-        if request.direction == "patients_for_cohort":
-            pairs = [state.pair(t, request.query_id) for t in request.target_ids]
-        else:
-            pairs = [state.pair(request.query_id, t) for t in request.target_ids]
+        pairs = search_pairs(request.direction, request.query_id, request.target_ids, state.settings.max_score_n)
         job = state.jobs.submit("score", f"{len(pairs)} pairs",
                                 lambda progress: {"scores": state.decisions.score(pairs, ("match", "boilerplate"), progress)},
                                 device=state.decisions.device)
@@ -194,7 +221,8 @@ def router(state: DashState) -> APIRouter:
 
     @api.get("/api/llm")
     def llm(request: Request):
-        return state.llm.describe({task: connection(request, task) for task in ("good_option", "criteria_llm")})
+        return {**state.llm.describe({"good_option": connection(request, "good_option")}),
+                "decisions": state.llm_decisions.describe(connection(request, LLM_DECISIONS_TASK), owner(request))}
 
     @api.post("/api/good-option")
     def good_option(body: LLMCheckRequest, request: Request):
@@ -205,12 +233,55 @@ def router(state: DashState) -> APIRouter:
         return state.llm.good_option({"id": entity["id"], "key": entity["key"]}, trial["id"], trial.get("drugs") or [],
                                      body.rerun, connection=connection(request, "good_option"))
 
-    @api.post("/api/criteria-llm")
-    def criteria_llm(body: LLMCheckRequest, request: Request):
-        if not body.cohort_id:
-            raise ValueError("give cohort_id")
-        cohort = state.cohort(body.cohort_id)
-        return state.llm.criteria(state.pair(body.patient_id, cohort["id"]), body.rerun,
-                                  connection=connection(request, "criteria_llm"))
+    # LLM decision checks: the LLM alternative to the decision model (its answers stay in the session's memory)
+
+    @api.post("/api/llm-decisions/lookup")
+    def llm_lookup(body: LLMPairsRequest, request: Request):
+        """The session's LLM answers for a search's pairs, and what asking for the rest would send (no model calls)."""
+        chosen = connection(request, LLM_DECISIONS_TASK)
+        pairs = search_pairs(body.direction, body.query_id, body.target_ids, MAX_PAIRS)
+        return {"results": state.llm_decisions.lookup(owner(request), pairs, body.families, chosen),
+                "estimate": state.llm_decisions.estimate(owner(request), pairs, body.families, chosen)}
+
+    @api.post("/api/llm-decisions/score")
+    def llm_score(body: LLMPairsRequest, request: Request):
+        """Ask the LLM about a search's pairs (a session job), or return the session's answers when it has them."""
+        session, chosen = owner(request), connection(request, LLM_DECISIONS_TASK)
+        decisions = state.llm_decisions
+        decisions.require(chosen)
+        pairs = search_pairs(body.direction, body.query_id, body.target_ids, MAX_PAIRS)
+        estimate = decisions.estimate(session, pairs, body.families, chosen, fresh=body.rerun)
+        if not estimate["requests"]:
+            return {"results": decisions.lookup(session, pairs, body.families, chosen), "estimate": estimate}
+        decisions.check_size(estimate, body.confirm)
+        return {**decisions.start(session, f"LLM decision checks: {len(pairs)} pairs", lambda progress: {
+            "results": decisions.score(session, pairs, body.families, chosen, progress, rerun=body.rerun)}),
+            "estimate": estimate}
+
+    @api.post("/api/llm-decisions/criteria")
+    def llm_criteria(body: LLMCriteriaRequest, request: Request):
+        """The LLM's per-criterion check of a patient and a cohort: the session's answer, else a session job."""
+        session, chosen = owner(request), connection(request, LLM_DECISIONS_TASK)
+        decisions = state.llm_decisions
+        pair = state.pair(body.patient_id, state.cohort(body.cohort_id)["id"])
+        if not pair.items:
+            raise InputError("this cohort has no tagged criteria lines (per-criterion checks need them)")
+        cached = None if body.rerun else decisions.criteria_cached(session, pair, chosen)
+        estimate = decisions.estimate(session, [pair], ("criteria",), chosen, fresh=body.rerun)
+        if cached or body.lookup:
+            return {"result": cached, "estimate": estimate}
+        decisions.require(chosen)
+        decisions.check_size(estimate, body.confirm)
+        return {**decisions.start(session, f"LLM criteria check {pair.patient_id} x {pair.cohort_id}",
+                                  lambda progress: decisions.criteria(session, pair, chosen, progress)),
+                "estimate": estimate}
+
+    @api.get("/api/llm-decisions/answers/{key}")
+    def llm_answer(key: str, request: Request):
+        """One of the session's LLM answers in full (parsed answer, raw output, reasoning)."""
+        found = state.llm_decisions.answer(owner(request), key)
+        if found is None:
+            raise HTTPException(404, "This answer has expired or belongs to another browser session.")
+        return found
 
     return api

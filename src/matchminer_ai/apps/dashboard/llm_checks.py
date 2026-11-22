@@ -1,18 +1,16 @@
-"""The dashboard's LLM checks, through the inference package and the configured endpoint (``llm.py``):
+"""The dashboard's GoodOption check, through the inference package and the configured endpoint (``llm.py``).
 
-- the **GoodOption check** of a patient and a trial (``matchminer_ai.matching.check_good_options``, the package's
-  on-demand entry point around ``score_good_options_with_llm``: its four-criterion rubric for each of the trial's
-  scoreable drugs, with the catalog's drug and class evidence, the output cap, the endpoint's context and the parse
-  retries of the ``good_option_check`` preset section);
-- the **per-criterion LLM check** of a patient and a cohort (``check_eligibility_criteria_with_llm``, one request per
-  tagged line with the per-criterion teacher prompt). It is new in the inference package (branch
-  ``criteria-llm-check``); with a package without it the check is unavailable, and the dashboard says so.
+The **GoodOption check** of a patient and a trial (``matchminer_ai.matching.check_good_options``, the package's
+on-demand entry point around ``score_good_options_with_llm``: its four-criterion rubric for each of the trial's
+scoreable drugs, with the catalog's drug and class evidence, the output cap, the endpoint's context and the parse
+retries of the ``good_option_check`` preset section). The LLM alternatives to the decision model (match scores,
+common exclusions, per-criterion checks) are ``llm_decisions``.
 
-Each runs as a background job (its own pool, so the decision model's queue is not held up). Answers are cached in the
-app's SQLite cache (``llm_checks.sqlite``), keyed by the patient's text, the trial or cohort, the catalog's file stamps
-(GoodOption), the endpoint and model, the prompts, the effective request settings and the package version, so the
-same inputs answer at once; "Run again" asks again. The GoodOption catalog is loaded on the first check (about 10 s
-and 1.2 GB, validated by the package, then kept until its files change).
+It runs as a background job (its own pool, so the decision model's queue is not held up). Answers are cached in the
+app's SQLite cache (``llm_checks.sqlite``), keyed by the patient's text, the trial, the catalog's file stamps, the
+endpoint and model, the prompts, the effective request settings and the package version, so the same inputs answer
+at once; "Run again" asks again. The GoodOption catalog is loaded on the first check (about 10 s and 1.2 GB,
+validated by the package, then kept until its files change).
 """
 from __future__ import annotations
 
@@ -121,31 +119,16 @@ class LLMChecks:
             return f"No GoodOption catalog at {self.settings.good_options_catalog}."
         return None
 
-    def criteria_unavailable(self, connection: Connection | None = None) -> str | None:
-        if reason := self.connection_unavailable(connection):
-            return reason
-        import matchminer_ai.matching as matching
-
-        if not hasattr(matching, "check_eligibility_criteria_with_llm"):
-            return (f"The installed inference package ({self.package()['path']}) has no "
-                    "check_eligibility_criteria_with_llm; it is on the branch criteria-llm-check, not merged yet.")
-        if "llm_criteria_check" not in self.base_config().raw:
-            return "The installed inference package's preset has no llm_criteria_check section."
-        return None
-
     def describe(self, connections: dict[str, Connection] | None = None) -> dict:
-        """The checks' state; ``connections``: the session's connection per check (``good_option``,
-        ``criteria_llm``), else the server's default."""
-        connections = connections or {}
-        good_option, criteria = connections.get("good_option"), connections.get("criteria_llm")
+        """The check's state; ``connections``: the session's connection for ``good_option``, else the server's
+        default."""
+        good_option = (connections or {}).get("good_option")
         return {"connection": (good_option or self.connection).describe(), "notice": NOTICE,
                 "defaults": {"backend": default_backend(), "endpoint": default_endpoint(), "model": default_model()},
                 "vertex_profiles": {k: {**v, "label": VERTEX_LABELS[k], "project": vertex_project()}
                                     for k, v in vertex_profiles().items()},
                 "good_option": {"available": self.good_option_unavailable(good_option) is None,
                                 "reason": self.good_option_unavailable(good_option)},
-                "criteria": {"available": self.criteria_unavailable(criteria) is None,
-                             "reason": self.criteria_unavailable(criteria)},
                 "package": self.package(), "rubric": rubric(), "jobs": self.jobs.recent(10)}
 
     # ------------------------------------------------------------------ keys
@@ -154,25 +137,15 @@ class LLMChecks:
         """The prompts and effective request settings of a check, with the package version."""
         from matchminer_ai.llm.prompts import load_prompt_text
 
-        if kind == "good_option":
-            prompts = {name: load_prompt_text(name) for name in GOOD_OPTION_PROMPTS}
-            settings = {name: config.raw.get(name) for name in ("good_option_check", "good_option_prompt")}
-            settings["llm_good_option"] = config.llm_good_option
-        else:
-            from matchminer_ai.labeling.tasks import contract_hash
-
-            prompts = {"criteria_contract": contract_hash("criteria")}
-            settings = {"llm_criteria_check": config.raw.get("llm_criteria_check")}
+        prompts = {name: load_prompt_text(name) for name in GOOD_OPTION_PROMPTS}
+        settings = {name: config.raw.get(name) for name in ("good_option_check", "good_option_prompt")}
+        settings["llm_good_option"] = config.llm_good_option
         return hashlib.sha256(json.dumps([prompts, settings, self.package()["version"]], sort_keys=True,
                                          default=str).encode()).hexdigest()
 
     def good_option_key(self, patient_text: str, trial_id: str, connection: Connection, config) -> str:
         return text_key(CACHE_VERSION, "good_option", connection.identity(), trial_id, patient_text.strip(),
                         catalog_stamps(self.settings.good_options_catalog), self._contract("good_option", config))
-
-    def criteria_key(self, pair, connection: Connection, config) -> str:
-        return text_key(CACHE_VERSION, "criteria", connection.identity(), pair.cohort_id, pair.patient_key.strip(),
-                        pair.patient_boilerplate.strip(), pair.items, self._contract("criteria", config))
 
     # ------------------------------------------------------------------ requests
 
@@ -214,19 +187,6 @@ class LLMChecks:
         return self._start(key, "good_option", f"GoodOption check {patient['id']} x {trial_id}",
                            lambda progress: self._run_good_option(patient, trial_id, drugs, connection, config,
                                                                   progress), rerun)
-
-    def criteria(self, pair, rerun: bool = False, connection: Connection | None = None) -> dict:
-        """Start (or return the cached) per-criterion LLM check of a patient and a cohort (a ``PairText``)."""
-        connection = connection or self.connection
-        reason = self.criteria_unavailable(connection)
-        if reason:
-            raise ValueError(reason)
-        if not pair.items:
-            raise ValueError("this cohort has no tagged criteria lines (per-criterion checks need them)")
-        config = connection.configure(self.base_config(), ("llm_criteria_check",))
-        key = self.criteria_key(pair, connection, config)
-        return self._start(key, "criteria_llm", f"LLM criteria check {pair.patient_id} x {pair.cohort_id}",
-                           lambda progress: self._run_criteria(pair, connection, config, progress), rerun)
 
     # ------------------------------------------------------------------ the work
 
@@ -284,31 +244,3 @@ class LLMChecks:
                 "connection": connection.describe(), "seconds": round(time.monotonic() - started, 1),
                 "checked_at": time.time(), "catalog_compatibility_id": metadata.get("catalog_compatibility_id"),
                 "package": self.package()}
-
-    def _run_criteria(self, pair, connection, config, progress) -> dict:
-        import pandas as pd
-        from matchminer_ai.matching import check_eligibility_criteria_with_llm
-
-        progress(0, len(pair.items), f"asking {connection.label}")
-        started = time.monotonic()
-        frame = pd.DataFrame([{"patient_id": pair.patient_id, "cohort_trial_id": pair.cohort_id,
-                               "cancer_history_summary": pair.patient_key,
-                               "general_exclusion_criteria_evidence": pair.patient_boilerplate,
-                               "cohort_criteria_items": json.dumps(pair.items, ensure_ascii=False)}])
-        out, metadata = check_eligibility_criteria_with_llm(
-            frame, config=config, return_metadata=True,
-            progress=lambda done, total: progress(done, total, f"{done} of {total} lines answered"))
-        details = metadata["model_metadata"]["check_eligibility_criteria_with_llm"]
-        lines = [{"number": int(r["criterion_number"]), "type": r["criterion_type"], "boilerplate": bool(r["boilerplate"]),
-                  "text": r["criterion_text"], "answer": r["llm_criterion_answer"],
-                  "fails": r["llm_criterion_clearly_fails"], "status": r["llm_criterion_status"],
-                  "reason": r["llm_criterion_reason"], "finish_reason": r["llm_criterion_finish_reason"],
-                  "attempts": int(r["llm_criterion_attempts"]), "parse_status": r["llm_criterion_parse_status"],
-                  "reasoning": r.get("llm_criterion_reasoning_text") or ""} for r in out.to_dict("records")]
-        return {"kind": "criteria_llm", "patient_id": pair.patient_id, "cohort_id": pair.cohort_id, "lines": lines,
-                "counts": {"lines": len(lines), "clearly_fail": sum(1 for line in lines if line["fails"] is True),
-                           "unanswered": sum(1 for line in lines if line["answer"] is None),
-                           **{k: details.get(k) for k in ("requests", "retries", "parse_failures", "unchecked_lines")}},
-                "structured_outputs": details.get("structured_outputs"), "contract": metadata.get("criteria_contract"),
-                "model_metadata": _scalars(details), "connection": connection.describe(),
-                "seconds": round(time.monotonic() - started, 1), "checked_at": time.time(), "package": self.package()}
