@@ -184,6 +184,10 @@ patient_extraction:
   # batch_size * batches_in_flight).
   batch_size: 64
   batches_in_flight: 2
+  # Worker processes that tokenize the notes into fragments for a large run (64 patients
+  # or more to prepare); patients start as their fragments arrive. Scheduling only: the
+  # fragments, and so the checkpoints, are the same with any number.
+  tokenizer_workers: 16
   extensions: []
   ncit_agent_codes: false
   sampling_profile: auto

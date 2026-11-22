@@ -15,7 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
+import threading
+import time
+from collections import deque
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -58,6 +62,8 @@ from .schema import (
 logger = logging.getLogger(__name__)
 
 SECTION = "patient_extraction"
+#: Below this many patients to prepare, note fragments are computed in this process (no worker pool).
+PARALLEL_PREPARE_MIN = 64
 PROMPT_FILE = "patient.extraction.patient.txt"
 CHECKPOINT_SUBDIR = "patient_records"
 PATIENT_COLUMNS = [
@@ -226,6 +232,37 @@ def build_patient_record(
     }
 
 
+_WORKER_TOKENIZER = None
+
+
+def _init_fragment_worker(tokenizer) -> None:
+    global _WORKER_TOKENIZER
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"  # one tokenizer thread per worker process
+    _WORKER_TOKENIZER = tokenizer  # the run's own tokenizer, pickled: the same object as the serial path's
+
+
+def _worker_fragments(task):
+    pid, notes, size, overlap = task
+    return pid, note_fragments(notes, _WORKER_TOKENIZER, size, overlap)
+
+
+def _fragment_stream(patients, pids, tokenizer, size, overlap, workers):
+    """(patient id, note fragments) for each of ``pids``, in order: in a pool of ``workers`` processes for a large
+    run (the fast tokenizer encodes one note at a time, so one process took hours for tens of thousands of
+    patients), else here. The fragments are the same either way."""
+    if workers <= 1 or len(pids) < PARALLEL_PREPARE_MIN:
+        for pid in pids:
+            yield pid, note_fragments(patients[pid], tokenizer, size, overlap)
+        return
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    tasks = ((pid, patients[pid], size, overlap) for pid in pids)
+    with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"),
+                             initializer=_init_fragment_worker, initargs=(tokenizer,)) as pool:
+        yield from pool.map(_worker_fragments, tasks, chunksize=8)
+
+
 def extract_patient_records(
     notes: pd.DataFrame,
     *,
@@ -374,18 +411,21 @@ def extract_patient_records(
     # With a prompt budget: each patient's fragments, and the chunk of the request in flight.
     fragments: dict[str, list[dict]] = {}
     current: dict[str, list[dict]] = {}
+    # Note fragments are prepared as the run goes (in a worker pool for a large run), and each patient starts as
+    # soon as its fragments are ready, so requests begin at once instead of after every patient is tokenized.
+    workers = int(values.get("tokenizer_workers", 1) or 1)
     if pending:
         tokenizer = load_tokenizer(tokenizer_name)
-        for pid in pending:
-            pieces = note_fragments(patients[pid], tokenizer, fragment_size, overlap)
-            if budget is None:
-                chunks[pid] = pack_fragments(pieces, chunk_tokens)
-                states[pid]["chunk_count"] = len(chunks[pid])
-            else:
-                fragments[pid] = pieces
-                left = sum(f["tokens"] + HEADER_TOKENS for f in pieces[states[pid]["next_fragment"]:])
-                states[pid]["chunk_count"] = states[pid]["next_chunk"] + math.ceil(
-                    left / max(1, min(chunk_tokens, budget // 2)))
+
+    def prepared(pid, pieces):
+        if budget is None:
+            chunks[pid] = pack_fragments(pieces, chunk_tokens)
+            states[pid]["chunk_count"] = len(chunks[pid])
+        else:
+            fragments[pid] = pieces
+            left = sum(f["tokens"] + HEADER_TOKENS for f in pieces[states[pid]["next_fragment"]:])
+            states[pid]["chunk_count"] = states[pid]["next_chunk"] + math.ceil(
+                left / max(1, min(chunk_tokens, budget // 2)))
 
     def count(text):
         return len(tokenizer(text, add_special_tokens=False)["input_ids"])
@@ -523,11 +563,50 @@ def extract_patient_records(
                 )
                 progress_callback(finished, total)
 
-        for pid in pending:
-            start(pid)
-        report()
+        ready: deque = deque()
+        produced, failure = threading.Event(), []
+
+        def produce():
+            try:
+                for item in _fragment_stream(patients, pending, tokenizer, fragment_size, overlap, workers):
+                    ready.append(item)
+            except BaseException as exc:  # re-raised in this thread below
+                failure.append(exc)
+            finally:
+                produced.set()
+
+        # Patients start as their fragments arrive, keeping about a window of requests waiting: building a
+        # patient's first prompt costs a tokenizer pass, so starting every patient up front delayed the first
+        # request by as long as tokenizing them all.
+        window = chunk_size * chunks_in_flight
+
+        def feed():
+            while ready and len(queue) < window:
+                pid, pieces = ready.popleft()
+                prepared(pid, pieces)
+                start(pid)
+
+        def record_and_feed(*args):
+            record(*args)
+            feed()
+
+        producer = threading.Thread(target=produce, name="mmai-patient-fragments", daemon=True)
+        producer.start()
         logger.info("Extracting patient records for %d patients.", len(pending))
-        model_metadata = queue.run(record, progress=report)
+        while True:
+            while not ready and not produced.is_set():
+                time.sleep(0.05)
+            feed()
+            if failure:
+                raise failure[0]
+            if len(queue):
+                report()
+                model_metadata = queue.run(record_and_feed, progress=report) or model_metadata
+            elif produced.is_set() and not ready:
+                break
+        producer.join()
+        if failure:
+            raise failure[0]
 
     rows = []
     for pid, s in states.items():

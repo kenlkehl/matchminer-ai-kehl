@@ -580,3 +580,17 @@ def test_disease_assessment_site_groups_and_present_status():
     # A site group of other needs the site named in disease_sites (a list).
     unnamed = {**base, "disease_sites": []}
     assert any("must name it" in p.message for p in s.check_item(item_type, "document", unnamed, "x"))
+
+
+def test_note_fragments_from_a_worker_pool_equal_the_serial_ones(monkeypatch):
+    """A large run prepares note fragments in worker processes; they must be exactly the serial ones."""
+    from matchminer_ai.patients.extraction import patient_records as pr
+
+    monkeypatch.setattr(pr, "PARALLEL_PREPARE_MIN", 1)
+    patients = {f"p{i}": [{"note_id": f"n{i}-{j}", "note_date": f"2026-01-{j + 1:02d}", "note_type": "Clinic",
+                           "text": " ".join(f"word{i}-{j}-{k}" for k in range(40 + 7 * j))} for j in range(4)]
+                for i in range(6)}
+    pids = list(patients)
+    serial = list(pr._fragment_stream(patients, pids, WordTokenizer(), 64, 8, 1))
+    pooled = list(pr._fragment_stream(patients, pids, WordTokenizer(), 64, 8, 2))
+    assert [pid for pid, _ in pooled] == pids and pooled == serial

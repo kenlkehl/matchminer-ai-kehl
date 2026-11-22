@@ -228,6 +228,12 @@ cannot silently drop an earlier item. Chunks are measured with the model's token
 (`remote.tokenizer_name`, or the model name). A chunk whose prompt, with the output reserve, would exceed
 `context_tokens` (default `local.engine.max_model_len`) fails the patient rather than being truncated.
 
+A large run (64 patients or more) tokenizes the notes into chunks in `patient_extraction.tokenizer_workers` worker
+processes (default 16), and each patient starts as soon as its chunks are ready. The run keeps about one request window
+(`batch_size * batches_in_flight`) waiting, so requests begin within minutes rather than after every patient has been
+tokenized. The chunks are the same as a single process makes, so the number of workers does not change the results or
+the checkpoints.
+
 ## Checkpoints
 
 With `checkpoint_dir`, the document stage appends each finished note to
