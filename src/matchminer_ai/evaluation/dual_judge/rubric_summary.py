@@ -207,9 +207,15 @@ def build_synthetic(fidelity_dir, sources, n, seed):
     notes = table.to_pandas().sort_values(['patient_id', 'date', 'event_number'], kind='stable')
     notes = notes[notes.synthetic_note.fillna('').str.strip().ne('')]
     chars = notes.synthetic_note.str.len().groupby(notes.patient_id).sum()
-    summaries = pd.read_parquet(sources['summaries'], columns=['patient_id', 'patient_summary'],
-                                filters=[('patient_id', 'in', queries)]).drop_duplicates('patient_id')
-    summaries = summaries.set_index('patient_id').patient_summary
+    from matchminer_ai._texts import patient_full_texts
+
+    # The complete summary: training's table holds the cancer history (patient_summary) and the other relevant history
+    # (patient_boilerplate_text) apart; joined as the summarizer wrote them, so the judges see both sections.
+    table = pd.read_parquet(sources['summaries'], columns=['patient_id', 'patient_summary', 'patient_boilerplate_text'],
+                            filters=[('patient_id', 'in', queries)]).drop_duplicates('patient_id')
+    table = table.rename(columns={'patient_summary': 'cancer_history_summary',
+                                  'patient_boilerplate_text': 'general_exclusion_criteria_evidence'})
+    summaries = pd.Series(patient_full_texts(table), index=table.patient_id.tolist())
     rng = random.Random(f'{seed}:summary')
     counts = [int(share * n) for _, share, _, _ in STRATA]
     for i in range(n - sum(counts)):
