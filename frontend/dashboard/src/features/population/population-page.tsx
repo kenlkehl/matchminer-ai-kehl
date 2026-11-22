@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TrashIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { APP_TABS_HEIGHT_PX } from "@/components/shell/app-tabs";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ const JOB_TITLES: Record<string, string> = {
  * a DuckDB sample; or a cohort of one's own), fetch the patients matching a guideline space, then check
  * their workup documentation against the guideline, with drilldowns by item and by patient.
  */
-const GAP = 16; // px kept between the workflow pane and the window's edges
+const GAP = 16; // px kept between the workflow pane and the window's edges (and the tab bar above)
 
 /**
  * On wide screens, keep the workflow pane's bottom inside the window wherever the page is scrolled: its height is
@@ -48,7 +49,7 @@ function useFitToWindow() {
         element.style.maxHeight = "";
         return;
       }
-      const top = Math.max(element.getBoundingClientRect().top, GAP);
+      const top = Math.max(element.getBoundingClientRect().top, APP_TABS_HEIGHT_PX + GAP);
       element.style.maxHeight = `${String(Math.max(200, window.innerHeight - top - GAP))}px`;
     };
     fit();
@@ -108,7 +109,7 @@ export function PopulationPage() {
         <aside
           ref={workflow}
           aria-label="Population workflow"
-          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-4 lg:overflow-y-auto"
+          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-16 lg:overflow-y-auto"
         >
           {mode ? (
             <fieldset disabled={!pop.ready || pop.busy} className="min-w-0">

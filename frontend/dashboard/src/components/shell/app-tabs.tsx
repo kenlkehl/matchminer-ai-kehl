@@ -40,7 +40,10 @@ const TABS: {
   { tab: "status", to: "/status", label: "Data and models" },
 ];
 
-/** The tabs above every page: those the server's mode shows. */
+/** The tab bar's height (h-12): stay-in-view panes sit below it (top-12 or more). */
+export const APP_TABS_HEIGHT_PX = 48;
+
+/** The tabs above every page: those the server's mode shows. They stay in view while the page scrolls. */
 export function AppTabs() {
   const current = useAppTab();
   // The server's tabs for its mode; Data and models is always last.
@@ -51,7 +54,7 @@ export function AppTabs() {
   return (
     <nav
       aria-label="Applications"
-      className="-mx-6 -mt-6 mb-6 flex border-b border-gray-200 bg-gray-100 px-6 pt-2 print:hidden"
+      className="sticky top-0 z-40 -mx-6 -mt-6 mb-6 flex h-12 items-end border-b border-gray-200 bg-gray-100 px-6 print:static print:hidden"
     >
       {TABS.filter(({ tab }) => shown.includes(tab)).map(({ tab, to, label }) => (
         <Link

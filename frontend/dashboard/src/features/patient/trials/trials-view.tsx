@@ -576,7 +576,7 @@ function PatientPanel({ patient }: { patient: TrialsForPatientResult["patient"] 
       ref={panel}
       id={`${id}-panel`}
       aria-label="Patient"
-      className="sticky top-0 z-20 flex flex-col rounded-lg border border-gray-200 bg-slate-50 shadow-sm"
+      className="sticky top-12 z-20 flex flex-col rounded-lg border border-gray-200 bg-slate-50 shadow-sm"
       style={{
         maxHeight: `min(${String(PANEL_MAX)}svh, max(${String(limits?.min ?? 0)}px, ${String(height)}svh))`,
       }}
