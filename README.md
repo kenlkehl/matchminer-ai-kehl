@@ -204,9 +204,9 @@ See [Evaluations](docs/evaluation/index.md).
 
 ## Apps
 
-- **Dashboard** (`mmai-dashboard --mode real|synthetic`): one app with four tabs. **Trial-centric** shows a site's trial
-  cohorts and finds patients for a cohort; **Population management** checks a patient population's guideline
-  concordance; **Patient-centric** finds trials and guideline considerations for one patient; **Benchmarking** shows evaluation runs and
+- **Dashboard** (`mmai-dashboard --mode real|synthetic`): one app with four tabs. **Trial management** shows a site's trial
+  cohorts and finds patients for a cohort; **Population guideline concordance** checks a patient population's guideline
+  concordance; **Patient-centric search** finds trials and guideline considerations for one patient; **Benchmarking** shows evaluation runs and
   adjudicates LLM-judge disagreements. Real mode reads real trials and patients, listens on loopback only and
   requires an access token; synthetic mode reads the synthetic run only. FastAPI with a React frontend in
   `frontend/dashboard/`, built with `pnpm build`. See [Dashboard](docs/apps/dashboard.md).

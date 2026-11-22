@@ -71,7 +71,7 @@ export const modelsOptions = () =>
 /** What a task's connection is, in a few words. */
 export function connectionLabel(config: ModelConfig, c: TaskConnection): string {
   const vertex = config.vertex_profiles[c.llm_backend];
-  if (vertex) return vertex.label;
+  if (vertex) return `${vertex.label} (Google Vertex)`;
   if (c.llm_backend === "claude_databricks") return `${claudeName(c.model)} (Databricks gateway)`;
   return `${c.model} at ${c.endpoint}`;
 }

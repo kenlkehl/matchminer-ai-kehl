@@ -5,8 +5,8 @@
   on-demand extraction of the workspace notes (the same records the Guidelines extraction review uses).
 * **Criteria screening** compiles each criteria line of a cohort once (compiled criterion queries or the SQL agent,
   :mod:`matchminer_ai.matching.structured_criteria`), cached per writing model, then runs it in code on patients'
-  records: one patient (the Patient tab, a Trial-centric patient dialog) or every candidate with stored records
-  (Trial-centric Find patients).
+  records: one patient (the Patient tab, a Trial management patient dialog) or every candidate with stored records
+  (Trial management Find patients).
 """
 from __future__ import annotations
 

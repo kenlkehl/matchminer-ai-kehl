@@ -75,5 +75,5 @@ dated by its start, so washouts are approximated (and say so).
 ## Dashboard
 
 The dashboard uses both engines with the session's query-writing connection: the Patient-centric trial dialog and the
-Trial-centric patient dialog (**Check with structured data**), and Trial-centric **Find patients** (**Screen with
+Trial management patient dialog (**Check with structured data**), and Trial management **Find patients** (**Screen with
 structured data**, over every candidate the mode's extraction store holds). See [Dashboard](../apps/dashboard.md).

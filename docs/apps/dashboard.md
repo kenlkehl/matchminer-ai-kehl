@@ -25,7 +25,7 @@ TrialSpace model and says so on Data and models if they differ.
 
 ## Tabs
 
-- **Trial-centric search:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+- **Trial management:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model; the per-criterion
@@ -66,7 +66,10 @@ TrialSpace model and says so on Data and models if they differ.
 - **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
-  GoodOption check and the per-criterion LLM check.
+  GoodOption check and the per-criterion LLM check. Three connectors: an OpenAI-compatible server (**Detect served
+  model** reads its `/v1/models`), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8 Flash or Gemma 4
+  26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's Claude
+  endpoints).
 
 ## Run
 

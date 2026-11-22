@@ -90,7 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {tab === "trials" ? (
-                    <NavItem to="/" icon={TableIcon} label="Trial-centric search" active={false} />
+                    <NavItem to="/" icon={TableIcon} label="Trial management" active={false} />
                   ) : tab === "population" ? (
                     <NavItem
                       to="/population"

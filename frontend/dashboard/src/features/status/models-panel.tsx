@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ import {
 import { llmOptions } from "@/lib/queries";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm";
+/** One connector for the Vertex profiles (each is a model); the form's own value, not a backend. */
+const VERTEX = "vertex";
 
 /**
  * Each LLM task's connection for this browser session: an OpenAI-compatible server (its models read
@@ -110,6 +112,8 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
   useEffect(() => {
     setChecked(null);
   }, [backend, endpoint]);
+  const vertexKeys = Object.keys(config.vertex_profiles);
+  const modelLabel = useId();
   const vertex = config.vertex_profiles[backend];
   const claude = backend === "claude_databricks" ? config.claude_profiles[backend] : undefined;
   useEffect(() => {
@@ -138,7 +142,12 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
       }),
     onSuccess: (found) => {
       setChecked(found);
-      if (backend === "local" && found.model && !found.models.includes(model))
+      // An OpenAI-compatible server: take the model it serves (the first, if several and this one is not).
+      if (
+        backend === "local" &&
+        found.model &&
+        (found.models.length === 1 || !found.models.includes(model))
+      )
         setModel(found.model);
     },
   });
@@ -157,17 +166,19 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
           <span className="text-xs text-gray-500">Connection</span>
           <select
             className={SELECT}
-            value={backend}
+            value={vertex ? VERTEX : backend}
             onChange={(e) => {
-              setBackend(e.target.value as Backend);
+              const value = e.target.value;
+              if (value === VERTEX) {
+                const first = vertexKeys[0];
+                if (!vertex && first) setBackend(first as Backend);
+              } else setBackend(value as Backend);
             }}
           >
             <option value="local">OpenAI-compatible server (vLLM)</option>
-            {Object.entries(config.vertex_profiles).map(([key, p]) => (
-              <option key={key} value={key}>
-                {p.label}
-              </option>
-            ))}
+            {vertexKeys.length ? (
+              <option value={VERTEX}>Google Vertex / Agent Platform</option>
+            ) : null}
             {Object.entries(config.claude_profiles).map(([key, p]) => (
               <option key={key} value={key}>
                 {p.label}
@@ -176,10 +187,28 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
           </select>
         </label>
         {vertex ? (
-          <p className="pb-2 text-xs text-gray-500">
-            {vertex.model} in project {vertex.project}, with this server's Google Application
-            Default Credentials
-          </p>
+          <>
+            <label className="flex min-w-72 flex-col gap-1">
+              <span className="text-xs text-gray-500">Model</span>
+              <select
+                className={SELECT}
+                value={backend}
+                onChange={(e) => {
+                  setBackend(e.target.value as Backend);
+                }}
+              >
+                {Object.entries(config.vertex_profiles).map(([key, p]) => (
+                  <option key={key} value={key}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="pb-2 text-xs text-gray-500">
+              {vertex.model} in project {vertex.project}, with this server's Google Application
+              Default Credentials
+            </p>
+          </>
         ) : claude ? (
           <label className="flex min-w-96 flex-1 flex-col gap-1">
             <span className="text-xs text-gray-500">
@@ -213,10 +242,23 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
                 }}
               />
             </label>
-            <label className="flex min-w-72 flex-1 flex-col gap-1">
-              <span className="text-xs text-gray-500">Model</span>
+            <div className="flex min-w-72 flex-1 flex-col gap-1">
+              <span className="flex items-center justify-between text-xs text-gray-500">
+                <span id={modelLabel}>Model</span>
+                <button
+                  type="button"
+                  className="text-brand-blue hover:underline disabled:opacity-50"
+                  disabled={check.isPending || !endpoint.trim()}
+                  onClick={() => {
+                    check.mutate();
+                  }}
+                >
+                  {check.isPending ? "Detecting…" : "Detect served model"}
+                </button>
+              </span>
               {checked?.models.length ? (
                 <select
+                  aria-labelledby={modelLabel}
                   className={SELECT}
                   value={model}
                   onChange={(e) => {
@@ -231,13 +273,14 @@ function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
                 </select>
               ) : (
                 <Input
+                  aria-labelledby={modelLabel}
                   value={model}
                   onChange={(e) => {
                     setModel(e.target.value);
                   }}
                 />
               )}
-            </label>
+            </div>
             <label className="flex min-w-48 flex-col gap-1">
               <span className="text-xs text-gray-500">Tokenizer (default: the model)</span>
               <Input
