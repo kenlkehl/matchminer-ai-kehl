@@ -123,9 +123,12 @@ matchminer_ai = [
   "data/*.zip",
   "data/*.md",
   "apps/dashboard/grouping.yaml",
-  # The built dashboard frontend (frontend/dashboard: pnpm build), when present.
+  "apps/dashboard/docs_pages.json",
+  # The built dashboard frontend (frontend/dashboard: pnpm build), when present, with the How this works tab's
+  # copies of the documentation pages.
   "apps/dashboard/static/*",
   "apps/dashboard/static/assets/*",
+  "apps/dashboard/static/docs/*",
 ]
 
 [tool.pytest.ini_options]

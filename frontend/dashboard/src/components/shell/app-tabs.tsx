@@ -11,6 +11,7 @@ const PREFIXES: [string, AppTab][] = [
   ["/patient", "patient"],
   ["/assistant", "assistant"],
   ["/benchmarking", "benchmarking"],
+  ["/how-it-works", "docs"],
   ["/status", "status"],
 ];
 
@@ -22,7 +23,8 @@ export function useAppTab(): AppTab {
   });
 }
 
-export type TabPath = "/" | "/population" | "/patient" | "/assistant" | "/benchmarking" | "/status";
+export type TabPath =
+  "/" | "/population" | "/patient" | "/assistant" | "/benchmarking" | "/how-it-works" | "/status";
 
 const TABS: {
   tab: AppTab;
@@ -34,6 +36,7 @@ const TABS: {
   { tab: "population", to: "/population", label: "Population guideline concordance" },
   { tab: "assistant", to: "/assistant", label: "Assistant" },
   { tab: "benchmarking", to: "/benchmarking", label: "Benchmarking" },
+  { tab: "docs", to: "/how-it-works", label: "How this works" },
   { tab: "status", to: "/status", label: "Data and models" },
 ];
 

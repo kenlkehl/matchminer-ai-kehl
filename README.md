@@ -208,7 +208,8 @@ See [Evaluations](docs/evaluation/index.md).
   cohorts and finds patients for a cohort; **Population guideline concordance** checks a patient population's guideline
   concordance; **Patient-centric search** finds trials and guideline considerations for one patient; **Assistant**
   answers questions about the trials and patients in a chat, asking what ambiguous clinical concepts mean;
-  **Benchmarking** shows evaluation runs and adjudicates LLM-judge disagreements. Real mode reads real trials and patients, listens on loopback only and
+  **Benchmarking** shows evaluation runs and adjudicates LLM-judge disagreements; **How this works** shows how the
+  models are trained and the structured extraction data model. Real mode reads real trials and patients, listens on loopback only and
   requires an access token; synthetic mode reads the synthetic run only. FastAPI with a React frontend in
   `frontend/dashboard/`, built with `pnpm build`. See [Dashboard](docs/apps/dashboard.md).
 

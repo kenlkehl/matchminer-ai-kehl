@@ -140,14 +140,17 @@ so use them where a written reason helps the reviewer and the endpoint is approv
   or on an OpenAI-compatible server. See [choosing an inference setup](local-vs-remote.md) and
   [LLM runtime](../reference/llm-runtime.md).
 - **TrialSpace.** A sentence-embedding model fine-tuned from `google/embeddinggemma-2` by the training pipeline. The
-  default preset names none, so set `embedding.model_path` to your own. Vectors from different TrialSpace models are
-  not comparable: re-embed both sides after changing the model.
+  default is the published [`ksg-dfci/TrialSpace-1226`](https://huggingface.co/ksg-dfci/TrialSpace-1226), pinned;
+  `embedding.model_path`, or `paths.trialspace_model` in a site config, names another. Vectors from different
+  TrialSpace models are not comparable: re-embed both sides after changing the model.
 - **Decision model.** Runs in-process on a GPU with Transformers.
 
 The published models and synthetic datasets are on [Hugging Face](https://huggingface.co/ksg-dfci). The latest
-release, [collection 0526](https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526), comes from the earlier
-trial-space pipeline: its ModernBERT checkers are not used by this package, and its TrialSpace model was trained on
-a different text format than cohort key criteria.
+release is [collection 1226](https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c)
+(TrialSpace-1226, MatchEval-1226 and the mmai-synthetic-1226 dataset). The earlier
+[collection 0526](https://huggingface.co/collections/ksg-dfci/matchminer-ai-0526) comes from the trial-space pipeline:
+its ModernBERT checkers are not used by this package, and its TrialSpace model was trained on a different text format
+than cohort key criteria.
 
 ## Guideline populations
 

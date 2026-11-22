@@ -64,6 +64,8 @@ TrialSpace model and says so on Data and models if they differ.
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
   themselves start from the command line ([Evaluation](../evaluation/index.md)).
+- **How this works:** how the models are trained and fit together at run time, and the structured extraction data
+  model (see [How this works](#how-this-works) below).
 - **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
@@ -125,6 +127,15 @@ app's default connection. The page shows the conversation's requests and tokens.
 and is never written to disk or logged; an ad-hoc criteria line's compiled query is kept with the conversation only.
 Patient summaries and structured records go to the selected model connection, so use one authorized for the mode's
 data.
+
+## How this works
+
+The How this works tab shows a curated set of the documentation's pages: how matching works at run time, training
+(TrialSpace, the decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and
+criteria screening. The extraction data model page is generated from the schema's declarations (item types, fields,
+vocabularies, versions), so it matches the code. From a source checkout the pages are read from `docs/`; the frontend
+build copies them into the package (`static/docs/`) for an installed one. Only the pages listed in
+`docs_pages.json` are served.
 
 ## Run
 

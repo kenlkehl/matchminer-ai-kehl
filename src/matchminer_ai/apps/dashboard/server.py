@@ -25,7 +25,7 @@ from matchminer_ai.apps.common import security
 from .core.encoder import EncoderUnavailable
 from .core.errors import BusyError, InputError
 from .evidence import CatalogUnavailable, UnknownEntry
-from .routes import assistant, benchmarking, guidelines, patients, population, records, status, trials
+from .routes import assistant, benchmarking, docs, guidelines, patients, population, records, status, trials
 from .state import DashState, NotFound
 
 STATIC = Path(__file__).with_name("static")
@@ -150,6 +150,7 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
     for module in (guidelines, population):
         app.include_router(module.router(state.guidelines))
     app.include_router(benchmarking.router(state.benchmarks))
+    app.include_router(docs.router())
 
     # ------------------------------------------------------------------ the frontend (after every API route)
 

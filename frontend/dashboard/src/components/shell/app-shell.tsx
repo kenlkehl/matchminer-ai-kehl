@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   ActivityIcon,
+  BookOpenIcon,
   FunnelIcon,
   GaugeIcon,
   LogOutIcon,
@@ -110,6 +111,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                     />
                   ) : tab === "benchmarking" ? (
                     <NavItem to="/benchmarking" icon={GaugeIcon} label="Benchmarking" active />
+                  ) : tab === "docs" ? (
+                    <NavItem to="/how-it-works" icon={BookOpenIcon} label="How this works" active />
                   ) : (
                     <NavItem to="/status" icon={ActivityIcon} label="Data and models" active />
                   )}

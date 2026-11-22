@@ -365,12 +365,13 @@ class DashState:
     # ------------------------------------------------------------------ status
 
     def tabs(self) -> list[str]:
-        """The frontend's tabs in this mode: Benchmarking only when there are runs to show."""
+        """The frontend's tabs in this mode: Benchmarking only when there are runs to show; How this works
+        (``docs``) always."""
         tabs = ["trials", "population", "patient", "assistant"]
         benchmarks = getattr(self, "benchmarks", None)
         if benchmarks is not None and benchmarks.available():
             tabs.append("benchmarking")
-        return tabs
+        return [*tabs, "docs"]
 
     def describe(self) -> dict:
         s = self.store

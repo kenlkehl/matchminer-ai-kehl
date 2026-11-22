@@ -213,7 +213,7 @@ export interface SiteBranding {
 /** The app's mode: real (the OA trials and real patients) or synthetic (the synthetic run's). */
 export type Mode = "real" | "synthetic";
 export type AppTabName =
-  "trials" | "population" | "patient" | "assistant" | "benchmarking" | "status";
+  "trials" | "population" | "patient" | "assistant" | "benchmarking" | "docs" | "status";
 
 export interface Meta {
   mode: Mode;
