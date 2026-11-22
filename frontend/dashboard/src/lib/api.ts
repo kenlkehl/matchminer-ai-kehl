@@ -1,4 +1,5 @@
 /** The dashboard server's JSON API (matchminer_ai/apps/dashboard/server.py). Fields keep the server's snake_case. */
+import type { LLMDecisionsStatus } from "./llm-decisions";
 
 export class ApiError extends Error {
   status: number;
@@ -382,7 +383,8 @@ export interface LLMStatus {
     { endpoint: string; model: string; tokenizer: string; label: string; project: string }
   >;
   good_option: Availability;
-  criteria: Availability;
+  /** The LLM decision checks (the LLM alternative to the decision model). */
+  decisions: LLMDecisionsStatus;
   package: { version: string | null; path: string };
   rubric: { intro: string; criteria: RubricCriterion[]; score_meaning: string };
 }
@@ -423,40 +425,6 @@ export interface GoodOptionResult {
   evidence_packing: Record<string, unknown>;
   context: { context_tokens?: number | null; context_source?: string; context_warning?: string };
   model_metadata: Record<string, string | number | boolean>;
-  connection: LLMConnection;
-  seconds: number;
-  checked_at: number;
-  cached?: boolean;
-}
-
-export interface LLMCriterionLine {
-  number: number;
-  type: "inclusion" | "exclusion" | null;
-  boilerplate: boolean;
-  text: string;
-  /** yes = does not clearly fail the line; no = clearly fails it; null when no attempt validated. */
-  answer: "yes" | "no" | null;
-  fails: boolean | null;
-  status: string | null;
-  reason: string;
-  finish_reason: string;
-  attempts: number;
-  parse_status: string;
-  reasoning: string;
-}
-
-export interface CriteriaLLMResult {
-  kind: "criteria_llm";
-  lines: LLMCriterionLine[];
-  counts: {
-    lines: number;
-    clearly_fail: number;
-    unanswered: number;
-    requests: number | null;
-    retries: number | null;
-    parse_failures: number | null;
-  };
-  structured_outputs: boolean | null;
   connection: LLMConnection;
   seconds: number;
   checked_at: number;

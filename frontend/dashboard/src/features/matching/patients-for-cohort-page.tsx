@@ -23,12 +23,27 @@ import {
   waitForJob,
 } from "@/lib/api";
 import { patientLine } from "@/lib/format";
+import { type LLMPairResult, type Scorer, useScorer } from "@/lib/llm-decisions";
 import { metaOptions, recordsStatusOptions } from "@/lib/queries";
 import { ENGINE_LABELS, type Engine, type ScreenResult } from "@/lib/records";
 
 import { CriteriaCheck } from "./criteria-check";
+import {
+  byLLMScore,
+  type LLMAnswer,
+  LLMAnswerDialog,
+  LLMExclusionLine,
+  llmLikelyExcluded,
+  LLMMatchBadge,
+  LLMPairAnswers,
+  LLMRankingNote,
+  LLMRequirements,
+  LLMRunStatus,
+} from "./llm-score-view";
 import { PatientDialog } from "./patient-dialog";
+import { ScorerToggle } from "./scorer-toggle";
 import { byScore, ExclusionLine, likelyExcluded, MatchBadge, Requirements } from "./score-view";
+import { useLLMScoring } from "./use-llm-scoring";
 import { useScoring } from "./use-scoring";
 
 const route = getRouteApi("/_app/cohorts/$cohortId/patients");
@@ -36,7 +51,8 @@ const SELECT = "h-8 w-full rounded-md border border-white/20 bg-white/10 px-2 te
 
 /**
  * "Patients for this cohort": the synthetic patients nearest the cohort's key criteria in TrialSpace, the
- * first scored by the decision model as the page opens, with the cohort's criteria in a resizable panel.
+ * first scored as the page opens by the session's scorer (the decision model, or the LLM: the toggle), with
+ * the cohort's criteria in a resizable panel.
  */
 export function PatientsForCohortPage() {
   const { cohortId } = route.useParams();
@@ -70,12 +86,13 @@ export function PatientsForCohortPage() {
     () => (data ? data.results.map((r) => ({ ...r, id: r.patient.id })) : null),
     [data],
   );
-  const scoring = useScoring(
-    "patients_for_cohort",
-    data?.query.cohort_id ?? null,
-    rows,
-    meta?.auto_score_n ?? 10,
-  );
+  const scorer = useScorer();
+  const usingLLM = scorer === "llm";
+  const autoN = meta?.auto_score_n ?? 10;
+  const queryId = data?.query.cohort_id ?? null;
+  const scoring = useScoring("patients_for_cohort", queryId, rows, usingLLM ? 0 : autoN);
+  const llm = useLLMScoring("patients_for_cohort", queryId, rows, autoN, usingLLM);
+  const [answer, setAnswer] = useState<{ answer: LLMAnswer; id: string } | null>(null);
   const [hideExcluded, setHideExcluded] = useState(false);
   const store = useQuery(recordsStatusOptions()).data?.store;
   const [engine, setEngine] = useState<Engine>("queries");
@@ -97,13 +114,21 @@ export function PatientsForCohortPage() {
   const router = useRouter();
 
   const shown = rows
-    ? byScore(rows, scoring.scores).filter(
+    ? (usingLLM ? byLLMScore(rows, llm.results) : byScore(rows, scoring.scores)).filter(
         (r) =>
-          !(hideExcluded && likelyExcluded(scoring.scores[r.id])) &&
-          !(hideFailing && screened?.patients[r.id]?.counts.clearly_failed_lines.length),
+          !(
+            hideExcluded &&
+            (usingLLM ? llmLikelyExcluded(llm.results[r.id]) : likelyExcluded(scoring.scores[r.id]))
+          ) && !(hideFailing && screened?.patients[r.id]?.counts.clearly_failed_lines.length),
       )
     : [];
-  const unscored = rows?.filter((r) => !scoring.scores[r.id]?.match).map((r) => r.id) ?? [];
+  const unscored =
+    rows
+      ?.filter((r) => !(usingLLM ? llm.results[r.id]?.match : scoring.scores[r.id]?.match))
+      .map((r) => r.id) ?? [];
+  const busyScoring = usingLLM
+    ? llm.running.length > 0 || !!llm.pending
+    : scoring.running.length > 0;
   const cohort = data?.query;
 
   return (
@@ -201,8 +226,9 @@ export function PatientsForCohortPage() {
       <PageHeader title="Find Patients for a Cohort">
         <p>
           The synthetic patients whose summaries are nearest this cohort's key criteria
-          (TrialSpace), ranked by the MatchMiner-AI decision model as they are scored. Matches are
-          screening signals for review, not eligibility determinations.
+          (TrialSpace), ranked by{" "}
+          {usingLLM ? "the LLM's answers" : "the MatchMiner-AI decision model"} as they are scored.
+          Matches are screening signals for review, not eligibility determinations.
         </p>
       </PageHeader>
       <ResizablePanelGroup
@@ -254,8 +280,14 @@ export function PatientsForCohortPage() {
                   <Badge variant="secondary">
                     {shown.length} of {data.searched.toLocaleString()} synthetic patients
                   </Badge>
-                  <ScoringStatus scoring={scoring} />
+                  {usingLLM ? (
+                    <LLMRunStatus scoring={llm} noun="patients" />
+                  ) : (
+                    <ScoringStatus scoring={scoring} />
+                  )}
                 </div>
+                <ScorerToggle />
+                {usingLLM ? <LLMRankingNote /> : null}
                 {store?.available ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <select
@@ -301,10 +333,15 @@ export function PatientsForCohortPage() {
                       key={row.id}
                       row={row}
                       screened={screened}
+                      scorer={scorer}
                       scores={scoring.scores[row.id]}
-                      scoring={scoring.running.includes(row.id)}
+                      llm={llm.results[row.id]}
+                      scoring={(usingLLM ? llm.running : scoring.running).includes(row.id)}
                       onOpen={(tab) => {
                         setOpen({ id: row.id, tab });
+                      }}
+                      onAnswer={(a) => {
+                        setAnswer({ answer: a, id: row.id });
                       }}
                     />
                   ))}
@@ -313,12 +350,13 @@ export function PatientsForCohortPage() {
                   <Button
                     variant="outline"
                     className="self-start"
-                    disabled={scoring.running.length > 0}
+                    disabled={busyScoring}
                     onClick={() => {
-                      scoring.score(unscored.slice(0, 10));
+                      (usingLLM ? llm : scoring).score(unscored.slice(0, 10));
                     }}
                   >
                     Score the next {Math.min(10, unscored.length)} patients
+                    {usingLLM ? " with the LLM" : ""}
                   </Button>
                 ) : null}
               </section>
@@ -337,16 +375,68 @@ export function PatientsForCohortPage() {
           pairTab={{
             label: "Criteria check",
             content: (
-              <CriteriaCheck
-                patientId={open.id}
-                cohortId={cohort.cohort_id}
-                items={cohort.items}
-                autoStart
-              />
+              <div className="flex flex-col gap-4">
+                <PairScoresView
+                  scorer={scorer}
+                  scores={scoring.scores[open.id]}
+                  llm={llm.results[open.id]}
+                  scoring={(usingLLM ? llm.running : scoring.running).includes(open.id)}
+                  onScoreLLM={() => {
+                    llm.score([open.id]);
+                  }}
+                  onAnswer={(a) => {
+                    setAnswer({ answer: a, id: open.id });
+                  }}
+                />
+                <CriteriaCheck
+                  patientId={open.id}
+                  cohortId={cohort.cohort_id}
+                  items={cohort.items}
+                  autoStart
+                />
+              </div>
             ),
           }}
         />
       ) : null}
+      {answer ? (
+        <LLMAnswerDialog
+          answer={answer.answer}
+          onClose={() => {
+            setAnswer(null);
+          }}
+          onRerun={() => {
+            llm.score([answer.id], { rerun: true });
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** A pair's answers in its dialog, from the session's scorer. */
+export function PairScoresView({
+  scorer,
+  scores,
+  llm,
+  scoring,
+  onScoreLLM,
+  onAnswer,
+}: {
+  scorer: Scorer;
+  scores: PatientHit["scores"] | undefined;
+  llm: LLMPairResult | undefined;
+  scoring: boolean;
+  onScoreLLM: () => void;
+  onAnswer: (answer: LLMAnswer) => void;
+}) {
+  return scorer === "llm" ? (
+    <LLMPairAnswers result={llm} scoring={scoring} onScore={onScoreLLM} onOpen={onAnswer} />
+  ) : (
+    <div className="flex flex-col gap-2">
+      <MatchBadge scores={scores} scoring={scoring} />
+      <Requirements match={scores?.match} />
+      <ExclusionLine boilerplate={scores?.boilerplate} scoring={scoring} />
     </div>
   );
 }
@@ -369,15 +459,21 @@ export function ScoringStatus({ scoring }: { scoring: ReturnType<typeof useScori
 function PatientCard({
   row,
   screened,
+  scorer,
   scores,
+  llm,
   scoring,
   onOpen,
+  onAnswer,
 }: {
   row: PatientHit & { id: string };
   screened: ScreenResult | undefined;
+  scorer: Scorer;
   scores: PatientHit["scores"] | undefined;
+  llm: LLMPairResult | undefined;
   scoring: boolean;
   onOpen: (tab: "pair" | "summary") => void;
+  onAnswer: (answer: LLMAnswer) => void;
 }) {
   const p = row.patient;
   return (
@@ -387,7 +483,11 @@ function PatientCard({
           <h3 className="text-base leading-snug font-semibold text-gray-900">
             {patientLine(p) || p.id}
           </h3>
-          <MatchBadge scores={scores} scoring={scoring} />
+          {scorer === "llm" ? (
+            <LLMMatchBadge answer={llm?.match} scoring={scoring} onOpen={onAnswer} />
+          ) : (
+            <MatchBadge scores={scores} scoring={scoring} />
+          )}
           {screened ? <RecordsPill result={screened} patientId={row.id} /> : null}
         </div>
         <p className="flex flex-wrap gap-x-4 text-xs text-gray-500">
@@ -396,8 +496,17 @@ function PatientCard({
             similarity {row.cosine.toFixed(3)}
           </span>
         </p>
-        <Requirements match={scores?.match} />
-        <ExclusionLine boilerplate={scores?.boilerplate} scoring={scoring} />
+        {scorer === "llm" ? (
+          <>
+            <LLMRequirements answer={llm?.match} />
+            <LLMExclusionLine answer={llm?.boilerplate} scoring={scoring} onOpen={onAnswer} />
+          </>
+        ) : (
+          <>
+            <Requirements match={scores?.match} />
+            <ExclusionLine boilerplate={scores?.boilerplate} scoring={scoring} />
+          </>
+        )}
       </div>
       <div className="flex shrink-0 flex-col gap-2">
         <Button

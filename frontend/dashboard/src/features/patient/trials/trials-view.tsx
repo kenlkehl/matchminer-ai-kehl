@@ -24,10 +24,23 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, type CohortHit, type PairScores, type TrialsForPatientResult } from "@/lib/api";
+import { type LLMPairResult, type Scorer, useScorer } from "@/lib/llm-decisions";
 import { metaOptions } from "@/lib/queries";
 import { useSite } from "@/lib/site";
 
+import {
+  byLLMScore,
+  type LLMAnswer,
+  LLMAnswerDialog,
+  LLMExclusionLine,
+  llmLikelyExcluded,
+  LLMMatchBadge,
+  LLMRankingNote,
+  LLMRequirements,
+  LLMRunStatus,
+} from "../../matching/llm-score-view";
 import { ScoringStatus } from "../../matching/patients-for-cohort-page";
+import { ScorerToggle } from "../../matching/scorer-toggle";
 import {
   byScore,
   ExclusionLine,
@@ -35,6 +48,7 @@ import {
   MatchBadge,
   Requirements,
 } from "../../matching/score-view";
+import { useLLMScoring } from "../../matching/use-llm-scoring";
 import { useScoring } from "../../matching/use-scoring";
 import { CatalogEvidenceDialog } from "../../overview/catalog-evidence-dialog";
 import { hasSummary, type PatientSearch, setPatient, usePatientValue } from "../store";
@@ -59,7 +73,8 @@ function usePatientNoun(): string {
 
 /**
  * The Patient tab's Trials view (mm-dash's AI search): the open trials' cohorts that match the shared
- * patient's summary, with the decision model's scores and the common-exclusion check.
+ * patient's summary, with the session scorer's answers (the decision model, or the LLM: the toggle) and the
+ * common-exclusion check.
  */
 export function TrialsView({ active }: { active: boolean }) {
   const ai = useAiState();
@@ -129,12 +144,10 @@ function SearchBar() {
   );
 }
 
-function filterRows(
-  rows: Row[],
-  f: AiFilters,
-  higher: string[],
-  scores: Record<string, PairScores>,
-) {
+/** Whether a row is likely excluded by common criteria, by the session's scorer. */
+type Excluded = (id: string) => boolean;
+
+function filterRows(rows: Row[], f: AiFilters, higher: string[], excluded: Excluded) {
   const any = (chosen: string[], value: string) => chosen.length === 0 || chosen.includes(value);
   return rows.filter(
     (r) =>
@@ -143,7 +156,7 @@ function filterRows(
       any(f.centers, r.cohort.trial.center) &&
       (f.locations.length === 0 || r.cohort.trial.sites.some((s) => f.locations.includes(s))) &&
       !(f.excludeHigherThreshold && higher.includes(r.cohort.trial.center)) &&
-      !(f.hideLikelyExcluded && likelyExcluded(scores[r.id])),
+      !(f.hideLikelyExcluded && excluded(r.id)),
   );
 }
 
@@ -166,20 +179,33 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
   );
   // Scored in the order the filters show them, so the trials on screen are scored first.
   const visible = useMemo(
-    () => filterRows(rows, ai.filters, higher, {}),
+    () => filterRows(rows, ai.filters, higher, () => false),
     // The first scoring pass follows the default filters; later passes follow the current ones.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows],
   );
+  const scorer = useScorer();
+  const usingLLM = scorer === "llm";
+  const autoN = meta?.auto_score_n ?? 10;
   const scoring = useScoring(
     "trials_for_patient",
     result.patient.id,
     visible,
-    meta?.auto_score_n ?? 10,
+    usingLLM ? 0 : autoN,
   );
-  const shown = byScore(filterRows(rows, ai.filters, higher, scoring.scores), scoring.scores);
-  const unscored = shown.filter((r) => !scoring.scores[r.id]?.match).map((r) => r.id);
+  const llm = useLLMScoring("trials_for_patient", result.patient.id, visible, autoN, usingLLM);
+  const excluded: Excluded = (id) =>
+    usingLLM ? llmLikelyExcluded(llm.results[id]) : likelyExcluded(scoring.scores[id]);
+  const filtered = filterRows(rows, ai.filters, higher, excluded);
+  const shown = usingLLM ? byLLMScore(filtered, llm.results) : byScore(filtered, scoring.scores);
+  const unscored = shown
+    .filter((r) => !(usingLLM ? llm.results[r.id]?.match : scoring.scores[r.id]?.match))
+    .map((r) => r.id);
+  const busyScoring = usingLLM
+    ? llm.running.length > 0 || !!llm.pending
+    : scoring.running.length > 0;
   const [details, setDetails] = useState<Row | null>(null);
+  const [answer, setAnswer] = useState<{ answer: LLMAnswer; id: string } | null>(null);
   // The Drugs / mechanism dialog and the catalog evidence over it are in the URL, so Back closes them.
   const search = route.useSearch();
   const navigate = route.useNavigate();
@@ -204,7 +230,7 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
 
   return (
     <>
-      {active ? <AiFilterPanel rows={rows} scores={scoring.scores} higher={higher} /> : null}
+      {active ? <AiFilterPanel rows={rows} excluded={excluded} higher={higher} /> : null}
       <ResultsLayout result={result}>
         <section className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -212,8 +238,14 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
             <Badge variant="secondary">
               {shown.length} {shown.length === 1 ? "trial" : "trials"}
             </Badge>
-            <ScoringStatus scoring={scoring} />
+            {usingLLM ? (
+              <LLMRunStatus scoring={llm} noun="trials" />
+            ) : (
+              <ScoringStatus scoring={scoring} />
+            )}
           </div>
+          <ScorerToggle />
+          {usingLLM ? <LLMRankingNote /> : null}
           <p className="text-sm">
             {result.patient.custom ? (
               "Displaying trial suggestions for the entered summary."
@@ -239,8 +271,13 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
                 <TrialCard
                   key={row.id}
                   row={row}
+                  scorer={scorer}
                   scores={scoring.scores[row.id]}
-                  scoring={scoring.running.includes(row.id)}
+                  llm={llm.results[row.id]}
+                  scoring={(usingLLM ? llm.running : scoring.running).includes(row.id)}
+                  onAnswer={(a) => {
+                    setAnswer({ answer: a, id: row.id });
+                  }}
                   onDetails={() => {
                     setDetails(row);
                   }}
@@ -265,12 +302,13 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
             <Button
               variant="outline"
               className="self-start"
-              disabled={scoring.running.length > 0}
+              disabled={busyScoring}
               onClick={() => {
-                scoring.score(unscored.slice(0, 10));
+                (usingLLM ? llm : scoring).score(unscored.slice(0, 10));
               }}
             >
               Score the next {Math.min(10, unscored.length)} trials
+              {usingLLM ? " with the LLM" : ""}
             </Button>
           ) : null}
         </section>
@@ -279,9 +317,29 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
         <TrialDialog
           row={details}
           patientId={result.patient.id}
+          scorer={scorer}
           scores={scoring.scores[details.id]}
+          llm={llm.results[details.id]}
+          scoring={(usingLLM ? llm.running : scoring.running).includes(details.id)}
+          onScoreLLM={() => {
+            llm.score([details.id]);
+          }}
+          onAnswer={(a) => {
+            setAnswer({ answer: a, id: details.id });
+          }}
           onClose={() => {
             setDetails(null);
+          }}
+        />
+      ) : null}
+      {answer ? (
+        <LLMAnswerDialog
+          answer={answer.answer}
+          onClose={() => {
+            setAnswer(null);
+          }}
+          onRerun={() => {
+            llm.score([answer.id], { rerun: true });
           }}
         />
       ) : null}
@@ -355,16 +413,22 @@ function Locations({ sites }: { sites: string[] }) {
 /** mm-dash's trial card: title, what it is and where, the cohort it matched, the checks, and its details. */
 function TrialCard({
   row,
+  scorer,
   scores,
+  llm,
   scoring,
+  onAnswer,
   onDetails,
   drugsReason,
   onDrugs,
   goodOption,
 }: {
   row: Row;
+  scorer: Scorer;
   scores: PairScores | undefined;
+  llm: LLMPairResult | undefined;
   scoring: boolean;
+  onAnswer: (answer: LLMAnswer) => void;
   onDetails: () => void;
   /** Why the trial's drugs can't be shown (the button is disabled), or null. */
   drugsReason: string | null;
@@ -380,7 +444,11 @@ function TrialCard({
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h3 className="text-base leading-snug font-semibold text-gray-900">{t.short_title}</h3>
-            <MatchBadge scores={scores} scoring={scoring} />
+            {scorer === "llm" ? (
+              <LLMMatchBadge answer={llm?.match} scoring={scoring} onOpen={onAnswer} />
+            ) : (
+              <MatchBadge scores={scores} scoring={scoring} />
+            )}
           </div>
           <dl className="flex flex-col gap-0.5 text-sm">
             <div className="flex flex-wrap gap-x-5 gap-y-0.5">
@@ -413,8 +481,17 @@ function TrialCard({
             ))}
           </ul>
         </div>
-        <Requirements match={scores?.match} />
-        <ExclusionLine boilerplate={scores?.boilerplate} scoring={scoring} />
+        {scorer === "llm" ? (
+          <>
+            <LLMRequirements answer={llm?.match} />
+            <LLMExclusionLine answer={llm?.boilerplate} scoring={scoring} onOpen={onAnswer} />
+          </>
+        ) : (
+          <>
+            <Requirements match={scores?.match} />
+            <ExclusionLine boilerplate={scores?.boilerplate} scoring={scoring} />
+          </>
+        )}
       </div>
       <div className="flex shrink-0 flex-col items-stretch gap-2">
         <Button size="sm" onClick={onDetails}>
@@ -824,11 +901,11 @@ function useScrollPaddingFor(panel: RefObject<HTMLElement | null>) {
 /** mm-dash's AI filters (phase, managing group, location, the higher-threshold groups, likely excluded). */
 function AiFilterPanel({
   rows,
-  scores,
+  excluded,
   higher,
 }: {
   rows: Row[];
-  scores: Record<string, PairScores>;
+  excluded: Excluded;
   higher: string[];
 }) {
   const site = useSite();
@@ -839,7 +916,7 @@ function AiFilterPanel({
   const closed = new Set(rows.filter((r) => !r.cohort.trial.is_open).map((r) => r.cohort.trial.id))
     .size;
   const options = (facet: "phases" | "centers" | "locations", values: (r: Row) => string[]) => {
-    const others = filterRows(rows, { ...filters, [facet]: [] }, higher, scores);
+    const others = filterRows(rows, { ...filters, [facet]: [] }, higher, excluded);
     return [...new Set([...others.flatMap(values), ...filters[facet]])].sort();
   };
   const facets: {

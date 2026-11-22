@@ -123,7 +123,12 @@ export function SourceTab({ space }: { space: GuidelineSpace }) {
     ["Guideline", space.source.title],
     ["Edition", space.source.version],
     ["Space ID", space.space_trial_id],
-    ["Match quality", Number(space.match_quality_score).toFixed(4)],
+    space.llm_match !== undefined
+      ? [
+          "LLM match score (0–6)",
+          space.llm_match?.score == null ? "no valid answer" : String(space.llm_match.score),
+        ]
+      : ["Match quality", Number(space.match_quality_score).toFixed(4)],
     ["TrialSpace cosine", Number(space.similarity_score).toFixed(4)],
     ["Retrieval rank", String(space.retrieval_rank)],
   ];
@@ -138,8 +143,9 @@ export function SourceTab({ space }: { space: GuidelineSpace }) {
         ))}
       </dl>
       <p className="text-xs text-gray-500">
-        Match-quality scores from the decision model are ranking signals, not probabilities. The
-        cutoff flag is kept; low-scoring results are not silently removed.
+        {space.llm_match !== undefined
+          ? "The LLM's match score (its five yes/no answers combined, 0–6) is a ranking signal, not a probability. Spaces it scored low are kept; the decision model's scores are not used for this ranking."
+          : "Match-quality scores from the decision model are ranking signals, not probabilities. The cutoff flag is kept; low-scoring results are not silently removed."}
       </p>
       {space.uncertainties.length ? (
         <Caution title="Catalog uncertainties">
