@@ -13,6 +13,7 @@ import {
   type PatientList,
   type TrialDetail,
 } from "./api";
+import type { StoreStatus } from "./records";
 
 /** The store's summary; polled so a dashboard picks up newly extracted trials. */
 export const metaOptions = () =>
@@ -79,7 +80,13 @@ export const notesOptions = (patientId: string) =>
     refetchInterval: (query) => (query.state.data?.state === "ready" ? false : 3_000),
   });
 
-export const patientsOptions = (q: string, cancerType: string, sex: string, offset: number, records = false) =>
+export const patientsOptions = (
+  q: string,
+  cancerType: string,
+  sex: string,
+  offset: number,
+  records = false,
+) =>
   queryOptions({
     queryKey: ["patients", q, cancerType, sex, offset, records],
     queryFn: () =>
@@ -94,4 +101,12 @@ export const patientsOptions = (q: string, cancerType: string, sex: string, offs
         }).toString()}`,
       ),
     placeholderData: (previous) => previous,
+  });
+
+/** The mode's extraction store (whether it exists, how many patients it holds). */
+export const recordsStatusOptions = () =>
+  queryOptions({
+    queryKey: ["records-status"],
+    queryFn: () => api.get<{ store: StoreStatus }>("/api/records/status"),
+    staleTime: 60_000,
   });

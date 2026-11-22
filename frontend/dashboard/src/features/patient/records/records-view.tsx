@@ -69,7 +69,7 @@ function fieldText(name: string, value: unknown): string {
 export function RecordsView() {
   const s = usePatient();
   const [levels, setLevels] = useState<Levels>("document_and_patient");
-  const [level, setLevel] = useState<"patient" | "course" | "document">("patient");
+  const [level, setLevel] = useState<"patient" | "course" | "document">("course");
   const [json, setJson] = useState<JsonView | null>(null);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -207,10 +207,10 @@ export function RecordsView() {
             }}
           >
             <TabsList>
+              <TabsTrigger value="course">Disease course</TabsTrigger>
               <TabsTrigger value="patient" disabled={!view.patient.available}>
                 Patient level
               </TabsTrigger>
-              <TabsTrigger value="course">Disease course</TabsTrigger>
               <TabsTrigger value="document">By note</TabsTrigger>
             </TabsList>
           </Tabs>

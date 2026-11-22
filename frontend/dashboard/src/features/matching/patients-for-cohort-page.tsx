@@ -23,8 +23,8 @@ import {
   waitForJob,
 } from "@/lib/api";
 import { patientLine } from "@/lib/format";
-import { metaOptions } from "@/lib/queries";
-import { ENGINE_LABELS, type Engine, type ScreenResult, type StoreStatus } from "@/lib/records";
+import { metaOptions, recordsStatusOptions } from "@/lib/queries";
+import { ENGINE_LABELS, type Engine, type ScreenResult } from "@/lib/records";
 
 import { CriteriaCheck } from "./criteria-check";
 import { PatientDialog } from "./patient-dialog";
@@ -77,11 +77,7 @@ export function PatientsForCohortPage() {
     meta?.auto_score_n ?? 10,
   );
   const [hideExcluded, setHideExcluded] = useState(false);
-  const store = useQuery({
-    queryKey: ["records-status"],
-    queryFn: () => api.get<{ store: StoreStatus }>("/api/records/status"),
-    staleTime: 60_000,
-  }).data?.store;
+  const store = useQuery(recordsStatusOptions()).data?.store;
   const [engine, setEngine] = useState<Engine>("queries");
   const [screenProgress, setScreenProgress] = useState("");
   const [hideFailing, setHideFailing] = useState(false);

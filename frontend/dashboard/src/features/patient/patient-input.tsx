@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, type PatientDetail } from "@/lib/api";
 import { patientLine } from "@/lib/format";
 import { modelsOptions } from "@/lib/models";
-import { metaOptions, notesOptions, patientsOptions } from "@/lib/queries";
+import { metaOptions, notesOptions, patientsOptions, recordsStatusOptions } from "@/lib/queries";
 
 import {
   clearSummary,
@@ -224,8 +224,14 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
   const [q, setQ] = useState("");
   const [cancerType, setCancerType] = useState("");
   const [offset, setOffset] = useState(0);
-  const [records, setRecords] = useState(false);
-  const list = useQuery(patientsOptions(q, cancerType, "", offset, records));
+  // On by default; it applies only when the mode's extraction store holds patients.
+  const [records, setRecords] = useState(true);
+  const status = useQuery(recordsStatusOptions());
+  const held = status.data?.store.available ? (status.data.store.patients ?? 0) : 0;
+  const list = useQuery({
+    ...patientsOptions(q, cancerType, "", offset, records && held > 0),
+    enabled: !status.isPending,
+  });
   const pick = useMutation({
     mutationFn: (id: string) => api.get<PatientDetail>(`/api/patients/${encodeURIComponent(id)}`),
     onSuccess: pickCorpusPatient,
@@ -264,7 +270,7 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
               ))}
           </NativeSelect>
         </label>
-        {data?.with_records ? (
+        {held > 0 ? (
           <Label className="gap-1.5 pb-2 text-sm font-normal">
             <Checkbox
               checked={records}
@@ -273,7 +279,7 @@ function PatientPicker({ noun, disabled }: { noun: string; disabled: boolean }) 
                 setOffset(0);
               }}
             />
-            Only patients with structured records ({data.with_records.toLocaleString()})
+            Only patients with structured records ({held.toLocaleString()})
           </Label>
         ) : null}
       </div>
