@@ -47,7 +47,7 @@ const EXAMPLES = [
 /**
  * The Assistant tab: a chat over this dashboard's trials, patients, structured records and guideline
  * spaces. The assistant calls the app's read-only tools, asks when a clinical concept is ambiguous, and
- * answers with links to the Trial management and Patient-centric views.
+ * answers with links to the Clinical trial management and Patient-centric views.
  */
 export function AssistantPage() {
   const client = useQueryClient();
@@ -466,7 +466,7 @@ function IdLink({ id, target }: { id: string; target: LinkTarget }) {
       to="/"
       search={{ ...search, ...(target.open === false ? { closed: true } : {}) }}
       className={style}
-      title="Open in Trial management"
+      title="Open in Clinical trial management"
     >
       {id}
     </Link>

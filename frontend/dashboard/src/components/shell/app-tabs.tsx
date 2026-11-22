@@ -31,7 +31,7 @@ const TABS: {
   to: TabPath;
   label: string;
 }[] = [
-  { tab: "trials", to: "/", label: "Trial management" },
+  { tab: "trials", to: "/", label: "Clinical trial management" },
   { tab: "patient", to: "/patient", label: "Patient-centric search" },
   { tab: "population", to: "/population", label: "Guideline concordance reporting" },
   { tab: "assistant", to: "/assistant", label: "Assistant" },

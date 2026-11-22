@@ -3,7 +3,7 @@
 Each tool calls the app's own services, so it finds what the tabs find:
 
 - ``search_trials``: the store's dashboard cohorts (the version each trial shows), matched with the patient and cohort
-  lists' regular-expression search (``core.textsearch``), and the Trial management filters (cancer type, center,
+  lists' regular-expression search (``core.textsearch``), and the Clinical trial management filters (cancer type, center,
   phase, open status, GoodOption drugs and classes);
 - ``match_trials``: TrialSpace retrieval from a patient description, embedded as the Patient tab embeds an entered
   summary and searched as Trials for a patient searches (one cohort per trial), optionally scored by the decision

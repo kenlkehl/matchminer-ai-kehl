@@ -25,7 +25,7 @@ TrialSpace model and says so on Data and models if they differ.
 
 ## Tabs
 
-- **Trial management:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
+- **Clinical trial management:** per disease center (real mode) or cancer type (synthetic mode), an accordion of trial groups, one row
   per cohort with its key criteria, the trial's drugs and mechanisms (from a GoodOption catalog), contacts and
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model or the LLM (see
@@ -89,7 +89,7 @@ file or network access:
 
 | Tool | What it does |
 | --- | --- |
-| `search_trials` | Regular-expression search over the dashboard cohorts (trial ID, titles, cohort names, key criteria, drug names), with the Trial management filters: cancer type, center, phase, open status, GoodOption drugs and classes |
+| `search_trials` | Regular-expression search over the dashboard cohorts (trial ID, titles, cohort names, key criteria, drug names), with the Clinical trial management filters: cancer type, center, phase, open status, GoodOption drugs and classes |
 | `match_trials` | TrialSpace retrieval from a patient description (embedded as an entered summary is), one cohort per trial, optionally reranked by the decision model's match questions |
 | `trial_details` | A trial's or cohort's status, phase, center, drugs and key (and, on request, boilerplate) criteria lines |
 | `search_patients` | The patient list's search over the summaries |
@@ -117,7 +117,7 @@ through the conversation, and states the interpretation it used under each answe
 would not change the result.
 
 **Answers** are Markdown. Every trial, cohort and patient ID a tool returned is a link: a trial opens its details
-and a cohort its criteria in Trial management, and a patient opens in Patient-centric search.
+and a cohort its criteria in Clinical trial management, and a patient opens in Patient-centric search.
 
 **Model.** The chat assistant is its own LLM task on Data and models (**Change model** on the tab edits the same
 connection). Its default is Claude Opus 5.5 through the Databricks gateway (`databricks.endpoints.opus`), at medium
@@ -203,7 +203,7 @@ source and scale in their results, and list each LLM answer under the step, open
 
 | View | Decision model | LLM |
 | --- | --- | --- |
-| Trial management, Find patients: the candidates' scores, ranking and **Hide patients likely excluded** | match questions and the common-exclusion question | `score_match_quality_with_llm` and `exclusion_criteria_check_with_llm` |
+| Clinical trial management, Find patients: the candidates' scores, ranking and **Hide patients likely excluded** | match questions and the common-exclusion question | `score_match_quality_with_llm` and `exclusion_criteria_check_with_llm` |
 | Its patient dialog (Criteria check tab) | the pair's answers and the per-criterion check | the same, from the LLM |
 | Patient-centric search, Trials: the cohorts' scores, ranking and **Hide trials with likely common exclusions** | as Find patients | as Find patients |
 | Its trial dialog | the pair's answers and the per-criterion check | the same, from the LLM |
