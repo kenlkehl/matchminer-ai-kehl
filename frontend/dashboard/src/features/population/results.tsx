@@ -63,7 +63,7 @@ function activeStatus(p: PopulationView | null): string {
   }
   const r = a.retrieval;
   if (r.scorer?.kind === "llm") {
-    return `${count(a.patient_count)} active patients / ${count(r.scored_count ?? a.matches.length)} asked of the LLM (${r.scorer.model}) / ${count(r.population_count ?? p.source_count)} in source population. Kept when ${r.scorer.selection}; ${r.scorer.ranking} New selection settings apply when you fetch again.`;
+    return `${count(a.patient_count)} active patients / ${count(r.scored_count ?? a.matches.length)} asked of the LLM (${r.scorer.model}) / ${count(r.population_count ?? p.source_count)} in source population. Kept when ${r.scorer.selection}. ${r.scorer.ranking} New selection settings apply when you fetch again.`;
   }
   const threshold =
     r.min_match_score !== undefined
