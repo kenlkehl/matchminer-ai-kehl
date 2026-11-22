@@ -2103,7 +2103,7 @@ TrialSpace model and says so on Data and models if they differ.</p>
 <li><em>Structured data:</em> the clinical facts extracted from the notes, patient level or note by note, each with its
     quotes and its raw JSON (each item, each note's record, the patient record). Imaging, labs and counseling are
     extracted note by note; Patient level lists each study or test once, merged from the notes in code.
-    <strong>Disease course</strong> puts every item type on one timeline in date order: each fact once (the patient-level
+    <strong>Disease course</strong> (the first view, shown by default) puts every item type on one timeline in date order: each fact once (the patient-level
     record's, else merged from the notes) and each note's disease assessments and performance status. Each row has
     its type and a tag, the type's category: disease status, event type (such as progression or recurrence),
     treatment type, biomarker result, specimen result, modality, ECOG score. Type chips filter the rows (labs and
@@ -2113,7 +2113,7 @@ TrialSpace model and says so on Data and models if they differ.</p>
     queries or the SQL agent) and the criteria checks use the same records: the store's, else the session's
     extraction of the notes (one with patient level also serves a document-level review), and they extract only
     when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
-    patient search marks the patients it holds (<strong>Structured records</strong>) and can list only them.</li>
+    patient search marks the patients it holds (<strong>Structured records</strong>) and, by default, lists only them.</li>
 <li><strong>Benchmarking:</strong> distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
   model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
   adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
