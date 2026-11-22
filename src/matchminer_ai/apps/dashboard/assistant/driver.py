@@ -162,7 +162,8 @@ class JSONActionDriver:
                     result = ToolResult(call["tool"], False, f"{LABELS[call['tool']]}: the tool failed "
                                         f"({type(exc).__name__})", {"error": f"the tool failed ({type(exc).__name__})"})
                 with conversation.lock:
-                    step.update(summary=result.summary, ok=result.ok, seconds=result.seconds)
+                    step.update(summary=result.summary, ok=result.ok, seconds=result.seconds,
+                                **({"llm_answers": result.llm_answers} if result.llm_answers else {}))
                     conversation.links.update(result.links)
                     conversation.history.append({"role": "user", "content": render_result(result, calls_left, limits)})
         except ContextFull:

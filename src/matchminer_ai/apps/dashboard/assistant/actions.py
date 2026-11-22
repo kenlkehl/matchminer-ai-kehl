@@ -41,6 +41,8 @@ class Limits:
     max_screen_lines: int = 10
     #: Pairs the decision model scores per call (rerank or score_pairs).
     max_score_pairs: int = 20
+    #: Pairs the LLM scores per call when the session's scores come from the LLM (the views' first batch).
+    max_llm_pairs: int = 10
     #: Candidates a TrialSpace search ranks.
     max_k: int = 50
     #: User messages per conversation, and characters per message.

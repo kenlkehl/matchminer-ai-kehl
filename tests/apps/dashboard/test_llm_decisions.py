@@ -250,3 +250,22 @@ def test_guideline_spaces_and_populations_are_ranked_by_the_llm(fake_llm):
     assert metadata["selected_count"] == 2 and metadata["scorer"]["kind"] == "llm"
     assert [c["patient_id"] for c in metadata["candidates"]] == ["p3", "p2", "p1"]
     assert "cancer_history_summary" not in metadata["candidates"][0]
+
+
+def test_the_assistant_scores_with_the_llm_when_the_session_chose_it(dash_client, dash, fake_llm):
+    from .test_assistant import FakeClient, answer
+
+    use_teacher(dash_client)
+    score_call = {"score_pairs": {"pairs": [{"patient_id": p, "cohort_id": COHORT} for p in ("patient_a", "patient_b")]}}
+    script = [{"purpose": "Score", "call": score_call}, {"purpose": "Answer", "call": answer("Scored.", "")}]
+    dash.assistant.client_factory = lambda selected: FakeClient(list(script))
+    started = dash_client.post("/api/assistant/messages", json={"text": "Score these", "scorer": "llm"})
+    wait_job(dash_client, started.json()["job"]["id"])
+    step = dash_client.get("/api/assistant").json()["conversation"]["entries"][-1]["steps"][0]
+    assert step["ok"] and "with the LLM" in step["summary"] and len(fake_llm["match"]) == 2
+    families = sorted(a["family"] for a in step["llm_answers"])
+    assert families == ["boilerplate", "boilerplate", "match", "match"]
+    # Each answer opens in the views' answer dialog (this session's).
+    assert dash_client.get(f"/api/llm-decisions/answers/{step['llm_answers'][0]['key']}").status_code == 200
+    (history,) = [c.history for c in dash.assistant.conversations.items.values()]
+    assert '"llm_score"' in history[2]["content"] and "0-6 match score" in history[2]["content"]

@@ -16,7 +16,15 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type PatientDetail } from "@/lib/api";
+import {
+  fetchAnswer,
+  type LLMBoilerplateAnswer,
+  type LLMMatchAnswer,
+  useScorer,
+} from "@/lib/llm-decisions";
 import { modelsOptions } from "@/lib/models";
+import { LLMAnswerDialog } from "@/features/matching/llm-score-view";
+import { ScorerToggle } from "@/features/matching/scorer-toggle";
 import { pickCorpusPatient } from "@/features/patient/actions";
 import { TaskForm } from "@/features/status/models-panel";
 
@@ -48,9 +56,11 @@ export function AssistantPage() {
   const [modelOpen, setModelOpen] = useState(false);
   const data = view.data;
   const running = !!data?.running;
+  // The session's "Scores from" choice, sent with each message: the turn's reranks and pair scores use it.
+  const scorer = useScorer();
   const send = useMutation({
     mutationFn: (text: string) =>
-      api.post<AssistantView & { job: unknown }>("/api/assistant/messages", { text }),
+      api.post<AssistantView & { job: unknown }>("/api/assistant/messages", { text, scorer }),
     onSuccess: (next) => {
       setDraft("");
       client.setQueryData(["assistant"], next);
@@ -100,6 +110,7 @@ export function AssistantPage() {
         >
           Change model
         </Button>
+        <ScorerToggle />
         {data?.conversation ? <UsageLine usage={data.conversation.usage} /> : null}
         <Button
           size="sm"
@@ -344,12 +355,51 @@ function StepLine({ step }: { step: Step }) {
         </span>
       </button>
       {open ? (
-        <p className="ml-5 text-xs text-gray-500">
-          {step.purpose}
-          {step.seconds !== null ? ` (${String(step.seconds)} s)` : ""}
-        </p>
+        <div className="ml-5 flex flex-col gap-1 text-xs text-gray-500">
+          <p>
+            {step.purpose}
+            {step.seconds !== null ? ` (${String(step.seconds)} s)` : ""}
+          </p>
+          {step.llm_answers?.length ? <StepAnswers answers={step.llm_answers} /> : null}
+        </div>
       ) : null}
     </li>
+  );
+}
+
+/** A scoring step's LLM answers: each opens its reasoning and raw output (the views' answer dialog). */
+function StepAnswers({ answers }: { answers: NonNullable<Step["llm_answers"]> }) {
+  const [shown, setShown] = useState<LLMMatchAnswer | LLMBoilerplateAnswer | null>(null);
+  const open = useMutation({
+    mutationFn: (key: string) => fetchAnswer(key),
+    onSuccess: setShown,
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>LLM answers:</span>
+      {answers.map((a) => (
+        <button
+          key={a.key}
+          type="button"
+          className="link"
+          disabled={open.isPending}
+          onClick={() => {
+            open.mutate(a.key);
+          }}
+        >
+          {a.patient_id} × {a.cohort_id} ({a.family === "match" ? "match" : "common exclusions"})
+        </button>
+      ))}
+      {open.isError ? <span className="text-red-700">{open.error.message}</span> : null}
+      {shown ? (
+        <LLMAnswerDialog
+          answer={shown}
+          onClose={() => {
+            setShown(null);
+          }}
+        />
+      ) : null}
+    </div>
   );
 }
 

@@ -10,6 +10,13 @@ export interface Step {
   summary: string;
   ok: boolean | null;
   seconds: number | null;
+  /** The LLM answers a scoring step got when the session's scores came from the LLM. */
+  llm_answers?: {
+    patient_id: string;
+    cohort_id: string;
+    family: "match" | "boilerplate";
+    key: string;
+  }[];
 }
 
 export interface UserEntry {

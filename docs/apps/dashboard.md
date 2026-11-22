@@ -96,7 +96,7 @@ file or network access:
 | `match_patients` | Find patients: TrialSpace retrieval from a cohort, or from ad-hoc criteria text, optionally reranked |
 | `patient_details` | A patient's summary sections and, when the extraction store holds the patient, the records' disease course |
 | `screen_records` | Screen with structured data: criteria lines (a cohort's, or ad-hoc lines) compiled into queries by the query-writing connection and run in code over the store's records, with per-line counts and the patients documented to meet every checkable inclusion line. Absence never fails a line, and lines no item type can check are reported as not checkable |
-| `score_pairs` | The decision model's match and boilerplate questions for given patient-cohort pairs |
+| `score_pairs` | The match and boilerplate questions for given patient-cohort pairs, from the decision model or the LLM (the session's **Scores from**) |
 | `guideline_spaces` | The guideline catalog's spaces nearest a patient description |
 
 A user message gets at most 8 tool calls; then the model must answer or ask. Results list at most 25 rows with their
@@ -197,7 +197,9 @@ endpoints authorized for the data.
 Wherever the dashboard scores a patient-cohort pair, a **Scores from: Decision model | LLM** toggle chooses who
 answers. The choice belongs to the browser session: the same toggle appears in every such view, changing it in one
 changes it in all, and it lasts until the browser tab closes. Benchmarking always uses the decision model (an
-evaluation must).
+evaluation must). The Assistant follows it too: each message carries the choice, and its reranks and `score_pairs`
+then use the LLM decision checks connection (at most 10 pairs per call, ranked by the LLM's 0-6 score), name the
+source and scale in their results, and list each LLM answer under the step, opening the same answer dialog.
 
 | View | Decision model | LLM |
 | --- | --- | --- |

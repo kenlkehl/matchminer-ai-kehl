@@ -52,7 +52,10 @@ export function DocsPage() {
         </p>
       </PageHeader>
       <div className="flex flex-col gap-6 md:flex-row">
-        <nav aria-label="Pages" className="shrink-0 md:w-64">
+        <nav
+          aria-label="Pages"
+          className="shrink-0 md:sticky md:top-4 md:max-h-[calc(100svh-2rem)] md:w-64 md:self-start md:overflow-y-auto"
+        >
           <ul className="flex flex-col gap-1 text-sm">
             {pages.map((p) => (
               <li key={p.id}>

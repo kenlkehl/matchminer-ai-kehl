@@ -63,6 +63,8 @@ class ToolResult:
     #: IDs the result names: {id: {"kind": "trial" | "cohort" | "patient", ...}}.
     links: dict = field(default_factory=dict)
     seconds: float = 0.0
+    #: The LLM answers a scoring step got (the page opens each one; the model does not see the keys).
+    llm_answers: list = field(default_factory=list)
 
 
 def short(text, limit: int) -> str:
@@ -127,10 +129,15 @@ def status_note(state) -> str:
 class Toolbox:
     """The tools of one session's conversation, over the running app's state."""
 
-    def __init__(self, state, owner: str, limits: Limits, memory_cache: dict):
+    def __init__(self, state, owner: str, limits: Limits, memory_cache: dict, *, scorer: str = "decision_model",
+                 llm_connection=None):
         self.state, self.g, self.owner, self.limits = state, state.guidelines, owner, limits
         #: Ad-hoc criteria lines' compiled queries (this conversation only; never on disk).
         self.memory_cache = memory_cache
+        #: Where scores come from: the session's "Scores from" choice when the message was sent, and for the LLM
+        #: the session's LLM decision checks connection then.
+        self.scorer, self.llm_connection = scorer, llm_connection
+        self.answers: list = []
 
     # ------------------------------------------------------------------ what is available
 
@@ -205,8 +212,9 @@ class Toolbox:
         name = call["tool"]
         started = time.monotonic()
         try:
+            self.answers = []
             summary, result, links = getattr(self, name)(call, progress)
-            out = ToolResult(name, True, summary, result, links)
+            out = ToolResult(name, True, summary, result, links, llm_answers=self.answers)
         except (ToolError, InputError) as exc:
             out = ToolResult(name, False, f"{LABELS[name]}: {exc}", {"error": str(exc)})
         except EncoderUnavailable:
@@ -263,15 +271,55 @@ class Toolbox:
     def _k(self, value: int) -> int:
         return max(1, min(int(value or 10), self.limits.max_rows))
 
+    @property
+    def llm(self) -> bool:
+        return self.scorer == "llm"
+
+    def scorer_label(self) -> str:
+        return f"the LLM ({self.llm_connection.label})" if self.llm else "the decision model"
+
+    def score_note(self) -> str:
+        """How a result's scores read, for the model."""
+        if self.llm:
+            return (f"match: {self.scorer_label()}'s 0-6 match score from five yes/no questions (llm_score, out of 6) "
+                    f"and its reasonableness answer; the user chose LLM scores. Only the first {self.limits.max_llm_pairs} "
+                    "candidates of a call are scored; the others are ordered by TrialSpace similarity.")
+        return "match: the decision model's match score (0-1) and P(reasonable consideration)."
+
     def _decision_progress(self, progress, what: str):
+        name = "LLM" if self.llm else "Decision model"
+
         def report(done, total, message=""):
-            progress(f"Decision model: {what} {done}/{total}" if total else f"Decision model: {message}")
+            progress(f"{name}: {what} {done}/{total}" if total else f"{name}: {message}")
         return report
 
     def _scores(self, pairs: list[PairText], families, progress, what: str) -> list[dict]:
-        if len(pairs) > self.limits.max_score_pairs:
+        """The pairs' scores from the session's scorer: per pair {"match": ..., "common_criteria": ...}, each
+        compact for the model (the first max_score_pairs pairs, or max_llm_pairs for the LLM)."""
+        if not self.llm:
             pairs = pairs[: self.limits.max_score_pairs]
-        return self.state.decisions.score(pairs, families, self._decision_progress(progress, what))
+            scored = self.state.decisions.score(pairs, families, self._decision_progress(progress, what))
+            return [{"match": self._match(v), "common_criteria": self._common(v)} for v in scored]
+        pairs = pairs[: self.limits.max_llm_pairs]
+        decisions = self.state.llm_decisions
+        scored = decisions.score(self.owner, pairs, families, self.llm_connection,
+                                 self._decision_progress(progress, what))
+        rows = []
+        for pair, value in zip(pairs, scored):
+            for family in families:
+                answer = value.get(family)
+                if isinstance(answer, dict) and answer.get("key"):
+                    self.answers.append({"patient_id": pair.patient_id, "cohort_id": pair.cohort_id,
+                                         "family": family, "key": answer["key"]})
+            match = value.get("match") or {}
+            bp = value.get("boilerplate")
+            rows.append({
+                "match": ({"llm_score": match["score"], "of": match.get("max", 6), "reasonable": match["reasonable"]}
+                          if match.get("score") is not None else
+                          {"llm_score": None, "note": "the LLM's answer could not be read"} if match else None),
+                "common_criteria": (None if bp is None else "the cohort has no common criteria" if "skipped" in bp
+                                    else {"clearly_excluded": bp.get("excluded")})})
+        return rows
 
     @staticmethod
     def _match(scored: dict | None) -> dict | None:
@@ -280,6 +328,21 @@ class Toolbox:
             return None
         return {"score": round(match["score"], 3), "reasonable": bool(match["pass"]),
                 "p_reasonable": round(match["reasonableness"], 3)}
+
+    @staticmethod
+    def _common(scored: dict | None):
+        if not scored or "boilerplate" not in scored:
+            return None
+        bp = scored.get("boilerplate") or {}
+        return ({"p_pass": round(bp["p"], 3), "pass": bool(bp["pass"])} if "p" in bp
+                else "the cohort has no common criteria")
+
+    @staticmethod
+    def _rank(row: dict) -> tuple:
+        """Scored first, by score (the LLM's 0-6 or the decision model's 0-1), then TrialSpace similarity."""
+        match = row.get("match") or {}
+        score = match.get("llm_score", match.get("score"))
+        return (score is None, -(score if score is not None else 0), -row.get("cosine", 0.0))
 
     @staticmethod
     def _match_text(index: TextIndex, text: str) -> np.ndarray:
@@ -396,13 +459,13 @@ class Toolbox:
                               store["cohorts"][r["cohort_id"]]["boilerplate"], store["cohorts"][r["cohort_id"]]["items"])
                      for r in rows[: self.limits.max_score_pairs]]
             for row, scored in zip(rows, self._scores(pairs, ("match",), progress, "match questions")):
-                row["match"] = self._match(scored)
-            rows.sort(key=lambda r: -(r.get("match") or {}).get("score", -1.0))
+                row["match"] = scored["match"]
+            rows.sort(key=self._rank)
         result = {"searched_cohorts": int(allowed.sum()), "round": s.round.number, "shown": len(rows),
-                  "results": rows, "note": "cosine: TrialSpace similarity (a ranking signal, not eligibility); match: "
-                                           "the decision model's match score (0-1) and P(reasonable consideration)."}
-        return (f"Matched trials (TrialSpace{', decision model' if a['rerank'] else ''}) → {len(rows)} trials",
-                result, links)
+                  "results": rows, "note": "cosine: TrialSpace similarity (a ranking signal, not eligibility); "
+                                           + self.score_note()}
+        scorer = f", {'LLM' if self.llm else 'decision model'}" if a["rerank"] else ""
+        return f"Matched trials (TrialSpace{scorer}) → {len(rows)} trials", result, links
 
     def trial_details(self, a: dict, progress):
         store, limits = self.state.store, self.limits
@@ -511,20 +574,19 @@ class Toolbox:
                     entity = s.patient_entity(r["patient_id"])
                     pairs.append(PairText(r["patient_id"], "assistant-criteria", entity["key"], entity["boilerplate"],
                                           criteria, "", None))
-            for row, scored in zip(rows, self._scores(pairs[: self.limits.max_score_pairs], ("match",), progress,
-                                                      "match questions")):
-                row["match"] = self._match(scored)
-            rows.sort(key=lambda r: -(r.get("match") or {}).get("score", -1.0))
+            for row, scored in zip(rows, self._scores(pairs, ("match",), progress, "match questions")):
+                row["match"] = scored["match"]
+            rows.sort(key=self._rank)
         links = {r["patient_id"]: {"kind": "patient"} for r in rows}
         if cohort is not None:
             links[cohort["id"]] = self._cohort_link(cohort)
         searched = len(s.corpus.patients) if mask is None else int(mask.sum())
         result = {"query": cohort["id"] if cohort else "ad-hoc criteria", "searched_patients": searched,
                   "shown": len(rows), "results": rows,
-                  "note": "cosine: TrialSpace similarity (a ranking signal, not eligibility); match: the decision "
-                          "model's match score (0-1) and P(reasonable consideration)."}
-        return (f"Matched patients to {cohort['id'] if cohort else 'the criteria'} (TrialSpace"
-                f"{', decision model' if a['rerank'] else ''}) → {len(rows)} of {searched} patients", result, links)
+                  "note": "cosine: TrialSpace similarity (a ranking signal, not eligibility); " + self.score_note()}
+        scorer = f", {'LLM' if self.llm else 'decision model'}" if a["rerank"] else ""
+        return (f"Matched patients to {cohort['id'] if cohort else 'the criteria'} (TrialSpace{scorer}) → "
+                f"{len(rows)} of {searched} patients", result, links)
 
     def patient_details(self, a: dict, progress):
         s, limits = self.state, self.limits
@@ -635,21 +697,20 @@ class Toolbox:
         wanted = [(p["patient_id"].strip(), p["cohort_id"].strip()) for p in a["pairs"]]
         if not wanted:
             raise ToolError("give patient-cohort pairs")
-        if len(wanted) > self.limits.max_score_pairs:
-            raise ToolError(f"score at most {self.limits.max_score_pairs} pairs at a time")
+        most = self.limits.max_llm_pairs if self.llm else self.limits.max_score_pairs
+        if len(wanted) > most:
+            raise ToolError(f"score at most {most} pairs at a time")
         pairs = [s.pair(pid, cid) for pid, cid in wanted]
         scored = self._scores(pairs, ("match", "boilerplate"), progress, "pairs")
         rows, links = [], {}
         for (pid, cid), value in zip(wanted, scored):
-            bp = value.get("boilerplate") or {}
-            rows.append({"patient_id": pid, "cohort_id": cid, "match": self._match(value),
-                         "common_criteria": ({"p_pass": round(bp["p"], 3), "pass": bool(bp["pass"])} if "p" in bp
-                                             else "the cohort has no common criteria")})
+            rows.append({"patient_id": pid, "cohort_id": cid, **value})
             links[pid] = {"kind": "patient"}
             links[cid] = self._cohort_link(s.cohort(cid))
-        result = {"pairs": rows, "note": "match: the decision model's match score (0-1) and P(reasonable "
-                                         "consideration); common_criteria: P(no common exclusion clearly applies)."}
-        return f"Scored {len(rows)} pairs with the decision model", result, links
+        common = ("common_criteria: whether the LLM finds a common exclusion clearly applies (clearly_excluded)."
+                  if self.llm else "common_criteria: P(no common exclusion clearly applies).")
+        result = {"pairs": rows, "note": self.score_note() + " " + common}
+        return f"Scored {len(rows)} pairs with {self.scorer_label()}", result, links
 
     def guideline_spaces(self, a: dict, progress):
         description = a["description"].strip()

@@ -19,7 +19,8 @@ from typing import Callable
 
 from ..core.errors import BusyError, InputError
 from ..core.jobs import JobManager
-from ..guidelines.settings import ASSISTANT_TASK
+from ..guidelines.settings import ASSISTANT_TASK, LLM_DECISIONS_TASK
+from ..llm import Connection
 from .actions import Limits
 from .conversation import Conversation, Conversations
 from .driver import JSONActionDriver
@@ -64,8 +65,21 @@ class Assistant:
                 "limits": {"max_tool_calls": self.limits.max_tool_calls, "max_messages": self.limits.max_messages,
                            "max_message_chars": self.limits.max_message_chars}}
 
-    def send(self, owner: str, text: str):
-        """Start a turn for the session's message (a job); the conversation's view shows its steps as they run."""
+    def score_connection(self, owner: str, scorer: str):
+        """The LLM connection the turn's scores come from (None for the decision model): the session's LLM decision
+        checks connection, as every view that scores pairs uses when the session's "Scores from" is LLM."""
+        if scorer != "llm":
+            return None
+        decisions = getattr(self.state, "llm_decisions", None)
+        if decisions is None:
+            raise InputError("The LLM decision checks are unavailable in this app; choose the decision model.")
+        connection = Connection.for_task(self.state.guidelines.task_settings(owner, LLM_DECISIONS_TASK))
+        decisions.require(connection)
+        return connection
+
+    def send(self, owner: str, text: str, scorer: str = "decision_model"):
+        """Start a turn for the session's message (a job); the conversation's view shows its steps as they run.
+        ``scorer``: where the turn's scores come from (the session's "Scores from" choice when it was sent)."""
         text = (text or "").strip()
         if not text:
             raise InputError("Write a message first.")
@@ -76,8 +90,9 @@ class Assistant:
             raise BusyError("The assistant is still answering. Wait, or stop it first.")
         if conversation.user_messages >= self.limits.max_messages:
             raise InputError("This conversation has reached its message limit. Start a new conversation.")
-        # The connection is fixed when the turn is submitted, as for every job.
+        # The connections are fixed when the turn is submitted, as for every job.
         selected = self.connection(owner)
+        score_connection = self.score_connection(owner, scorer)
         model = connection_label(selected)
 
         def turn(progress):
@@ -89,7 +104,8 @@ class Assistant:
                     f"The Chat assistant connection could not be used ({type(exc).__name__}). Check it on Data "
                     "and models."))
                 return {"conversation_id": conversation.id}
-            toolbox = Toolbox(self.state, owner, self.limits, conversation.memory_cache)
+            toolbox = Toolbox(self.state, owner, self.limits, conversation.memory_cache, scorer=scorer,
+                              llm_connection=score_connection)
             self.driver.run_turn(conversation, text, toolbox=toolbox, client=client, progress=progress, model=model)
             return {"conversation_id": conversation.id}
 

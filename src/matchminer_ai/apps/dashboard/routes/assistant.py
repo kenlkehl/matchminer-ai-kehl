@@ -10,6 +10,8 @@ The model connection is the session's ``assistant`` task (``/api/models``, Data 
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +23,8 @@ from .common import owner
 class MessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=1, max_length=20_000)
+    #: The session's "Scores from" choice: the turn's reranks and pair scores use it.
+    scorer: Literal["decision_model", "llm"] = "decision_model"
 
 
 def router(state: DashState) -> APIRouter:
@@ -33,7 +37,7 @@ def router(state: DashState) -> APIRouter:
 
     @api.post("/api/assistant/messages", status_code=202)
     def message(body: MessageRequest, request: Request):
-        job = assistant.send(owner(request), body.text)
+        job = assistant.send(owner(request), body.text, body.scorer)
         return {"job": job.describe(with_result=False), **assistant.view(owner(request))}
 
     @api.post("/api/assistant/stop")
