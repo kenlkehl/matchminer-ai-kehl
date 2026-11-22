@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TrashIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { APP_TABS_HEIGHT_PX } from "@/components/shell/app-tabs";
+import { appTabsHeight } from "@/components/shell/app-tabs";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,7 @@ function useFitToWindow() {
         element.style.maxHeight = "";
         return;
       }
-      const top = Math.max(element.getBoundingClientRect().top, APP_TABS_HEIGHT_PX + GAP);
+      const top = Math.max(element.getBoundingClientRect().top, appTabsHeight() + GAP);
       element.style.maxHeight = `${String(Math.max(200, window.innerHeight - top - GAP))}px`;
     };
     fit();
@@ -109,7 +109,7 @@ export function PopulationPage() {
         <aside
           ref={workflow}
           aria-label="Population workflow"
-          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-16 lg:overflow-y-auto"
+          className="scrollbar-visible rounded-xl bg-card shadow-xs ring-1 ring-foreground/10 lg:sticky lg:top-[calc(var(--app-tabs-h,3rem)_+_1rem)] lg:overflow-y-auto"
         >
           {mode ? (
             <fieldset disabled={!pop.ready || pop.busy} className="min-w-0">

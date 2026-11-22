@@ -558,7 +558,7 @@ function CohortPanel({
         }}
       >
         {hidden ? null : (
-          <aside className="sticky top-12 flex max-h-[calc(100svh-3rem)] flex-col gap-3 overflow-y-auto p-4">
+          <aside className="sticky top-[var(--app-tabs-h,3rem)] flex max-h-[calc(100svh_-_var(--app-tabs-h,3rem))] flex-col gap-3 overflow-y-auto p-4">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-semibold tracking-wider text-gray-500 uppercase">
                 Searched for
