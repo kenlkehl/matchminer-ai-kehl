@@ -28,6 +28,7 @@ import { ScorerToggle } from "@/features/matching/scorer-toggle";
 import { pickCorpusPatient } from "@/features/patient/actions";
 import { TaskForm } from "@/features/status/models-panel";
 
+import { AnswerCharts } from "./answer-charts";
 import type { AssistantEntry, AssistantView, LinkTarget, Step, Usage } from "./types";
 
 const assistantOptions = () =>
@@ -79,6 +80,18 @@ export function AssistantPage() {
   const pending = last?.role === "assistant" && last.kind === "question" && !running ? last : null;
   const bottom = useRef<HTMLDivElement>(null);
   const stepCount = entries.reduce((n, e) => n + (e.role === "assistant" ? e.steps.length : 0), 0);
+  // Every tool step by its conversation-wide number: the sources a chart cites.
+  const steps = useMemo(
+    () =>
+      new Map(
+        entries.flatMap((e) =>
+          e.role === "assistant"
+            ? e.steps.flatMap((s) => (s.number ? [[s.number, s] as const] : []))
+            : [],
+        ),
+      ),
+    [entries],
+  );
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [entries.length, stepCount, last?.role === "assistant" ? last.status : null]);
@@ -168,6 +181,7 @@ export function AssistantPage() {
             <Turn
               key={entry.id}
               entry={entry}
+              steps={steps}
               links={data?.conversation?.links ?? {}}
               current={entry === pending}
               onOption={submit}
@@ -264,11 +278,13 @@ function UsageLine({ usage }: { usage: Usage }) {
 /** One assistant turn: its tool steps, then its answer, question, or why it ended. */
 function Turn({
   entry,
+  steps,
   links,
   current,
   onOption,
 }: {
   entry: AssistantEntry;
+  steps: Map<number, Step>;
   links: Record<string, LinkTarget>;
   current: boolean;
   onOption: (text: string) => void;
@@ -296,6 +312,7 @@ function Turn({
       {entry.kind === "answer" ? (
         <>
           <Markdown text={entry.text} renderText={renderText} />
+          {entry.charts?.length ? <AnswerCharts charts={entry.charts} steps={steps} /> : null}
           {entry.interpretation ? (
             <p className="text-sm text-gray-600 italic">{entry.interpretation}</p>
           ) : null}
@@ -350,6 +367,9 @@ function StepLine({ step }: { step: Step }) {
           className={`mt-0.5 size-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-90" : ""}`}
         />
         {step.ok === null ? <Spinner className="mt-0.5 size-3.5 text-brand-blue" /> : null}
+        {step.number ? (
+          <span className="shrink-0 text-gray-400 tabular-nums">{step.number}.</span>
+        ) : null}
         <span className={step.ok === false ? "text-amber-800" : undefined}>
           {step.summary || `${step.label}…`}
         </span>

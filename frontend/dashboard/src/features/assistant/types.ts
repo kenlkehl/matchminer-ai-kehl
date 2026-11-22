@@ -2,6 +2,8 @@
 import type { Job } from "@/lib/api";
 
 export interface Step {
+  /** The step's number, through the whole conversation (what a chart cites). */
+  number?: number;
   tool: string;
   label: string;
   /** What the model said the step is for. */
@@ -39,9 +41,32 @@ export interface AssistantEntry {
   options: string[];
   why: string;
   interpretation: string;
+  /** The answer's charts (absent in entries made before charts existed). */
+  charts?: Chart[];
   error: string | null;
   at: number;
   seconds: number | null;
+}
+
+/** A chart of an answer, as the server checked it (assistant/actions.py, chart_view). */
+export interface Chart {
+  kind: "pie" | "donut" | "bar" | "line";
+  title: string;
+  caption: string;
+  /** The categories (slices, bars), or the x-axis values in order (line). */
+  labels: string[];
+  /** One value per label each; exactly one series for pie and donut. */
+  series: { name: string; values: number[] }[];
+  /** What the values count ("patients", "trials", "%"), or "". */
+  unit: string;
+  /** The denominator percentages are out of (a pie's sum); 0 for none. */
+  total: number;
+  /** Bars only: "vertical" (columns) or "horizontal"; "" for other kinds. */
+  orientation: "" | "vertical" | "horizontal";
+  /** Bars with 2+ series: stacked rather than grouped. */
+  stacked: boolean;
+  /** The step numbers of the tool results the numbers came from ([]: the data overview). */
+  steps: number[];
 }
 
 export type Entry = UserEntry | AssistantEntry;

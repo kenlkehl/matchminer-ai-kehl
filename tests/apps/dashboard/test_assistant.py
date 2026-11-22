@@ -21,8 +21,15 @@ def ask(question, options, why=""):
     return {"ask_user": {"question": question, "options": options, "why": why}}
 
 
-def answer(markdown, interpretation=""):
-    return {"answer": {"markdown": markdown, "interpretation": interpretation}}
+def answer(markdown, interpretation="", charts=()):
+    return {"answer": {"markdown": markdown, "interpretation": interpretation, "charts": list(charts)}}
+
+
+def chart(kind="pie", labels=("Present", "Absent", "Not documented"), series=((18, 30, 11),), total=59, **overrides):
+    names = overrides.pop("names", [""] * len(series))
+    return {"kind": kind, "title": "KRAS status", "caption": "n=59 patients with records; steps 1-2.",
+            "labels": list(labels), "series": [{"name": n, "values": list(v)} for n, v in zip(names, series)],
+            "unit": "patients", "total": total, "orientation": "", "stacked": False, "steps": [1], **overrides}
 
 
 def test_action_schema_and_validation():
@@ -50,6 +57,55 @@ def test_action_schema_and_validation():
             validate(value, limits)
     with pytest.raises(ValueError, match="ask_user or answer now"):  # the tool budget is spent
         validate({"purpose": "x", "call": search()}, limits, final_only=True)
+
+
+def test_chart_validation():
+    from matchminer_ai.apps.dashboard.assistant.actions import Limits, chart_view, validate
+
+    limits = Limits()
+
+    def check(*charts, markdown="KRAS status of the 59 patients.", steps=frozenset({1, 2})):
+        return validate({"purpose": "Answer", "call": answer(markdown, "", charts)}, limits, steps=steps)
+
+    accepted = [
+        chart(), chart("donut"),
+        chart("bar", ["Phase 1", "Phase 2", "Phase 3"], [(4, 9, 2), (1, 3, 0)], total=0, orientation="vertical",
+              names=["Open", "Closed"]),
+        chart("bar", ["KRAS", "NRAS", "BRAF"], [(18, 3, 2), (41, 50, 40)], total=59, orientation="horizontal",
+              stacked=True, names=["Mutated", "Wild-type"]),
+        chart("line", ["2022", "2023", "2024"], [(3, -1.5, 7)], total=12),  # a line may dip below 0; no total
+    ]
+    for value in accepted:
+        assert check(value)
+    assert check(*accepted[:3])
+    assert chart_view(accepted[0])["orientation"] == "" and chart_view(accepted[4])["total"] == 0
+    assert chart_view(chart("bar", total=0))["orientation"] == "vertical"  # bars default to columns
+    assert chart_view(chart("bar", series=[(1, 2, 3)], stacked=True))["stacked"] is False  # one series: no stack
+
+    rejected = [
+        (chart(series=[(18, -30, 71)]), "0 or more"),
+        (chart(labels=[f"Part {i}" for i in range(7)], series=[range(1, 8)], total=28), "2-6 labels"),
+        (chart("bar", [f"C{i}" for i in range(25)], [[1] * 25], total=0), "1-24 labels"),
+        (chart(series=[(18, 30)]), "one value per label"),
+        (chart(series=[(18, 30, 11), (1, 1, 1)], names=["a", "b"]), "exactly one series"),
+        (chart(total=48), "sum of its values"),
+        (chart(labels=["Present", "present", "Not documented"]), "distinct"),
+        (chart("bar", series=[(5, 2, 1), (5, 2, 1)], names=["x", "x"], total=0), "series names"),
+        (chart("bar", series=[(5, 2, 1), (5, 2, 1)], names=["x", ""], total=0), "series.name"),
+        (chart("bar", series=[(5, -2, 1), (5, 2, 1)], names=["x", "y"], total=0, stacked=True), "0 or more"),
+        (chart("bar", series=[(60, 2, 1)], total=59), "larger than total"),
+        (chart(steps=[3]), "steps of this conversation"),
+        (chart(title=" "), "title"),
+        ({**chart(), "total": float("nan")}, "finite number"),
+        ({**chart(), "kind": "scatter"}, "allowed values"),
+    ]
+    for value, message in rejected:
+        with pytest.raises(ValueError, match=message):
+            check(value)
+    with pytest.raises(ValueError, match="at most 3 charts"):
+        check(*accepted[:4])
+    with pytest.raises(ValueError, match="diagram code"):
+        check(markdown="KRAS:\n```mermaid\npie showData\n    \"KRAS\" : 18\n```")
 
 
 def test_the_assistant_task_defaults_to_opus_through_the_gateway(tmp_path, monkeypatch):
@@ -134,3 +190,21 @@ def test_a_scripted_conversation_asks_then_searches_and_answers(dash_client, das
     assert dash_client.post("/api/assistant/stop", json={}).json() == {"stopped": False}  # nothing runs
     assert dash_client.delete("/api/assistant").status_code == 204
     assert dash_client.get("/api/assistant").json()["conversation"] is None
+
+
+def test_a_scripted_answer_carries_a_chart_through_the_routes(dash_client, dash):
+    phases = chart("bar", ["Phase 1", "Phase 2"], [(1, 1)], total=0, orientation="horizontal", unit="trials",
+                   title="Trials by phase", caption="All dashboard trials (search_trials, step 1).")
+    client = FakeClient([{"purpose": "Count trials by phase", "call": search()},
+                         {"purpose": "Answer", "call": answer("Trials by phase are below.", "", [phases])}])
+    dash.assistant.client_factory = lambda selected: client
+    wait_job(dash_client, dash_client.post("/api/assistant/messages",
+                                           json={"text": "A bar chart of trials by phase"}).json()["job"]["id"])
+    turn = dash_client.get("/api/assistant").json()["conversation"]["entries"][-1]
+    assert turn["status"] == "done" and turn["kind"] == "answer"
+    assert turn["steps"][0]["number"] == 1  # numbered through the conversation, as the chart cites it
+    (drawn,) = turn["charts"]
+    assert drawn["kind"] == "bar" and drawn["orientation"] == "horizontal" and drawn["steps"] == [1]
+    assert drawn["series"] == [{"name": "", "values": [1, 1]}] and drawn["unit"] == "trials"
+    result = client.sent[1][-1]["content"]
+    assert result.startswith("Result of step 1, search_trials (ok;") and '"trials_by_phase"' in result

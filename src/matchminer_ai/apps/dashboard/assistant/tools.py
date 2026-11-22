@@ -407,8 +407,14 @@ class Toolbox:
             for c in found[:6]:
                 links[c["id"]] = self._cohort_link(c)
         total_cohorts = int(keep.sum())
+        # Every matching trial once, by the data's own phase label (the rows below may be cut).
+        by_phase: dict[str, int] = {}
+        for tid in order:
+            label = (trials[tid].get("phase") or "").strip() or "not given"
+            by_phase[label] = by_phase.get(label, 0) + 1
         result = {"trials_total": len(order), "cohorts_total": total_cohorts, "shown": len(rows),
-                  "truncated": len(order) > len(rows), "searched_cohorts": len(cohorts), "trials": rows}
+                  "truncated": len(order) > len(rows), "searched_cohorts": len(cohorts),
+                  "trials_by_phase": dict(sorted(by_phase.items())), "trials": rows}
         what = " · ".join(x for x in (a["text"].strip(), a["drug"].strip() and f"drug {a['drug'].strip()}",
                                       a["cancer_type"] and cancer_types.TYPE_LABELS.get(a["cancer_type"]),
                                       a["center"].strip() and f"center {a['center'].strip()}",

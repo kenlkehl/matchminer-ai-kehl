@@ -48,12 +48,24 @@ class Conversation:
     def touch(self) -> None:
         self.updated = time.time()
 
+    def steps(self) -> list[dict]:
+        """Every tool step of the conversation, in order (step numbers run through the conversation)."""
+        with self.lock:
+            return [s for e in self.entries if e["role"] == "assistant" for s in e["steps"]]
+
+    def step_count(self) -> int:
+        return len(self.steps())
+
+    def result_steps(self) -> set[int]:
+        """The numbers of the steps whose tool results succeeded (what an answer's chart may cite)."""
+        return {s["number"] for s in self.steps() if s.get("ok") and "number" in s}
+
     def begin_turn(self, text: str, model: str) -> dict:
         with self.lock:
             self.entries.append({"id": len(self.entries), "role": "user", "text": text, "at": time.time()})
             turn = {"id": len(self.entries), "role": "assistant", "status": "running", "model": model, "steps": [],
                     "progress": "Starting", "kind": None, "text": "", "options": [], "why": "",
-                    "interpretation": "", "error": None, "at": time.time(), "seconds": None}
+                    "interpretation": "", "charts": [], "error": None, "at": time.time(), "seconds": None}
             self.entries.append(turn)
             self.touch()
             return turn

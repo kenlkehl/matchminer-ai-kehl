@@ -1,18 +1,26 @@
 """The assistant's action schema: one JSON object per step, ``{"purpose", "call"}``, validated in code.
 
 ``call`` has one key, the name of a tool (``TOOLS``: read-only searches over the dashboard's own data), of
-``ask_user`` (a clarifying question with options; ends the turn) or of ``answer`` (the final Markdown and the
-interpretation used; ends the turn), and its value holds the arguments: ``{"search_trials": {"text": "EGFR", ...}}``.
+``ask_user`` (a clarifying question with options; ends the turn) or of ``answer`` (the final Markdown, the
+interpretation used and any charts; ends the turn), and its value holds the arguments:
+``{"search_trials": {"text": "EGFR", ...}}``.
 The name is the key, not a ``tool`` field beside the arguments, because constrained decoding then fixes the
 arguments' schema by the name (with a ``tool`` field among ``anyOf`` variants, Claude's structured outputs returned
 another tool's empty arguments). Every argument is required (strict JSON-schema outputs), with ``""``, ``[]``,
 ``false`` or ``0`` for an unused one. The endpoint's JSON-schema response format constrains the shape;
 :func:`validate` checks it again with fixed messages (never input text), and each tool checks its arguments' meaning
 when it runs. :func:`parse_call` gives the code's form, ``{"tool": name, **arguments}``.
+
+**Charts** (``answer.charts``, :data:`CHART`): data, never diagram code. Each is a kind (pie, donut, bar or line), a
+title and caption, its labels and one or more series of numbers, a unit, the denominator, the bar layout and the steps
+its numbers came from; :func:`check_charts` checks the shapes, caps and signs the page draws from, and that the steps
+are this conversation's successful tool results. The page draws them as SVG.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+import math
+import re
 
 from ..core import cancer_types
 
@@ -20,6 +28,11 @@ FINAL = ("ask_user", "answer")
 SEXES = ("", "male", "female")
 PHASES = ("1", "2", "3", "4")
 LINE_TYPES = ("inclusion", "exclusion")
+CHART_KINDS = ("pie", "donut", "bar", "line")
+ORIENTATIONS = ("", "vertical", "horizontal")
+#: A fenced block of diagram code in the Markdown (the page would show it as text): charts go in ``charts``.
+DIAGRAM_FENCE = re.compile(r"^\s*(```|~~~)\s*(mermaid|vega(-lite)?|plantuml|graphviz|dot|chart|flowchart)\b",
+                           re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -53,6 +66,15 @@ class Limits:
     max_option_chars: int = 200
     max_purpose_chars: int = 300
     max_text_arg_chars: int = 4000
+    #: Charts per answer; categories (bars, line points) and series per chart; slices of a pie or donut.
+    max_charts: int = 3
+    max_chart_categories: int = 24
+    max_chart_series: int = 4
+    max_pie_slices: int = 6
+    #: Characters of a chart's title, caption, and of a label, series name or unit.
+    max_chart_title_chars: int = 120
+    max_chart_caption_chars: int = 400
+    max_chart_label_chars: int = 80
 
     def __post_init__(self):
         for item in fields(self):
@@ -64,6 +86,7 @@ class Limits:
 TEXT = {"type": "string"}
 BOOL = {"type": "boolean"}
 INT = {"type": "integer"}
+NUMBER = {"type": "number"}
 
 
 def _string(description: str, enum=None) -> dict:
@@ -182,6 +205,41 @@ TOOLS: dict[str, dict] = {
     },
 }
 
+#: One chart of an answer (every field required, as for the tools' arguments).
+CHART: dict = {
+    "type": "object", "additionalProperties": False,
+    "required": ["kind", "title", "caption", "labels", "series", "unit", "total", "orientation", "stacked", "steps"],
+    "properties": {
+        "kind": _string("pie or donut: the parts of one whole (2-6 parts, one series, values summing to total); bar: "
+                        "counts compared across categories; line: values along an ordered x axis (such as years).",
+                        CHART_KINDS),
+        "title": _string("A short title: what is counted, in which population."),
+        "caption": _string("One or two short sentences: the denominator (n), where the numbers came from, and what "
+                           "'not documented' means when it appears."),
+        "labels": {"type": "array", "items": TEXT,
+                   "description": "The categories (slices or bars), or the x-axis values in order (line)."},
+        "series": {"type": "array", "description": "1-4 series (exactly one for pie and donut), each with one value "
+                                                   "per label.",
+                   "items": {"type": "object", "additionalProperties": False, "required": ["name", "values"],
+                             "properties": {
+                                 "name": _string("The series' name for the legend; '' for a chart's only series."),
+                                 "values": {"type": "array", "items": NUMBER,
+                                            "description": "One number per label, in the labels' order, each from a "
+                                                           "tool result."}}}},
+        "unit": _string("What the values count, such as 'patients', 'trials' or '%'; '' for none."),
+        "total": {**NUMBER, "description": "The denominator n percentages are out of: a pie's or donut's sum of "
+                                           "values; for bars, the population every bar is a part of, or 0 when the "
+                                           "bars are not parts of one population (then no percentages); 0 for line."},
+        "orientation": _string("Bar charts: 'vertical' (columns) or 'horizontal' (bars, for many or long labels); "
+                               "'' for other kinds.", ORIENTATIONS),
+        "stacked": {**BOOL, "description": "Bar charts with 2+ series: stack them in each bar (the parts of each "
+                                           "bar's whole) instead of grouping them side by side; else false."},
+        "steps": {"type": "array", "items": INT,
+                  "description": "The step numbers of the tool results the numbers came from (each result names its "
+                                 "step); [] only when every number is from the data overview."},
+    },
+}
+
 CALLS: dict[str, dict] = {
     **TOOLS,
     "ask_user": {
@@ -199,6 +257,9 @@ CALLS: dict[str, dict] = {
             "markdown": _string("The answer in Markdown, citing the tools' IDs exactly."),
             "interpretation": _string("One sentence stating how ambiguous concepts were read (\"Interpreted "
                                       "metastatic as ...\"), or '' when none needed reading."),
+            "charts": {"type": "array", "items": CHART,
+                       "description": "0-3 charts the page draws below the Markdown, from tool results' numbers "
+                                      "only; [] for none."},
         },
     },
 }
@@ -251,10 +312,89 @@ def _check(value: dict, schema: dict, where: str) -> None:
     elif kind == "integer":
         if type(value) is not int:
             raise ValueError(f"{where} must be an integer.")
+    elif kind == "number":
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError(f"{where} must be a finite number.")
 
 
-def validate(value, limits: Limits, *, final_only: bool = False, tools=None) -> dict:
-    """The step's action, checked against the schema and the limits (fixed messages, never input text)."""
+def _text(value: str, limit: int, where: str, *, required: bool = True) -> None:
+    if (required and not value.strip()) or len(value) > limit:
+        raise ValueError(f"{where} needs {'a ' if required else ''}short text within its length limit.")
+
+
+def check_charts(charts: list[dict], limits: Limits, steps=None) -> None:
+    """An answer's charts (already of the schema's shape), checked against the caps and the kinds' rules: lengths,
+    signs, a pie's sum, and the steps (``steps``: this conversation's successful tool results' step numbers; None
+    skips that check). Fixed messages, never input text."""
+    if len(charts) > limits.max_charts:
+        raise ValueError(f"answer.charts holds at most {limits.max_charts} charts.")
+    for n, chart in enumerate(charts):
+        where, kind = f"answer.charts[{n}]", chart["kind"]
+        _text(chart["title"], limits.max_chart_title_chars, f"{where}.title")
+        _text(chart["caption"], limits.max_chart_caption_chars, f"{where}.caption")
+        _text(chart["unit"], limits.max_chart_label_chars, f"{where}.unit", required=False)
+        labels, series = chart["labels"], chart["series"]
+        pie = kind in ("pie", "donut")
+        low, high = ((2, limits.max_pie_slices) if pie else (2, limits.max_chart_categories) if kind == "line"
+                     else (1, limits.max_chart_categories))
+        if not low <= len(labels) <= high:
+            raise ValueError(f"{where}: a {kind} chart takes {low}-{high} labels (use bars for more categories).")
+        for label in labels:
+            _text(label, limits.max_chart_label_chars, f"{where}.labels")
+        if len({label.strip().casefold() for label in labels}) != len(labels):
+            raise ValueError(f"{where}.labels must be distinct.")
+        if not 1 <= len(series) <= (1 if pie else limits.max_chart_series):
+            raise ValueError(f"{where}: a {kind} chart takes "
+                             + ("exactly one series." if pie else f"1-{limits.max_chart_series} series."))
+        names = [s["name"].strip() for s in series]
+        for name in names:
+            _text(name, limits.max_chart_label_chars, f"{where}.series.name", required=len(series) > 1)
+        if len(set(n.casefold() for n in names)) != len(names):
+            raise ValueError(f"{where}: series names must be distinct.")
+        if any(len(s["values"]) != len(labels) for s in series):
+            raise ValueError(f"{where}: every series needs one value per label.")
+        values = [v for s in series for v in s["values"]]
+        total = chart["total"]
+        if total < 0:
+            raise ValueError(f"{where}.total must be 0 or more.")
+        stacked = kind == "bar" and chart["stacked"] and len(series) > 1
+        if (pie or stacked or (kind == "bar" and total > 0)) and any(v < 0 for v in values):
+            raise ValueError(f"{where}: a {'stacked ' if stacked else ''}{kind} chart's values must be 0 or more.")
+        if pie:
+            whole = sum(values)
+            if whole <= 0:
+                raise ValueError(f"{where}: a {kind} chart needs a positive sum.")
+            if abs(whole - total) > 0.005 * whole:
+                raise ValueError(f"{where}: a {kind} chart's total must be the sum of its values (add a part such "
+                                 "as 'Not documented' for the rest of the population).")
+        elif kind == "bar" and total > 0:
+            heights = ([sum(col) for col in zip(*(s["values"] for s in series))] if stacked else values)
+            if max(heights) > total * 1.005:
+                raise ValueError(f"{where}: a bar is larger than total, the population the percentages are out "
+                                 "of; give the right total, or 0 for no percentages.")
+        cited = chart["steps"]
+        if len(cited) > limits.max_tool_calls * 2 or len(set(cited)) != len(cited) or any(s < 1 for s in cited):
+            raise ValueError(f"{where}.steps must be distinct step numbers.")
+        if steps is not None and any(s not in steps for s in cited):
+            raise ValueError(f"{where}.steps must name steps of this conversation whose tool results succeeded.")
+
+
+def chart_view(chart: dict) -> dict:
+    """A checked chart as the page draws it: trimmed text, and the fields its kind does not use set to their
+    defaults (bars default to vertical; a line has no denominator)."""
+    kind = chart["kind"]
+    bar = kind == "bar"
+    return {"kind": kind, "title": chart["title"].strip(), "caption": chart["caption"].strip(),
+            "labels": [label.strip() for label in chart["labels"]],
+            "series": [{"name": s["name"].strip(), "values": list(s["values"])} for s in chart["series"]],
+            "unit": chart["unit"].strip(), "total": 0 if kind == "line" else chart["total"],
+            "orientation": (chart["orientation"] or "vertical") if bar else "",
+            "stacked": bool(bar and chart["stacked"] and len(chart["series"]) > 1), "steps": list(chart["steps"])}
+
+
+def validate(value, limits: Limits, *, final_only: bool = False, tools=None, steps=None) -> dict:
+    """The step's action, checked against the schema and the limits (fixed messages, never input text). ``steps``:
+    the step numbers an answer's charts may cite (None skips that check)."""
     if not isinstance(value, dict) or set(value) != {"purpose", "call"}:
         raise ValueError("Return exactly the fields purpose and call.")
     if not isinstance(value["purpose"], str) or len(value["purpose"]) > limits.max_purpose_chars:
@@ -278,6 +418,10 @@ def validate(value, limits: Limits, *, final_only: bool = False, tools=None) -> 
             raise ValueError("answer needs Markdown text within the length limit.")
         if len(call["interpretation"]) > limits.max_question_chars:
             raise ValueError("interpretation must be one sentence.")
+        if DIAGRAM_FENCE.search(call["markdown"]):
+            raise ValueError("answer.markdown must not hold diagram code (such as Mermaid); put a chart in "
+                             "answer.charts.")
+        check_charts(call["charts"], limits, steps)
     else:
         for key, sub in CALLS[name]["properties"].items():
             if sub.get("type") == "string" and len(call[key]) > limits.max_text_arg_chars:

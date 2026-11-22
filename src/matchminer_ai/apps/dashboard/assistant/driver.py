@@ -9,8 +9,9 @@ read-only functions either way, never shell or file access.
 
 The model's messages are the system prompt (cached by Claude), the data overview, then the conversation: user
 messages, the model's actions and the tool results, each kept verbatim so that a later step's request starts with
-the earlier one's (Claude reads it from the cache). A result says how many tool calls are left; once none are, the
-response schema offers only ``ask_user`` and ``answer``.
+the earlier one's (Claude reads it from the cache). A result names its step (numbered through the conversation, as
+the page shows them, so that a chart can cite where its numbers came from) and says how many tool calls are left;
+once none are, the response schema offers only ``ask_user`` and ``answer``.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ from matchminer_ai.llm.prompts import load_prompt_text
 from matchminer_ai.llm.remote_auth import DATABRICKS_ANTHROPIC_PROVIDER
 from matchminer_ai.llm.structured import CredentialsError, EndpointError
 
-from .actions import Limits, compact, parse_call, response_schema, validate
+from .actions import Limits, chart_view, compact, parse_call, response_schema, validate
 from .conversation import USAGE_KEYS, Conversation
 from .tools import LABELS, ToolResult
 
@@ -48,13 +49,13 @@ def system_prompt(limits: Limits) -> str:
             .replace("{max_rows}", str(limits.max_rows)))
 
 
-def render_result(result: ToolResult, calls_left: int, limits: Limits) -> str:
+def render_result(result: ToolResult, calls_left: int, limits: Limits, step: int) -> str:
     body = json.dumps(result.result, ensure_ascii=False, default=str, separators=(",", ":"))
     if len(body) > limits.max_result_chars:
         body = body[: limits.max_result_chars] + " … [cut at the result size limit]"
     state = "ok" if result.ok else "error"
-    return (f"Result of {result.tool} ({state}; {calls_left} tool call{'' if calls_left == 1 else 's'} left for "
-            f"this message):\n{body}")
+    return (f"Result of step {step}, {result.tool} ({state}; {calls_left} tool call{'' if calls_left == 1 else 's'} "
+            f"left for this message):\n{body}")
 
 
 def endpoint_message(client, exc: Exception) -> str:
@@ -123,23 +124,26 @@ class JSONActionDriver:
                 final_only = calls_left <= 0
                 schema = response_schema(final_only, tools)
                 messages = self._messages(conversation, overview, client)
-                value = client.complete("assistant", messages, schema,
-                                        lambda v: validate(v, limits, final_only=final_only, tools=tools))
+                cited = conversation.result_steps()  # the steps a chart may cite
+                value = client.complete("assistant", messages, schema, lambda v: validate(
+                    v, limits, final_only=final_only, tools=tools, steps=cited))
                 call = parse_call(value)
                 with conversation.lock:
                     conversation.history.append({"role": "assistant", "content": compact(value)})
                 if call["tool"] == "answer":
                     update(status="done", kind="answer", text=call["markdown"].strip(),
-                           interpretation=call["interpretation"].strip(), progress="")
+                           interpretation=call["interpretation"].strip(),
+                           charts=[chart_view(c) for c in call["charts"]], progress="")
                     break
                 if call["tool"] == "ask_user":
                     update(status="done", kind="question", text=call["question"].strip(),
                            options=[o.strip() for o in call["options"]], why=call["why"].strip(), progress="")
                     break
                 calls_left -= 1
-                step = {"tool": call["tool"], "label": LABELS[call["tool"]], "purpose": value["purpose"].strip(),
-                        "summary": "", "ok": None, "seconds": None}
                 with conversation.lock:
+                    step = {"number": conversation.step_count() + 1, "tool": call["tool"],
+                            "label": LABELS[call["tool"]], "purpose": value["purpose"].strip(), "summary": "",
+                            "ok": None, "seconds": None}
                     turn["steps"].append(step)
                 update(progress=f"{LABELS[call['tool']]}…")
 
@@ -150,7 +154,7 @@ class JSONActionDriver:
                         update(progress=message)
 
                 same = made.get(compact(call))
-                made.setdefault(compact(call), len(turn["steps"]))
+                made.setdefault(compact(call), step["number"])
                 try:
                     if same is not None:  # a repeated call: its result is already in the conversation
                         result = ToolResult(call["tool"], False, f"{LABELS[call['tool']]}: the same call as step "
@@ -165,7 +169,8 @@ class JSONActionDriver:
                     step.update(summary=result.summary, ok=result.ok, seconds=result.seconds,
                                 **({"llm_answers": result.llm_answers} if result.llm_answers else {}))
                     conversation.links.update(result.links)
-                    conversation.history.append({"role": "user", "content": render_result(result, calls_left, limits)})
+                    conversation.history.append({"role": "user", "content": render_result(
+                        result, calls_left, limits, step["number"])})
         except ContextFull:
             update(status="error", error="The conversation is too long for this model's context. Start a new "
                                          "conversation.", progress="")
