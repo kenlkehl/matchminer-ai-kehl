@@ -2058,7 +2058,20 @@ not yet, 20 begun under other settings); the orchestrator runs them in dependenc
 reached through <code>retro_fidelity.teacher_proxy</code>) or <code>--teacher-url</code> / <code>--secondary-teacher-url</code>. By default the trial
 cohorts are extracted with the training run's frozen programs, so they match training's ctgov cohort tables; with
 <code>--extraction-source SNAPSHOT</code> they are extracted by a code snapshot (<code>git archive</code> with a <code>commits.json</code>) instead.
-Results go to <code>metrics.json</code> and <code>report.md</code>; progress to <code>run_status.json</code> and <code>logs/</code>.</p>
+Results go to <code>metrics.json</code> and <code>report.md</code>; progress to <code>run_status.json</code> and <code>logs/</code>.
+<code>--extraction-workers N</code> passes <code>--workers N</code> to the extraction job (part of its identity with <code>--extraction-source</code>),
+so an extraction made with other settings can be linked in.</p>
+<p><strong>Full-denominator mode.</strong> By default the queries are a seeded sample (<code>--patient-queries 500</code>, <code>--cohort-queries
+200</code>). With <code>--all-queries --comparison-patient-queries N --comparison-cohort-queries M</code>, every patient and every
+cohort is a query: TrialSpace's top K is reranked by the decision model (ranker (c), the full pipeline) and labeled by
+the teacher for all of them, and rankers (a) and (b) run only for a seeded comparison subset of N patients and M
+cohorts (<code>corpus/sample.json</code> <code>comparison_patient_queries</code> / <code>comparison_cohort_queries</code>, the same draw a default run
+with those counts makes). <code>report.md</code> then has the ranker comparison ((a), (b), (c), paired differences) over the
+comparison queries, a full-pipeline table of (c)'s P@20 and mean score over every query (95% CIs from bootstrapping
+persons, or trials for the trial-centric workflow), and the decision-model metrics over every labeled pair, as before.
+Its Design section says which queries each table covers. <code>--no-criteria</code> (or <code>--criteria-lines 0</code>) leaves out
+per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
+rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.</p>
 <h3 id="on-synthetic-data">On synthetic data<a class="headerlink" href="#on-synthetic-data" title="Permanent link">&para;</a></h3>
 <p>A synthetic run shows how the evaluation works without PHI, for the dashboard's synthetic mode. Its patients are one
 generator split of the n=5000 run (<code>test</code>: the decision model never trained on them), and its cohorts are the run's
