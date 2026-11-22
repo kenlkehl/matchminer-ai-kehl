@@ -163,7 +163,6 @@ export function AssistantPage() {
             />
           ),
         )}
-        <div ref={bottom} />
       </section>
 
       <form
@@ -215,6 +214,8 @@ export function AssistantPage() {
           {send.isError ? <span className="text-sm text-red-700">{send.error.message}</span> : null}
         </div>
       </form>
+      {/* Kept in view as the transcript grows, with the message box above it. */}
+      <div ref={bottom} />
       <ModelDialog
         open={modelOpen}
         onClose={() => {

@@ -131,5 +131,6 @@ def test_a_scripted_conversation_asks_then_searches_and_answers(dash_client, das
     assert "tool calls left" in history[4]["content"] and "NCT90000001-cohort-0" in history[4]["content"]
 
     assert dash_client.post("/api/assistant/messages", json={"text": ""}).status_code in (400, 422)
+    assert dash_client.post("/api/assistant/stop", json={}).json() == {"stopped": False}  # nothing runs
     assert dash_client.delete("/api/assistant").status_code == 204
     assert dash_client.get("/api/assistant").json()["conversation"] is None
