@@ -594,3 +594,18 @@ def test_note_fragments_from_a_worker_pool_equal_the_serial_ones(monkeypatch):
     serial = list(pr._fragment_stream(patients, pids, WordTokenizer(), 64, 8, 1))
     pooled = list(pr._fragment_stream(patients, pids, WordTokenizer(), 64, 8, 2))
     assert [pid for pid, _ in pooled] == pids and pooled == serial
+
+
+def test_requests_added_while_an_answer_is_recorded_count_toward_the_queue_length():
+    """Patient extraction adds patients from ``record`` until a window waits, so it must see its own additions."""
+    from matchminer_ai.llm.request_queue import RequestQueue
+
+    queue = RequestQueue(object(), {None: {}}, chunk_size=1, chunks_in_flight=1)
+    seen = []
+
+    def record(item, *_):
+        queue.add(item + 10, [])
+        seen.append(len(queue))
+
+    queue._deliver(record, [(0, "", "", "stop", None), (1, "", "", "stop", None)])
+    assert seen == [1, 2] and len(queue) == 2

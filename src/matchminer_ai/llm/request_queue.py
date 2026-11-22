@@ -53,7 +53,12 @@ class RequestQueue:
             self.added.setdefault(group, []).append((item, messages))
 
     def __len__(self) -> int:
-        return sum(map(len, self.waiting.values()))
+        """The waiting requests, including those ``record`` added while it runs.
+
+        A caller that adds requests from ``record`` until the queue holds a window of them
+        (patient extraction does) must see its own additions, or it would add every one at once.
+        """
+        return sum(map(len, self.waiting.values())) + sum(map(len, (self.added or {}).values()))
 
     def _deliver(self, record: Record, answers) -> None:
         """Record answers (item, answer, reasoning, finish_reason, provenance) that returned together.
