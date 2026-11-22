@@ -17,7 +17,11 @@ corpus holds them. No PHI.
 
 ``corpus``: the labeler's corpus directory (patients.jsonl hard-linked from the patients stage, cohorts.jsonl) and
 ``sample.json``: the seeded query samples, ``--patient-queries`` index events (patient-centric) and
-``--cohort-queries`` cohorts (trial-centric), with the seed and every sampled ID.
+``--cohort-queries`` cohorts (trial-centric), with the seed and every sampled ID. Full-denominator mode
+(``--all-queries``): every index event and every cohort is a query (in corpus order), and ``sample.json`` also holds
+the seeded comparison subset rankers (a) and (b) run for, ``comparison_patient_queries`` (``--comparison-patient-
+queries``) and ``comparison_cohort_queries`` (``--comparison-cohort-queries``): the very draw a default corpus with the
+same seed and counts makes.
 """
 import argparse
 import os
@@ -179,11 +183,37 @@ def draw(ids, count, seed, name):
     return random.Random(f'{seed}:{name}').sample(list(ids), count)
 
 
+def corpus_identity(args):
+    identity = dict(version=VERSION, stage='corpus', patients=stage.receipt_id(args.patients),
+                    cohorts=stage.receipt_id(args.cohorts), seed=args.seed)
+    if args.all_queries:  # full denominator: the query counts are the corpus's, the comparison counts are settings
+        identity.update(all_queries=True, comparison_patient_queries=args.comparison_patient_queries,
+                        comparison_cohort_queries=args.comparison_cohort_queries)
+    else:
+        identity.update(patient_queries=args.patient_queries, cohort_queries=args.cohort_queries)
+    return identity
+
+
+def corpus_options(args):
+    """Resolve and check the query options (defaults 500 patient and 200 cohort queries)."""
+    comparison = (args.comparison_patient_queries, args.comparison_cohort_queries)
+    if args.all_queries:
+        if args.patient_queries is not None or args.cohort_queries is not None:
+            raise SystemExit('--all-queries takes every patient and cohort; give no --patient-queries/--cohort-queries')
+        if None in comparison or min(comparison) < 0:
+            raise SystemExit('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0)')
+    elif comparison != (None, None):
+        raise SystemExit('--comparison-patient-queries/--comparison-cohort-queries need --all-queries')
+    else:
+        args.patient_queries = 500 if args.patient_queries is None else args.patient_queries
+        args.cohort_queries = 200 if args.cohort_queries is None else args.cohort_queries
+    return args
+
+
 def corpus(args):
     from matchminer_ai.labeling.corpus import validate_corpus
-    identity = dict(version=VERSION, stage='corpus', patients=stage.receipt_id(args.patients),
-                    cohorts=stage.receipt_id(args.cohorts), seed=args.seed, patient_queries=args.patient_queries,
-                    cohort_queries=args.cohort_queries)
+    corpus_options(args)
+    identity = corpus_identity(args)
     output = Path(args.output)
 
     def work():
@@ -196,14 +226,30 @@ def corpus(args):
         write_jsonl(output / 'cohorts.jsonl', cohort_rows_)
         events = [row['id'] for row in patient_rows]  # sorted by event number
         spaces = [row['id'] for row in cohort_rows_]  # sorted by trial and cohort number
-        sample = dict(seed=args.seed, method='random.Random(f"{seed}:{name}").sample(IDs in corpus order, n)',
-                      patient_queries=draw(events, args.patient_queries, args.seed, 'patient_queries'),
-                      cohort_queries=draw(spaces, args.cohort_queries, args.seed, 'cohort_queries'),
-                      patient_pool=len(events), cohort_pool=len(spaces))
+        method = 'random.Random(f"{seed}:{name}").sample(IDs in corpus order, n)'
+        if args.all_queries:
+            sample = dict(seed=args.seed, method='every ID in corpus order (--all-queries)', patient_queries=events,
+                          cohort_queries=spaces, patient_pool=len(events), cohort_pool=len(spaces),
+                          comparison_method=method + ' with name patient_queries / cohort_queries (the sample a '
+                          'default corpus with the same seed and counts draws)',
+                          comparison_patient_queries=draw(events, args.comparison_patient_queries, args.seed,
+                                                          'patient_queries'),
+                          comparison_cohort_queries=draw(spaces, args.comparison_cohort_queries, args.seed,
+                                                         'cohort_queries'))
+        else:
+            sample = dict(seed=args.seed, method=method,
+                          patient_queries=draw(events, args.patient_queries, args.seed, 'patient_queries'),
+                          cohort_queries=draw(spaces, args.cohort_queries, args.seed, 'cohort_queries'),
+                          patient_pool=len(events), cohort_pool=len(spaces))
         write_json(output / 'sample.json', sample)
-        summary = dict(patients=len(patient_rows), cohorts=len(cohort_rows_), patient_queries=args.patient_queries,
-                       cohort_queries=args.cohort_queries,
-                       query_persons=len({r['person'] for r in patient_rows if r['id'] in set(sample['patient_queries'])}))
+        person_of = {r['id']: r['person'] for r in patient_rows}
+        summary = dict(patients=len(patient_rows), cohorts=len(cohort_rows_),
+                       patient_queries=len(sample['patient_queries']), cohort_queries=len(sample['cohort_queries']),
+                       query_persons=len({person_of[i] for i in sample['patient_queries']}))
+        if args.all_queries:
+            summary.update(all_queries=True, comparison_patient_queries=args.comparison_patient_queries,
+                           comparison_cohort_queries=args.comparison_cohort_queries,
+                           comparison_query_persons=len({person_of[i] for i in sample['comparison_patient_queries']}))
         write_json(output / 'corpus.json', summary)
         log(f'corpus: {summary}')
         return summary
@@ -229,8 +275,14 @@ def main(argv=None):
     c.add_argument('--patients', required=True)
     c.add_argument('--cohorts', required=True)
     c.add_argument('--seed', type=int, default=42)
-    c.add_argument('--patient-queries', type=int, default=500)
-    c.add_argument('--cohort-queries', type=int, default=200)
+    c.add_argument('--patient-queries', type=int, help='Sampled patient-centric queries (default 500)')
+    c.add_argument('--cohort-queries', type=int, help='Sampled trial-centric queries (default 200)')
+    c.add_argument('--all-queries', action='store_true',
+                   help='Full denominator: every index event and every cohort is a query (ranker (c) for all)')
+    c.add_argument('--comparison-patient-queries', type=int,
+                   help='With --all-queries: seeded patient-centric queries that rankers (a) and (b) also run for')
+    c.add_argument('--comparison-cohort-queries', type=int,
+                   help='With --all-queries: seeded trial-centric queries that rankers (a) and (b) also run for')
     for q in (a, b, c, d, f):
         q.add_argument('--output', required=True)
         stage.add_check_arg(q)

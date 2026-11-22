@@ -11,6 +11,12 @@ Rankers (common.RANKERS), per workflow and query:
 ``sources``) and the first part of the per-criterion sample. ``c`` follows the decision model's match scores:
 list (c), the full union ``union.jsonl``, the pairs it adds ``union_c_extra.jsonl``, and the sample's last part.
 
+Full-denominator corpus (prepare.py corpus --all-queries): lists (a) and (b), and so ``union_ab.jsonl``, are those of
+the comparison queries only; list (c) is every query's, so ``union.jsonl`` is union_ab plus every query's (c) pairs
+and ``union_c_extra.jsonl`` the (c) pairs not in union_ab.
+
+``--criteria-lines 0``: no per-criterion sample (no criteria_lines.jsonl or criteria_sample.json).
+
 Per-criterion sample (``criteria_sample``): about ``--criteria-lines`` lines in six strata, workflow x ranker. In
 each stratum the pairs of that ranker's top-20 lists are taken in a seeded order (sha256 of seed, stratum and
 pair) and every checkable line of a pair (decision_model.checkable_items) not already sampled is added, until the
@@ -23,8 +29,8 @@ import argparse
 import json
 from pathlib import Path
 
-from matchminer_ai.evaluation.retro_fidelity.common import (DIRECTION, RANKERS, SPLIT, TOP, WORKFLOWS, digest, log, private, read_jsonl, run_stage,  # noqa: E402
-                    stage, write_json, write_jsonl)
+from matchminer_ai.evaluation.retro_fidelity.common import (RANKERS, SPLIT, TOP, WORKFLOWS, digest, full_denominator, log, pair_rows, private,  # noqa: E402
+                    queries, read_jsonl, run_stage, stage, write_json, write_jsonl)
 
 VERSION = 'retro-fidelity-lists-v1'
 STRATA = {'ab': [(w, r) for w in WORKFLOWS for r in RANKERS[:2]], 'c': [(w, RANKERS[2]) for w in WORKFLOWS]}
@@ -35,6 +41,19 @@ def top_lists(rankings, top=TOP):
     patient_id, cohort_id, score)."""
     chosen = rankings[rankings['rank'] <= top].rename(columns={'embedder': 'ranker'})
     return chosen[['workflow', 'query_id', 'ranker', 'rank', 'patient_id', 'cohort_id', 'score']].reset_index(drop=True)
+
+
+def comparison_lists(rankings, sample, top=TOP):
+    """Rankers (a) and (b) of the queries they run for: every query, or a full-denominator corpus's comparison
+    queries."""
+    ab = top_lists(rankings, top)
+    if not full_denominator(sample):
+        return ab
+    keep = None
+    for workflow in WORKFLOWS:
+        mine = (ab.workflow == workflow) & ab.query_id.isin(queries(sample, workflow, comparison=True))
+        keep = mine if keep is None else keep | mine
+    return ab[keep].reset_index(drop=True)
 
 
 def rerank(candidates, probability, top=TOP):
@@ -54,12 +73,7 @@ def rerank(candidates, probability, top=TOP):
 
 def union(lists, trial_of):
     """Every pair on any list once, with each list position it holds in ``sources``."""
-    pairs = []
-    for (patient, cohort), group in lists.groupby(['patient_id', 'cohort_id'], sort=True):
-        pairs.append(dict(patient_id=patient, cohort_id=cohort, trial_id=trial_of[cohort], split=SPLIT,
-                          sources=[dict(direction=DIRECTION[w], workflow=w, query_id=q, ranker=r, rank=int(k))
-                                   for w, q, r, k in group[['workflow', 'query_id', 'ranker', 'rank']].itertuples(index=False)]))
-    return pairs
+    return list(pair_rows(lists, 'ranker', 'ranker', trial_of))
 
 
 def criteria_sample(lists, cohorts, strata, per_stratum, seed, taken=()):
@@ -117,13 +131,17 @@ def main(argv=None):
     for q in (a, c):
         q.add_argument('--retrieval', required=True)
         q.add_argument('--corpus', required=True)
-        q.add_argument('--criteria-lines', type=int, default=10000, help='Target lines over all six strata')
+        q.add_argument('--criteria-lines', type=int, default=10000,
+                       help='Target lines over all six strata (0: no per-criterion sample)')
         q.add_argument('--seed', type=int, default=42)
         q.add_argument('--output', required=True)
         stage.add_check_arg(q)
     args = p.parse_args(argv)
+    if args.criteria_lines < 0:
+        p.error('--criteria-lines must be >= 0')
     private()
     per_stratum = round(args.criteria_lines / 6)
+    criteria = args.criteria_lines > 0
     identity = dict(version=VERSION, part=args.command, retrieval=stage.receipt_id(args.retrieval),
                     corpus=stage.receipt_id(args.corpus), top=TOP, criteria_lines=args.criteria_lines, seed=args.seed)
     if args.command == 'c':
@@ -135,13 +153,16 @@ def main(argv=None):
         cohorts = {row['id']: row for row in read_jsonl(Path(args.corpus) / 'cohorts.jsonl')}
         trial_of = {key: row['trial_id'] for key, row in cohorts.items()}
         rankings = pd.read_parquet(Path(args.retrieval) / 'rankings.parquet')
-        ab = top_lists(rankings)
+        sample = json.loads((Path(args.corpus) / 'sample.json').read_text())
+        ab = comparison_lists(rankings, sample)
         summary = {}
+        rows = counts = None
         if args.command == 'ab':
             ab.to_parquet(output / 'lists.parquet', index=False)
             pairs = union(ab, trial_of)
             write_jsonl(output / 'union_ab.jsonl', pairs)
-            rows, counts = criteria_sample(ab, cohorts, STRATA['ab'], per_stratum, args.seed)
+            if criteria:
+                rows, counts = criteria_sample(ab, cohorts, STRATA['ab'], per_stratum, args.seed)
             summary.update(union_ab=len(pairs))
         else:
             scores = pd.read_parquet(Path(args.decisions) / 'scores.parquet')
@@ -156,17 +177,22 @@ def main(argv=None):
             before = {(row['patient_id'], row['cohort_id']) for row in read_jsonl(Path(args.lists_ab) / 'union_ab.jsonl')}
             extra = [row for row in pairs if (row['patient_id'], row['cohort_id']) not in before]
             write_jsonl(output / 'union_c_extra.jsonl', extra)
-            taken = [row['line_key'] for row in read_jsonl(Path(args.lists_ab) / 'criteria_lines.jsonl')]
-            rows, counts = criteria_sample(lists, cohorts, STRATA['c'], per_stratum, args.seed, taken)
+            if criteria:
+                earlier = Path(args.lists_ab) / 'criteria_lines.jsonl'
+                if not earlier.exists():
+                    raise ValueError('lists ab has no per-criterion sample; give both parts the same --criteria-lines')
+                taken = [row['line_key'] for row in read_jsonl(earlier)]
+                rows, counts = criteria_sample(lists, cohorts, STRATA['c'], per_stratum, args.seed, taken)
             k = int(rankings['rank'].max())
             summary.update(union=len(pairs), union_c_extra=len(extra), k=k, k_binding=k_binding(reranked, k))
-        write_jsonl(output / 'criteria_lines.jsonl', rows)
-        design = dict(target_lines=args.criteria_lines, per_stratum=per_stratum, seed=args.seed,
-                      order='sha256([seed, "<workflow>/<ranker>", patient_id, cohort_id])', strata=counts,
-                      lines=len(rows), exclusion_lines=sum(r['criterion_type'] == 'exclusion' for r in rows),
-                      boilerplate_lines=sum(r['boilerplate'] for r in rows))
-        write_json(output / 'criteria_sample.json', design)
-        summary.update(criteria_lines=len(rows), criteria_strata=counts)
+        if criteria:
+            write_jsonl(output / 'criteria_lines.jsonl', rows)
+            design = dict(target_lines=args.criteria_lines, per_stratum=per_stratum, seed=args.seed,
+                          order='sha256([seed, "<workflow>/<ranker>", patient_id, cohort_id])', strata=counts,
+                          lines=len(rows), exclusion_lines=sum(r['criterion_type'] == 'exclusion' for r in rows),
+                          boilerplate_lines=sum(r['boilerplate'] for r in rows))
+            write_json(output / 'criteria_sample.json', design)
+            summary.update(criteria_lines=len(rows), criteria_strata=counts)
         write_json(output / 'lists.json', summary)
         log(f'lists {args.command}: {json.dumps(summary)}')
         return summary
@@ -174,7 +200,8 @@ def main(argv=None):
     names = (['lists.parquet', 'union_ab.jsonl'] if args.command == 'ab' else
              ['lists.parquet', 'lists_c.parquet', 'union.jsonl', 'union_c_extra.jsonl'])
     run_stage(output, f'retro-lists-{args.command}', identity,
-              names + ['criteria_lines.jsonl', 'criteria_sample.json', 'lists.json'], work, check=args.check,
+              names + (['criteria_lines.jsonl', 'criteria_sample.json'] if criteria else []) + ['lists.json'], work,
+              check=args.check,
               upstream={k: v for k, v in identity.items() if k in ('retrieval', 'corpus', 'decisions', 'lists_ab')})
 
 

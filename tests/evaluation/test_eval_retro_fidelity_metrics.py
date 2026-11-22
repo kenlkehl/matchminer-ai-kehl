@@ -1,7 +1,11 @@
 """Scoring contract of the retrospective distillation-fidelity evaluation, on fabricated data: P@20 and the 0-6
 score, the (c) rerank, the merged union and the per-criterion sample, label polarity, and the decision-model
-metrics (AUROC, AUPRC, Brier, ECE, calibration intercept and slope, clustered bootstrap)."""
+metrics (AUROC, AUPRC, Brier, ECE, calibration intercept and slope, clustered bootstrap); the full-denominator mode
+(corpus identity, lists, metrics without per-criterion inputs)."""
+import json
+import os
 from pathlib import Path
+import random
 import sys
 
 import numpy as np
@@ -10,6 +14,9 @@ import pytest
 
 from matchminer_ai.evaluation.retro_fidelity import lists as rf_lists
 from matchminer_ai.evaluation.retro_fidelity import metrics as rf_metrics
+from matchminer_ai.evaluation.retro_fidelity import prepare as rf_prepare
+from matchminer_ai.labeling.files import write_json, write_jsonl
+from matchminer_ai.training.trialspace import stage
 
 YES = dict(reasonableness='yes', cancer_type='yes', burden='no', treatment_history='yes', biomarker='yes')
 NO = dict(reasonableness='no', cancer_type='yes', burden='yes', treatment_history='yes', biomarker='yes')
@@ -125,3 +132,127 @@ def test_clustered_bootstrap_resamples_whole_clusters():
         cell = out[name]
         assert cell['low'] <= cell['value'] <= cell['high'], name
     assert out['mean_predicted'] == pytest.approx(p.mean()) and len(out['reliability']) == 10
+
+
+# --------------------------------------------------------------------------- #
+# full-denominator mode (fabricated stage directories)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def umask():
+    """The stages set umask 077 for their process; give the test process its own back."""
+    before = os.umask(0o022)
+    os.umask(before)
+    yield
+    os.umask(before)
+
+
+def made(directory, files=()):
+    """A fabricated complete stage directory: its files, then a receipt."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, value in files:
+        if name.endswith('.parquet'):
+            value.to_parquet(directory / name, index=False)
+        elif name.endswith('.jsonl'):
+            write_jsonl(directory / name, value)
+        else:
+            write_json(directory / name, value)
+    stage.write_receipt(directory, 'fabricated', dict(name=directory.name), [])
+    return str(directory)
+
+
+def test_corpus_default_identity_is_unchanged_and_all_queries_keeps_the_default_draw(tmp_path, umask):
+    patients = [dict(id=str(100 + i), text=f'p{i}', boilerplate='', split='val', person=i // 2) for i in range(12)]
+    cohorts = [dict(id=f'NCT{i // 2}-ctgov-cohort-{i % 2 + 1}', trial_id=f'NCT{i // 2}', text=f'c{i}', split='val')
+               for i in range(6)]
+    sources = ['--patients', made(tmp_path / 'patients', [('patients.jsonl', patients)]),
+               '--cohorts', made(tmp_path / 'cohorts', [('cohorts.jsonl', cohorts)])]
+    rf_prepare.main(['corpus', *sources, '--output', str(tmp_path / 'default'), '--patient-queries', '4',
+                     '--cohort-queries', '3'])
+    assert stage.read_receipt(tmp_path / 'default')['identity'] == dict(  # what completed runs' receipts hold
+        version='retro-fidelity-prepare-v1', stage='corpus', patients=stage.receipt_id(tmp_path / 'patients'),
+        cohorts=stage.receipt_id(tmp_path / 'cohorts'), seed=42, patient_queries=4, cohort_queries=3)
+    default = json.loads((tmp_path / 'default' / 'sample.json').read_text())
+    assert list(default) == ['seed', 'method', 'patient_queries', 'cohort_queries', 'patient_pool', 'cohort_pool']
+    rf_prepare.main(['corpus', *sources, '--output', str(tmp_path / 'full'), '--all-queries',
+                     '--comparison-patient-queries', '4', '--comparison-cohort-queries', '3'])
+    full = json.loads((tmp_path / 'full' / 'sample.json').read_text())
+    assert full['patient_queries'] == [r['id'] for r in patients] and full['cohort_queries'] == [r['id'] for r in cohorts]
+    assert (full['comparison_patient_queries'], full['comparison_cohort_queries']) == (
+        default['patient_queries'], default['cohort_queries'])
+    with pytest.raises(SystemExit):  # --all-queries needs the comparison counts
+        rf_prepare.main(['corpus', *sources, '--output', str(tmp_path / 'bad'), '--all-queries'])
+
+
+def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
+    rng, draw = np.random.default_rng(0), random.Random(0)
+    patients = [dict(id=f'p{i:02d}', text='key', boilerplate=f'b{i % 3}', split='val', person=i // 2) for i in range(24)]
+    cohorts = [dict(id=f'NCT{i // 2}-ctgov-cohort-{i % 2 + 1}', trial_id=f'NCT{i // 2}', text='key',
+                    boilerplate='cb' if i % 3 else '', items=[], split='val') for i in range(22)]
+    sample = dict(patient_queries=[r['id'] for r in patients], cohort_queries=[r['id'] for r in cohorts],
+                  comparison_patient_queries=['p03', 'p11'], comparison_cohort_queries=['NCT4-ctgov-cohort-1'])
+    corpus = made(tmp_path / 'corpus', [('patients.jsonl', patients), ('cohorts.jsonl', cohorts), ('sample.json', sample)])
+    rows = []  # both embedders rank every query here; (a) and (b) must still be the comparison queries' only
+    for workflow, queries, documents in (('patient_centric', patients, cohorts), ('trial_centric', cohorts, patients)):
+        for embedder in ('embeddinggemma2', 'trialspace_round2'):
+            for q in queries:
+                for rank, j in enumerate(rng.permutation(len(documents)), 1):
+                    pair = (q['id'], documents[j]['id']) if workflow == 'patient_centric' else (documents[j]['id'], q['id'])
+                    rows.append((workflow, q['id'], embedder, rank, *pair, 1.0 / rank))
+    rankings = pd.DataFrame(rows, columns=['workflow', 'query_id', 'embedder', 'rank', 'patient_id', 'cohort_id', 'score'])
+    retrieval = made(tmp_path / 'retrieval', [('rankings.parquet', rankings)])
+    pairs = rankings[rankings.embedder == 'trialspace_round2'][['patient_id', 'cohort_id']].drop_duplicates()
+    scores = pairs.assign(**{f'p_{k}': rng.random(len(pairs)) for k in rf_metrics.LABELS})
+    decide = made(tmp_path / 'decide_match', [('scores.parquet', scores)])
+    common = ['--retrieval', retrieval, '--corpus', corpus, '--criteria-lines', '0']
+    rf_lists.main(['ab', *common, '--output', str(tmp_path / 'lists_ab')])
+    rf_lists.main(['c', *common, '--decisions', decide, '--lists-ab', str(tmp_path / 'lists_ab'),
+                   '--output', str(tmp_path / 'lists_c')])
+    lists = pd.read_parquet(tmp_path / 'lists_c' / 'lists.parquet')
+    ab, c = lists[lists.ranker != 'trialspace_round2_decision'], lists[lists.ranker == 'trialspace_round2_decision']
+    assert set(ab.query_id) == {'p03', 'p11', 'NCT4-ctgov-cohort-1'} and len(ab) == 2 * 3 * 20
+    assert c.groupby(['workflow', 'query_id']).size().eq(20).all() and c.query_id.nunique() == 24 + 22
+    keys = lambda name: {(r['patient_id'], r['cohort_id']) for r in rf_lists.read_jsonl(name)}  # noqa: E731
+    union_ab = keys(tmp_path / 'lists_ab' / 'union_ab.jsonl')
+    extra = keys(tmp_path / 'lists_c' / 'union_c_extra.jsonl')
+    assert union_ab == set(zip(ab.patient_id, ab.cohort_id))
+    assert extra == set(zip(c.patient_id, c.cohort_id)) - union_ab and keys(tmp_path / 'lists_c' / 'union.jsonl') == union_ab | extra
+    assert not list(tmp_path.glob('lists_*/criteria_*'))
+    match, bp, combos, bp_scores = [], [], set(), []
+    for name, pair_set in (('match_ab', union_ab), ('match_c', extra)):
+        rows = []
+        for p, k in sorted(pair_set):
+            answers = {label: draw.choice(['yes', 'no']) for label in rf_metrics.LABELS}
+            rows.append(dict(patient_id=p, cohort_id=k, answers=answers, score=rf_metrics.match_score(answers)))
+        match.append(made(tmp_path / name, [('scores.jsonl', rows)]))
+    boilerplate = {r['id']: r['boilerplate'] for r in patients + cohorts}
+    for p, k in sorted(union_ab | extra):
+        if boilerplate[k]:
+            combination = stage.digest([boilerplate[p], boilerplate[k]])
+            bp_scores.append(dict(patient_id=p, cohort_id=k, combination=combination, p_boilerplate=draw.random()))
+            if combination not in combos:
+                combos.add(combination)
+                bp.append(dict(task='boilerplate', boilerplate_combination=combination, excluded=draw.random() < 0.4,
+                               patient_id=p))
+    out = tmp_path / 'metrics'
+    rf_metrics.main(['--corpus', corpus, '--lists', str(tmp_path / 'lists_c'), '--lists-ab', str(tmp_path / 'lists_ab'),
+                     '--retrieval', retrieval, '--match-labels', *match,
+                     '--boilerplate-labels', made(tmp_path / 'bp', [('labels.jsonl', bp)]),
+                     '--decide-match', decide, '--decide-boilerplate',
+                     made(tmp_path / 'decide_bp', [('scores.parquet', pd.DataFrame(bp_scores))]),
+                     '--draws', '20', '--output', str(out)])
+    result = json.loads((out / 'metrics.json').read_text())
+    assert {k: v['queries'] for k, v in result['retrieval']['table'].items()} == {
+        f'{w}/{r}': (2 if w == 'patient_centric' else 1) for w in ('patient_centric', 'trial_centric')
+        for r in rf_metrics.RANKERS}  # the ranker comparison: comparison queries only
+    full = result['full_pipeline']['table']
+    assert (full['patient_centric/trialspace_round2_decision']['queries'],
+            full['patient_centric/trialspace_round2_decision']['clusters']) == (24, 12)
+    assert (full['trial_centric/trialspace_round2_decision']['queries'],
+            full['trial_centric/trialspace_round2_decision']['clusters']) == (22, 11)
+    assert result['decision']['pooled']['reasonableness']['n'] == len(union_ab | extra)  # every labeled pair
+    assert not any(k.startswith('criterion') for k in result['decision']['pooled']) and 'criteria_lines' not in result['counts']
+    assert 'decide_criteria' not in stage.read_receipt(out)['identity']['inputs']
+    assert 'Full pipeline over every query' in (out / 'report.md').read_text()

@@ -31,6 +31,20 @@ reached through `retro_fidelity.teacher_proxy`) or `--teacher-url` / `--secondar
 cohorts are extracted with the training run's frozen programs, so they match training's ctgov cohort tables; with
 `--extraction-source SNAPSHOT` they are extracted by a code snapshot (`git archive` with a `commits.json`) instead.
 Results go to `metrics.json` and `report.md`; progress to `run_status.json` and `logs/`.
+`--extraction-workers N` passes `--workers N` to the extraction job (part of its identity with `--extraction-source`),
+so an extraction made with other settings can be linked in.
+
+**Full-denominator mode.** By default the queries are a seeded sample (`--patient-queries 500`, `--cohort-queries
+200`). With `--all-queries --comparison-patient-queries N --comparison-cohort-queries M`, every patient and every
+cohort is a query: TrialSpace's top K is reranked by the decision model (ranker (c), the full pipeline) and labeled by
+the teacher for all of them, and rankers (a) and (b) run only for a seeded comparison subset of N patients and M
+cohorts (`corpus/sample.json` `comparison_patient_queries` / `comparison_cohort_queries`, the same draw a default run
+with those counts makes). `report.md` then has the ranker comparison ((a), (b), (c), paired differences) over the
+comparison queries, a full-pipeline table of (c)'s P@20 and mean score over every query (95% CIs from bootstrapping
+persons, or trials for the trial-centric workflow), and the decision-model metrics over every labeled pair, as before.
+Its Design section says which queries each table covers. `--no-criteria` (or `--criteria-lines 0`) leaves out
+per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
+rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.
 
 ### On synthetic data
 

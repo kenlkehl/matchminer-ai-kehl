@@ -15,6 +15,12 @@ A synthetic run (``--synthetic-corpus``, no PHI) takes its patients and ctgov co
 corpus instead of the extraction, patients and cohort-table stages, so the Benchmarking tab of the dashboard's
 synthetic mode has a run to show. ``--teacher-after`` holds the label jobs until the named files exist (other teacher
 work finishes first); ``--embed-device`` encodes on GPUs instead of the CPU.
+
+Full-denominator mode (``--all-queries`` with ``--comparison-patient-queries N --comparison-cohort-queries M``): every
+patient and every cohort is a query, the full pipeline (c) ranks and is labeled for all of them, and rankers (a) and
+(b) only for the seeded comparison subset (prepare.py corpus). ``--no-criteria`` (or ``--criteria-lines 0``) leaves out
+the per-criterion sample, its teacher labels and decision scores. ``--extraction-workers N`` passes ``--workers N`` to
+the extraction job (cohorts.py; part of its identity with ``--extraction-source``).
 """
 import argparse
 import json
@@ -78,14 +84,18 @@ def plan(args):
                       '--output', e('extraction'), '--holders', e('oa_pause', 'holders.json')]
         if args.extraction_source:
             extraction += ['--source', args.extraction_source]
+        if args.extraction_workers is not None:
+            extraction += ['--workers', str(args.extraction_workers)]
         jobs = [Job('extraction', extraction, kind='gb300', output=e('extraction')),
                 Job('patients', [*mod('prepare'), 'patients', '--summaries', args.summaries, '--denominator',
                                  args.denominator, '--output', e('patients')], output=e('patients')),
                 Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--output',
                                      e('cohort_table')], ['extraction'], output=e('cohort_table'))]
+    queries = (['--all-queries', '--comparison-patient-queries', str(args.comparison_patient_queries),
+                '--comparison-cohort-queries', str(args.comparison_cohort_queries)] if args.all_queries else
+               ['--patient-queries', str(args.patient_queries), '--cohort-queries', str(args.cohort_queries)])
     jobs += [Job('corpus', [*mod('prepare'), 'corpus', '--patients', e('patients'), '--cohorts',
-                           e('cohort_table'), '--output', e('corpus'), '--seed', str(args.seed), '--patient-queries',
-                           str(args.patient_queries), '--cohort-queries', str(args.cohort_queries)],
+                           e('cohort_table'), '--output', e('corpus'), '--seed', str(args.seed), *queries],
                 ['patients', 'cohort_table'], output=e('corpus'))]
     embeds, devices = [], args.embed_device.split(',')
     for embedder in EMBEDDERS:
@@ -114,9 +124,11 @@ def plan(args):
              Job('decide_boilerplate', decide + ['boilerplate', '--pairs', e('lists_c', 'union.jsonl'), '--output',
                                                  e('decide', 'boilerplate')] + gpu, ['lists_c'], 'gpu',
                  e('decide', 'boilerplate')),
-             Job('decide_criteria', decide + ['criteria', '--lines', e('lists_ab', 'criteria_lines.jsonl'),
-                                              e('lists_c', 'criteria_lines.jsonl'), '--output', e('decide', 'criteria')] + gpu,
-                 ['lists_c', 'decide_boilerplate'], 'gpu', e('decide', 'criteria'))]
+             *([] if args.no_criteria else [
+                 Job('decide_criteria', decide + ['criteria', '--lines', e('lists_ab', 'criteria_lines.jsonl'),
+                                                  e('lists_c', 'criteria_lines.jsonl'), '--output',
+                                                  e('decide', 'criteria')] + gpu,
+                     ['lists_c', 'decide_boilerplate'], 'gpu', e('decide', 'criteria'))])]
     label = [*mod('label'), '--corpus', e('corpus'), '--server_urls_file',
              e('servers', 'teacher_servers.json'), '--teacher-model', MODEL, '--teacher-tokenizer', MODEL,
              '--teacher-context', '250000', '--max_concurrent_per_server', '1024', '--initial-concurrent-per-server', '96',
@@ -131,21 +143,44 @@ def plan(args):
              ('boilerplate_c', 'boilerplate', e('lists_c', 'union_c_extra.jsonl'), ['lists_c', 'label_boilerplate_ab'],
               ['--skip-labeled', e('labels', 'boilerplate_ab')]),
              ('criteria_c', 'criteria', e('lists_c', 'criteria_lines.jsonl'), ['lists_c'], [])]
+    if args.no_criteria:
+        specs = [spec for spec in specs if spec[1] != 'criteria']
     for name, task, candidates, deps, extra in specs:
         jobs.append(Job(f'label_{name}', label + ['--task', task, '--candidates', candidates, '--output',
                                                   e('labels', name), '--concurrency-control-file',
                                                   e('servers', f'concurrency_{name}.json')] + extra,
                         deps, 'gb300', e('labels', name), attempts=args.label_attempts))
     labels = [f'label_{name}' for name, *_ in specs]
+    criteria = [] if args.no_criteria else ['--criteria-labels', e('labels', 'criteria_ab'), e('labels', 'criteria_c')]
+    decided = [] if args.no_criteria else ['--decide-criteria', e('decide', 'criteria')]
     jobs.append(Job('metrics', [*mod('metrics'), '--corpus', e('corpus'), '--lists', e('lists_c'),
                                 '--lists-ab', e('lists_ab'), '--retrieval', e('retrieval'), '--match-labels',
                                 e('labels', 'match_ab'), e('labels', 'match_c'), '--boilerplate-labels',
-                                e('labels', 'boilerplate_ab'), e('labels', 'boilerplate_c'), '--criteria-labels',
-                                e('labels', 'criteria_ab'), e('labels', 'criteria_c'), '--decide-match',
-                                e('decide', 'match'), '--decide-boilerplate', e('decide', 'boilerplate'),
-                                '--decide-criteria', e('decide', 'criteria'), '--output', e('metrics')],
-                    [*labels, 'decide_criteria', 'decide_boilerplate'], output=e('metrics')))
+                                e('labels', 'boilerplate_ab'), e('labels', 'boilerplate_c'), *criteria,
+                                '--decide-match', e('decide', 'match'), '--decide-boilerplate',
+                                e('decide', 'boilerplate'), *decided, '--output', e('metrics')],
+                    [*labels, *([] if args.no_criteria else ['decide_criteria']), 'decide_boilerplate'],
+                    output=e('metrics')))
     return {job.name: job for job in jobs}
+
+
+def query_note(args):
+    """The design note's account of the queries (after the patients' description)."""
+    if not args.all_queries:
+        return (f'{args.patient_queries} sampled for the patient-centric workflow and {args.cohort_queries} cohorts for '
+                f'the trial-centric one (seed {args.seed}; corpus/sample.json).')
+    return ('every one is a patient-centric query and every cohort a trial-centric one (full denominator: ranker (c), '
+            'the full pipeline, ranks and is labeled for all of them); rankers (a) and (b) run only for a seeded '
+            f'comparison subset of {args.comparison_patient_queries} of them and {args.comparison_cohort_queries} '
+            f'cohorts (seed {args.seed}; corpus/sample.json comparison_patient_queries / comparison_cohort_queries).')
+
+
+def criteria_note(args):
+    if args.no_criteria:
+        return 'Per-criterion: not run (--no-criteria): no line sample, teacher labels or decision scores.'
+    return (f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
+            'lists_ab/criteria_sample.json, lists_c/criteria_sample.json)'
+            + ('; the (c) strata sample every query\'s list.' if args.all_queries else '.'))
 
 
 def write_servers(args, root, proxy_ok):
@@ -197,11 +232,20 @@ def main(argv=None):
     p.add_argument('--teacher-after', nargs='*', default=[], help='Files that must exist before label jobs start')
     p.add_argument('--python', default=sys.executable)
     p.add_argument('--extraction-source', help='Code snapshot for cohorts.py --source (revised cohort prompts)')
+    p.add_argument('--extraction-workers', type=int, help='cohorts.py --workers for the extraction job (default: its '
+                   'own; part of its identity with --extraction-source)')
     p.add_argument('--seed', type=int, default=42)
-    p.add_argument('--patient-queries', type=int, default=500)
-    p.add_argument('--cohort-queries', type=int, default=200)
+    p.add_argument('--patient-queries', type=int, help='Sampled patient-centric queries (default 500)')
+    p.add_argument('--cohort-queries', type=int, help='Sampled trial-centric queries (default 200)')
+    p.add_argument('--all-queries', action='store_true', help='Full denominator: every patient and every cohort is a '
+                   'query of ranker (c); (a) and (b) only for the comparison queries')
+    p.add_argument('--comparison-patient-queries', type=int, help='With --all-queries: seeded patient-centric queries '
+                   'of rankers (a) and (b)')
+    p.add_argument('--comparison-cohort-queries', type=int, help='With --all-queries: seeded trial-centric queries of '
+                   'rankers (a) and (b)')
     p.add_argument('--k', type=int, default=100)
     p.add_argument('--criteria-lines', type=int, default=10000)
+    p.add_argument('--no-criteria', action='store_true', help='No per-criterion sample, labels or decision scores')
     p.add_argument('--threads', type=int, default=64)
     p.add_argument('--gpu', default='3')
     p.add_argument('--min-free-gb', type=float, default=30)
@@ -221,6 +265,21 @@ def main(argv=None):
     args = p.parse_args(argv)
     if not args.synthetic_corpus and not (args.trials and args.summaries and args.denominator):
         p.error('a real run needs --trials, --summaries and --denominator (or give --synthetic-corpus)')
+    comparison = (args.comparison_patient_queries, args.comparison_cohort_queries)
+    if args.all_queries:
+        if args.patient_queries is not None or args.cohort_queries is not None:
+            p.error('--all-queries takes every patient and cohort; give no --patient-queries/--cohort-queries')
+        if None in comparison or min(comparison) < 0:
+            p.error('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0)')
+    elif comparison != (None, None):
+        p.error('--comparison-patient-queries/--comparison-cohort-queries need --all-queries')
+    args.patient_queries = 500 if args.patient_queries is None else args.patient_queries
+    args.cohort_queries = 200 if args.cohort_queries is None else args.cohort_queries
+    if args.criteria_lines < 0:
+        p.error('--criteria-lines must be >= 0')
+    args.no_criteria = args.no_criteria or args.criteria_lines == 0
+    if args.no_criteria:
+        args.criteria_lines = 0  # lists.py writes no per-criterion sample
     site = load_site_config()
     args.teacher_url = args.teacher_url or site.require('endpoints.teacher.url')
     args.secondary_teacher_url = args.secondary_teacher_url or site.get('endpoints.secondary_teacher.url')
@@ -240,8 +299,7 @@ def main(argv=None):
     if args.synthetic_corpus:
         write_json(root / 'design_notes.json', [
             f'Synthetic run (no PHI): the n=5000 run\'s {args.synthetic_split}-split synthetic patients with their '
-            f'summaries; {args.patient_queries} sampled for the patient-centric workflow and {args.cohort_queries} '
-            f'cohorts for the trial-centric one (seed {args.seed}; corpus/sample.json).',
+            f'summaries; {query_note(args)}',
             "Trials: the n=5000 run's ctgov cohorts (training's extraction; trialspace_corpus).",
             f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
             f'(c) TrialSpace\'s top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
@@ -254,25 +312,23 @@ def main(argv=None):
             '0.95), thinking on, JSON tasks schema-constrained.',
             'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model, '
             'published as ksg-dfci/MatchEval-1226).',
-            f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
-            'lists_ab/criteria_sample.json, lists_c/criteria_sample.json).',
+            criteria_note(args),
             'A demonstration of the evaluation on synthetic data; the real-patient evaluation is the meaningful one.'])
     else:
         write_json(root / 'design_notes.json', [
-            f'Patients: validation-split SOC index events with summaries; {args.patient_queries} sampled for the '
-            f'patient-centric workflow and {args.cohort_queries} cohorts for the trial-centric one (seed {args.seed}; '
-            'corpus/sample.json).',
+            f'Patients: validation-split SOC index events with summaries; {query_note(args)}',
             'Trials: the v22-style SOC trial sample (500 NCT IDs, training trials excluded), ctgov cohorts extracted with '
             "the training run's frozen programs (extraction/).",
             f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
             f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
-            'Key texts, trialspace prompt profile, 4,096-token cap, CPU float32 encoding.',
+            'Key texts, trialspace prompt profile, 4,096-token cap, '
+            + ('CPU float32 encoding.' if args.embed_device == 'cpu' else
+               f'encoded on {args.embed_device} (bf16 autocast).'),
             'Teacher: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 on the on-prem teacher server (and its FP8 '
             'build on a second server), contracts match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; Nemotron '
             'sampling (temperature 1.0, top_p 0.95), thinking on, JSON tasks schema-constrained.',
             'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
-            f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
-            'lists_ab/criteria_sample.json, lists_c/criteria_sample.json).'])
+            criteria_note(args)])
     proxy, released = None, False
     status_path = root / 'run_status.json'
     log(f'orchestrator started: {len(jobs)} jobs')

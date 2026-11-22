@@ -45,6 +45,33 @@ def __getattr__(name):
 
 RANKERS = ('embeddinggemma2', 'trialspace_round2', 'trialspace_round2_decision')
 TOP = 20
+QUERY_KEYS = {'patient_centric': 'patient_queries', 'trial_centric': 'cohort_queries'}
+
+
+def full_denominator(sample):
+    """Whether a corpus's sample.json is a full-denominator one (prepare.py corpus --all-queries): every patient and
+    cohort is a query, and rankers (a) and (b) run only for its seeded comparison subset."""
+    return 'comparison_patient_queries' in sample
+
+
+def queries(sample, workflow, comparison=False):
+    """A workflow's query IDs in sample.json; ``comparison``: only those rankers (a) and (b) run for (the comparison
+    subset of a full-denominator corpus; every query otherwise)."""
+    key = QUERY_KEYS[workflow]
+    return sample['comparison_' + key] if comparison and full_denominator(sample) else sample[key]
+
+
+def pair_rows(frame, column, name, trial_of):
+    """Every (patient_id, cohort_id) of a ranking frame once, in sorted order, with each row it holds (in frame
+    order) in ``sources`` as dict(direction, workflow, query_id, <name>=frame[column], rank); a generator."""
+    frame = frame.reset_index(drop=True)
+    groups = frame.groupby(['patient_id', 'cohort_id'], sort=True).indices
+    workflow, query = frame.workflow.to_numpy(), frame.query_id.to_numpy()
+    value, rank = frame[column].to_numpy(), frame['rank'].to_numpy()
+    for patient, cohort in sorted(groups):
+        yield dict(patient_id=patient, cohort_id=cohort, trial_id=trial_of[cohort], split=SPLIT,
+                   sources=[{'direction': DIRECTION[workflow[i]], 'workflow': workflow[i], 'query_id': query[i],
+                             name: value[i], 'rank': int(rank[i])} for i in groups[(patient, cohort)]])
 
 
 def private():
@@ -105,6 +132,6 @@ def run_stage(directory, kind, identity, outputs, work, *, check=False, content=
                                upstream=upstream)
 
 
-__all__ = ['DECISION_MODEL', 'DIRECTION', 'EMBEDDERS', 'EMBEDDER_NAMES', 'L', 'RANKERS', 'SPLIT', 'TOP', 'WORKFLOWS', 'digest',
-           'file_stamp', 'hold_gb300', 'log', 'mask', 'private', 'private_dir', 'read_jsonl', 'run_stage', 'stage',
-           'stamp_inputs', 'write_json', 'write_jsonl']
+__all__ = ['DECISION_MODEL', 'DIRECTION', 'EMBEDDERS', 'EMBEDDER_NAMES', 'L', 'QUERY_KEYS', 'RANKERS', 'SPLIT', 'TOP',
+           'WORKFLOWS', 'digest', 'file_stamp', 'full_denominator', 'hold_gb300', 'log', 'mask', 'pair_rows', 'private',
+           'private_dir', 'queries', 'read_jsonl', 'run_stage', 'stage', 'stamp_inputs', 'write_json', 'write_jsonl']

@@ -11,13 +11,16 @@ embedder must be encoded on the same device kind (CPU float32 and CUDA bf16-auto
 are each embedder's top 20 (common.TOP); ranker (c) reranks TrialSpace's top K with the decision model
 (lists.py). ``decision_pairs.jsonl``: every pair the decision model scores for the match questions, TrialSpace's
 top K and EmbeddingGemma 2's top 20 of every query (so every merged-top-20 pair has decision scores).
+
+A full-denominator corpus (prepare.py corpus --all-queries) has TrialSpace rank every query and EmbeddingGemma 2 only
+the comparison queries, the only ones ranker (a) runs for.
 """
 import argparse
 import json
 from pathlib import Path
 
-from matchminer_ai.evaluation.retro_fidelity.common import (DIRECTION, EMBEDDERS, SPLIT, TOP, WORKFLOWS, log, private, read_jsonl, run_stage, stage,  # noqa: E402
-                    write_json, write_jsonl)
+from matchminer_ai.evaluation.retro_fidelity.common import (EMBEDDERS, RANKERS, TOP, WORKFLOWS, log, pair_rows, private, queries, read_jsonl,  # noqa: E402
+                    run_stage, stage, write_json, write_jsonl)
 
 VERSION = 'retro-fidelity-retrieve-v1'
 
@@ -27,15 +30,30 @@ def embedding_dir(root, embedder, side):
 
 
 def search(queries, documents, k):
-    """[(query index, [(document index, score), ...] in rank order)] by exact cosine similarity."""
+    """Exact cosine top ``k`` of each query: (document indices, scores), arrays of (queries, min(k, documents)) in
+    rank order."""
     import numpy as np
     from matchminer_ai.matching.retrieval import score_batches, stable_top_k
-    hits = []
+    k = min(k, len(documents))
+    index, score = np.zeros((len(queries), k), dtype=np.int64), np.zeros((len(queries), k), dtype=np.float32)
     for start, scores in score_batches(np.asarray(queries), np.asarray(documents), batch_size=128, devices=('cpu',)):
         for offset, values in enumerate(scores):
-            top = stable_top_k(values, min(k, len(values)))
-            hits.append((start + offset, [(j, float(values[j])) for j in top]))
-    return hits
+            top = stable_top_k(values, k)
+            index[start + offset], score[start + offset] = top, values[top]
+    return index, score
+
+
+def ranking_frame(workflow, embedder, ids, documents, index, score):
+    """The rankings rows of one workflow and embedder (rank order within each query, queries in ``ids`` order)."""
+    import numpy as np
+    import pandas as pd
+    n, k = index.shape
+    query = np.repeat(np.asarray(ids, dtype=object), k)
+    found = np.asarray([row['id'] for row in documents], dtype=object)[index.ravel()]
+    patient, cohort = (query, found) if workflow == 'patient_centric' else (found, query)
+    return pd.DataFrame(dict(workflow=[workflow] * (n * k), query_id=list(query), embedder=[embedder] * (n * k),
+                             rank=np.tile(np.arange(1, k + 1, dtype=np.int64), n), patient_id=list(patient),
+                             cohort_id=list(cohort), score=score.ravel().astype(np.float64)))
 
 
 def main(argv=None):
@@ -64,7 +82,7 @@ def main(argv=None):
         sample = json.loads((Path(args.corpus) / 'sample.json').read_text())
         pindex = {row['id']: i for i, row in enumerate(patients)}
         cindex = {row['id']: i for i, row in enumerate(cohorts)}
-        rows = []
+        frames = []
         for embedder in EMBEDDERS:
             kinds = {receipts[f'{embedder}/{s}']['identity']['device_kind'] for s in ('patients', 'cohorts')}
             if len(kinds) != 1:
@@ -77,31 +95,30 @@ def main(argv=None):
                     raise ValueError(f'{embedder}/{side}: vectors are not in this corpus\'s order')
                 vectors[side] = np.load(directory / 'vectors.npy')
             for workflow in WORKFLOWS:
+                # (a) runs only for the comparison queries of a full-denominator corpus (every query otherwise)
+                ids = queries(sample, workflow, comparison=embedder == RANKERS[0])
                 if workflow == 'patient_centric':
-                    ids = sample['patient_queries']
-                    queries, documents = vectors['patients'][[pindex[i] for i in ids]], vectors['cohorts']
+                    found, documents = vectors['patients'][[pindex[i] for i in ids]], vectors['cohorts']
                 else:
-                    ids = sample['cohort_queries']
-                    queries, documents = vectors['cohorts'][[cindex[i] for i in ids]], vectors['patients']
-                for qi, hits in search(queries, documents, args.k):
-                    for rank, (j, score) in enumerate(hits, 1):
-                        patient = ids[qi] if workflow == 'patient_centric' else patients[j]['id']
-                        cohort = cohorts[j]['id'] if workflow == 'patient_centric' else ids[qi]
-                        rows.append(dict(workflow=workflow, query_id=ids[qi], embedder=embedder, rank=rank,
-                                         patient_id=patient, cohort_id=cohort, score=score))
+                    found, documents = vectors['cohorts'][[cindex[i] for i in ids]], vectors['patients']
+                index, score = search(found, documents, args.k)
+                frames.append(ranking_frame(workflow, embedder, ids, cohorts if workflow == 'patient_centric'
+                                            else patients, index, score))
                 log(f'retrieve {embedder}/{workflow}: {len(ids)} queries')
-        frame = pd.DataFrame(rows)
+        frame = pd.concat(frames, ignore_index=True)
         frame.to_parquet(output / 'rankings.parquet', index=False)
         trial_of = {row['id']: row['trial_id'] for row in cohorts}
         chosen = frame[(frame.embedder == 'trialspace_round2') | (frame['rank'] <= TOP)]
-        pairs = []
-        for (patient, cohort), group in chosen.groupby(['patient_id', 'cohort_id'], sort=True):
-            pairs.append(dict(patient_id=patient, cohort_id=cohort, trial_id=trial_of[cohort], split=SPLIT,
-                              sources=[dict(direction=DIRECTION[w], workflow=w, query_id=q, source=e, rank=int(r))
-                                       for w, q, e, r in group[['workflow', 'query_id', 'embedder', 'rank']].itertuples(
-                                           index=False)]))
-        write_jsonl(output / 'decision_pairs.jsonl', pairs)
-        summary = dict(rows=len(frame), decision_pairs=len(pairs), k=args.k,
+        pairs = 0
+
+        def counted(rows):
+            nonlocal pairs
+            for row in rows:
+                pairs += 1
+                yield row
+
+        write_jsonl(output / 'decision_pairs.jsonl', counted(pair_rows(chosen, 'embedder', 'source', trial_of)))
+        summary = dict(rows=len(frame), decision_pairs=pairs, k=args.k,
                        queries={w: int(frame[frame.workflow == w].query_id.nunique()) for w in WORKFLOWS},
                        shorter_than_k=int((frame.groupby(['workflow', 'embedder', 'query_id']).size() < args.k).sum()))
         write_json(output / 'retrieval.json', summary)

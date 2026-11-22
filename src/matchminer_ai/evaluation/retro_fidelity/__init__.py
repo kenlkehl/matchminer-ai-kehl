@@ -11,6 +11,10 @@ What it measures, with the teacher (training's labeler and label contracts) as t
 - the decision model: AUROC, AUPRC, Brier score and calibration of its P(yes) for the five match questions, the
   boilerplate question and the per-criterion question, on the merged top-20 pairs.
 
+Full-denominator mode (``run.py --all-queries --comparison-patient-queries N --comparison-cohort-queries M``): every
+patient and cohort is a query of ranker (c), (a) and (b) run for the seeded comparison subset only, and the metrics
+add (c)'s P@20 over every query. ``--no-criteria`` leaves out the per-criterion question.
+
 Stages (each a script that writes stage_receipt.json last and answers --check, trialspace/stage.py):
 
   cohorts.py   extraction         ctgov cohorts of the trial sample, with training's frozen programs (teacher server)

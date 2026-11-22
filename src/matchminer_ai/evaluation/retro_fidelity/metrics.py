@@ -18,6 +18,13 @@ calibration intercept (calibration-in-the-large: logistic model of the label wit
 and slope (logistic recalibration of the label on logit(P)), mean P(yes) against the observed rate, and a
 reliability table. CIs are cluster bootstraps: pooled rows are clustered by patient (person), per-workflow rows by
 query. Counts and metrics only: no clinical text or identifiers reach metrics.json or the report.
+
+Full-denominator corpus (prepare.py corpus --all-queries): the retrieval comparison (``retrieval``: (a), (b), (c) and
+their paired differences) covers the comparison queries only; ``full_pipeline`` adds (c)'s P@20 and mean score over
+every query, with CIs from bootstrapping clusters of queries (patient-centric: the index events of one person;
+trial-centric: the cohorts of one trial); the decision-model tables cover every labeled pair of the merged union, as
+always. Without ``--criteria-labels`` and ``--decide-criteria`` (run.py --no-criteria) there are no per-criterion
+rows.
 """
 import argparse
 import json
@@ -26,7 +33,8 @@ import time
 
 import numpy as np
 
-from matchminer_ai.evaluation.retro_fidelity.common import RANKERS, TOP, WORKFLOWS, log, private, read_jsonl, run_stage, stage, write_json  # noqa: E402
+from matchminer_ai.evaluation.retro_fidelity.common import (RANKERS, TOP, WORKFLOWS, full_denominator, log, private, queries, read_jsonl,  # noqa: E402
+                    run_stage, stage, write_json)
 
 VERSION = 'retro-fidelity-metrics-v2'  # v2: a full section per workflow (user, 2026-11-18)
 LABELS = ('reasonableness', 'cancer_type', 'burden', 'treatment_history', 'biomarker')
@@ -92,6 +100,45 @@ def retrieval_metrics(lists, teacher, *, draws=2000, seed=42, top=TOP):
                 deltas = [rows[(workflow, first, q)][metric] - rows[(workflow, second, q)][metric] for q in both]
                 differences[f'{workflow}/{metric}/{first}-minus-{second}'] = bootstrap_mean(deltas, draws=draws, seed=seed)
     return dict(top=top, table=table, paired_differences=differences)
+
+
+def cluster_bootstrap_mean(values, clusters, *, draws=2000, seed=42, alpha=0.05):
+    """The mean of ``values`` with a percentile CI from resampling whole clusters with replacement (each draw's
+    mean is over every value of the drawn clusters); non-finite values are left out."""
+    values, clusters = np.asarray(values, dtype=float), np.asarray(clusters)
+    keep = np.isfinite(values)
+    values, clusters = values[keep], clusters[keep]
+    if not len(values):
+        return dict(mean=None, low=None, high=None, n=0, clusters=0)
+    _, inverse = np.unique(clusters, return_inverse=True)
+    sums, counts = np.bincount(inverse, weights=values), np.bincount(inverse).astype(float)
+    rng = np.random.default_rng(seed)
+    means = np.empty(draws)
+    for draw in range(draws):
+        chosen = rng.integers(0, len(sums), len(sums))
+        means[draw] = sums[chosen].sum() / counts[chosen].sum()
+    return dict(mean=float(values.mean()), low=float(np.quantile(means, alpha / 2)),
+                high=float(np.quantile(means, 1 - alpha / 2)), n=int(len(values)), clusters=int(len(sums)))
+
+
+def pipeline_metrics(lists, teacher, cluster_of, *, draws=2000, seed=42, top=TOP, ranker=RANKERS[2]):
+    """One ranker's P@``top`` and mean 0-6 score over every query of each workflow, with cluster-bootstrap CIs;
+    ``cluster_of[workflow](query_id)`` is a query's cluster."""
+    rows = per_query(lists[lists.ranker == ranker], teacher, top)
+    table = {}
+    for workflow in WORKFLOWS:
+        keys = sorted(q for w, _, q in rows if w == workflow)
+        if not keys:
+            continue
+        cells = [rows[(workflow, ranker, q)] for q in keys]
+        clusters = [cluster_of[workflow](q) for q in keys]
+        table[f'{workflow}/{ranker}'] = dict(
+            queries=len(cells), clusters=len(set(clusters)), queries_with_fewer_than_top=sum(c['n'] < top for c in cells),
+            queries_without_labels=sum(c['labeled'] == 0 for c in cells),
+            unlabeled_pairs=sum(c['unlabeled'] for c in cells),
+            precision_at_top=cluster_bootstrap_mean([c['precision'] for c in cells], clusters, draws=draws, seed=seed),
+            mean_score=cluster_bootstrap_mean([c['mean_score'] for c in cells], clusters, draws=draws, seed=seed))
+    return dict(top=top, ranker=ranker, clusters=dict(patient_centric='person', trial_centric='trial'), table=table)
 
 
 # --------------------------------------------------------------------------- #
@@ -186,7 +233,8 @@ def clustered_bootstrap(y, p, clusters, *, draws=1000, seed=42, bins=10, alpha=0
     y, p, clusters = np.asarray(y, dtype=bool), np.asarray(p, dtype=float), np.asarray(clusters)
     point = point_metrics(y, p, bins)
     _, inverse = np.unique(clusters, return_inverse=True)
-    members = [np.nonzero(inverse == k)[0] for k in range(inverse.max() + 1)] if len(y) else []
+    # each cluster's row indices in ascending order (a stable sort by cluster, split at the cluster boundaries)
+    members = np.split(np.argsort(inverse, kind='stable'), np.cumsum(np.bincount(inverse))[:-1]) if len(y) else []
     rng = np.random.default_rng(seed)
     samples = {name: [] for name in point}
     degenerate = 0
@@ -288,8 +336,11 @@ def report(result, design):
             lines.append('')
         return lines
 
+    full = result.get('full_pipeline')
+    criteria = any(name.startswith('criterion') for name in result['decision']['pooled'])
     for workflow in WORKFLOWS:
-        out += ['', f'## {titles[workflow]}', '', f'### Retrieval: P@{r["top"]} against the teacher\'s reasonableness answer',
+        out += ['', f'## {titles[workflow]}', '', f'### Retrieval: P@{r["top"]} against the teacher\'s reasonableness answer'
+                + (' (comparison queries)' if full else ''),
                 '', '| Ranker | Queries | P@20 [95% CI] | Mean 0-6 score [95% CI] | Queries < 20 | Unlabeled pairs |',
                 '| --- | --- | --- | --- | --- | --- |']
         for key, m in r['table'].items():
@@ -305,10 +356,23 @@ def report(result, design):
         for key, m in r['paired_differences'].items():
             if key.startswith(workflow + '/') and m['mean'] is not None:
                 out.append(f"| {key.split('/', 1)[1]} | {m['mean']:+.3f} [{m['low']:+.3f}, {m['high']:+.3f}] |")
+        if full:
+            cluster = full['clusters'][workflow]
+            out += ['', f'### Full pipeline over every query: P@{full["top"]} of {names[full["ranker"]]}', '',
+                    f'Every query of this workflow; 95% CIs from bootstrapping {cluster}s (all of a {cluster}\'s queries '
+                    'together).', '',
+                    f'| Ranker | Queries | {cluster.capitalize()}s | P@20 [95% CI] | Mean 0-6 score [95% CI] | Queries < 20 | '
+                    'Unlabeled pairs |', '| --- | --- | --- | --- | --- | --- | --- |']
+            m = full['table'].get(f'{workflow}/{full["ranker"]}')
+            if m and m['precision_at_top']['mean'] is not None:
+                p, s = m['precision_at_top'], m['mean_score']
+                out.append(f"| {names[full['ranker']]} | {m['queries']} | {m['clusters']} | {p['mean']:.3f} [{p['low']:.3f}, "
+                           f"{p['high']:.3f}] | {s['mean']:.2f} [{s['low']:.2f}, {s['high']:.2f}] | "
+                           f"{m['queries_with_fewer_than_top']} | {m['unlabeled_pairs']} |")
+        per_line = '; per-criterion: per sampled line of this workflow\'s strata' if criteria else ''
         out += ['', '### Decision model against the teacher (this workflow\'s merged top 20)', '',
                 f'One row per unique pair of this workflow (boilerplate: per unique combination of the two boilerplate '
-                f'texts; per-criterion: per sampled line of this workflow\'s strata); 95% CIs from bootstrapping its '
-                f'queries. {note}', '']
+                f'texts{per_line}); 95% CIs from bootstrapping its queries. {note}', '']
         out += table_rows(result['decision'][workflow])
         out += ['', '#### Reliability tables (equal-mass bins of P(yes))', '']
         out += reliability_tables(result['decision'][workflow])
@@ -327,12 +391,29 @@ def report(result, design):
             'numbers measure fidelity to the teacher on real summaries, not clinical accuracy.',
             '- The validation split is a development set: tuning on it is fine; the test split stays untouched.',
             '- Only pairs on some ranker\'s top-20 list are labeled, so the decision-model metrics are conditional on '
-            'retrieval (selection-conditioned), and the per-criterion lines are a stratified sample (workflow x ranker) '
-            'of those pairs, pooled without weights.',
+            'retrieval (selection-conditioned)' + (', and the per-criterion lines are a stratified sample (workflow x '
+                                                    'ranker) of those pairs, pooled without weights.' if criteria else '.'),
             '- Patient summaries were made by the same teacher family from notes up to 14 days before the plan start; '
             'trial listings are the 2026-10-15 ClinicalTrials.gov export, not the trial as it stood at the index date.',
             '- MatchMiner-AI is a research prioritization tool; scores are screening signals for human review.']
     return '\n'.join(out) + '\n'
+
+
+def coverage(sample, criteria):
+    """Design lines of a full-denominator report: which queries each table covers."""
+    counts = {w: (len(queries(sample, w)), len(queries(sample, w, comparison=True))) for w in WORKFLOWS}
+    (patients, compared_p), (cohorts, compared_c) = counts['patient_centric'], counts['trial_centric']
+    return [f'Queries (full denominator): every index event ({patients:,} patient-centric queries) and every cohort '
+            f'({cohorts:,} trial-centric queries); seeded comparison subset: {compared_p:,} index events and '
+            f'{compared_c:,} cohorts (corpus/sample.json comparison_patient_queries / comparison_cohort_queries).',
+            'Retrieval comparison tables ((a), (b), (c) and their paired differences): the comparison queries only; '
+            '95% CIs bootstrap those queries.',
+            'Full-pipeline tables ((c) alone): every query; 95% CIs bootstrap persons (patient-centric: all index '
+            'events of one patient together) or trials (trial-centric: all cohorts of one trial together).',
+            'Decision-model tables: every teacher-labeled pair of the merged union, that is (a) and (b) top 20 of the '
+            'comparison queries and (c) top 20 of every query' + (
+                '; per-criterion lines: the stratified sample ((a) and (b) strata from the comparison queries, (c) '
+                'strata from every query).' if criteria else '; no per-criterion rows (not run).')]
 
 
 def main(argv=None):
@@ -343,30 +424,37 @@ def main(argv=None):
     p.add_argument('--retrieval', required=True)
     p.add_argument('--match-labels', nargs='+', required=True)
     p.add_argument('--boilerplate-labels', nargs='+', required=True)
-    p.add_argument('--criteria-labels', nargs='+', required=True)
+    p.add_argument('--criteria-labels', nargs='+', default=[], help='Per-criterion label directories (none: no '
+                   'per-criterion rows; give with --decide-criteria)')
     p.add_argument('--decide-match', required=True)
     p.add_argument('--decide-boilerplate', required=True)
-    p.add_argument('--decide-criteria', required=True)
+    p.add_argument('--decide-criteria', help='decide.py criteria stage directory (with --criteria-labels)')
     p.add_argument('--draws', type=int, default=1000)
     p.add_argument('--bins', type=int, default=10)
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output', required=True)
     stage.add_check_arg(p)
     args = p.parse_args(argv)
+    criteria = bool(args.criteria_labels)
+    if criteria != bool(args.decide_criteria):
+        p.error('give --criteria-labels and --decide-criteria together (or neither: no per-criterion rows)')
     private()
     sources = dict(corpus=args.corpus, lists=args.lists, lists_ab=args.lists_ab, retrieval=args.retrieval,
-                   decide_match=args.decide_match, decide_boilerplate=args.decide_boilerplate,
-                   decide_criteria=args.decide_criteria)
+                   decide_match=args.decide_match, decide_boilerplate=args.decide_boilerplate)
+    labels = [('match', args.match_labels), ('boilerplate', args.boilerplate_labels)]
+    if criteria:  # the identity has no criteria inputs without them
+        sources['decide_criteria'] = args.decide_criteria
+        labels.append(('criteria', args.criteria_labels))
     identity = dict(version=VERSION, draws=args.draws, bins=args.bins, seed=args.seed,
                     inputs={k: stage.receipt_id(v) for k, v in sources.items()},
-                    labels={kind: [stage.receipt_id(d) for d in dirs] for kind, dirs in (
-                        ('match', args.match_labels), ('boilerplate', args.boilerplate_labels),
-                        ('criteria', args.criteria_labels))})
+                    labels={kind: [stage.receipt_id(d) for d in dirs] for kind, dirs in labels})
     output = Path(args.output)
 
     def work():
         import pandas as pd
         persons = {row['id']: row['person'] for row in read_jsonl(Path(args.corpus) / 'patients.jsonl')}
+        sample = json.loads((Path(args.corpus) / 'sample.json').read_text())
+        full = full_denominator(sample)
         lists = pd.read_parquet(Path(args.lists) / 'lists.parquet')
         teacher = {}
         for directory in args.match_labels:
@@ -374,7 +462,16 @@ def main(argv=None):
                 if row['score'] != match_score(row['answers']):
                     raise ValueError('A teacher score disagrees with its answers')
                 teacher[(row['patient_id'], row['cohort_id'])] = dict(answers=row['answers'], score=row['score'])
-        result = dict(retrieval=retrieval_metrics(lists, teacher, seed=args.seed))
+        compared = lists
+        if full:  # the ranker comparison covers the queries (a) and (b) ran for
+            compared = pd.concat([lists[(lists.workflow == w) & lists.query_id.isin(queries(sample, w, comparison=True))]
+                                  for w in WORKFLOWS], ignore_index=True)
+        result = dict(retrieval=retrieval_metrics(compared, teacher, seed=args.seed))
+        if full:
+            trial_of = {row['id']: row['trial_id'] for row in read_jsonl(Path(args.corpus) / 'cohorts.jsonl')}
+            result['full_pipeline'] = pipeline_metrics(lists, teacher, dict(patient_centric=persons.__getitem__,
+                                                                            trial_centric=trial_of.__getitem__),
+                                                       seed=args.seed)
         # --- decision model on the merged top 20
         union = lists[['workflow', 'query_id', 'patient_id', 'cohort_id']].drop_duplicates()
         decide = pd.read_parquet(Path(args.decide_match) / 'scores.parquet').set_index(['patient_id', 'cohort_id'])
@@ -387,17 +484,18 @@ def main(argv=None):
                     bp_teacher[row['boilerplate_combination']] = dict(yes=boilerplate_yes(row['excluded']),
                                                                       person=persons[row['patient_id']])
         bp = pd.read_parquet(Path(args.decide_boilerplate) / 'scores.parquet')
-        lines = []
+        lines, crit = [], None
         for directory in args.criteria_labels:
             for row in read_labels(directory, ('patient_id', 'cohort_id', 'number', 'criterion_type', 'criterion', 'task')):
                 if row['task'] == 'criteria':
                     lines.append(dict(patient_id=row['patient_id'], cohort_id=row['cohort_id'], number=int(row['number']),
                                       criterion_type=row['criterion_type'], yes=criterion_yes(row['criterion']['answer'])))
-        crit = pd.DataFrame(lines).merge(pd.read_parquet(Path(args.decide_criteria) / 'scores.parquet'),
-                                         on=['patient_id', 'cohort_id', 'number'], how='inner', suffixes=('', '_d'),
-                                         validate='one_to_one')
-        if not crit.criterion_type.eq(crit.criterion_type_d).all():
-            raise ValueError('Teacher and decision line types differ')
+        if criteria:
+            crit = pd.DataFrame(lines).merge(pd.read_parquet(Path(args.decide_criteria) / 'scores.parquet'),
+                                             on=['patient_id', 'cohort_id', 'number'], how='inner', suffixes=('', '_d'),
+                                             validate='one_to_one')
+            if not crit.criterion_type.eq(crit.criterion_type_d).all():
+                raise ValueError('Teacher and decision line types differ')
 
         def decision_tables(rows, cluster_of):
             out = {}
@@ -416,8 +514,9 @@ def main(argv=None):
                                                     combos.p_boilerplate.to_numpy(),
                                                     [bp_teacher[c]['person'] for c in combos.combination],
                                                     draws=args.draws, seed=args.seed, bins=args.bins)
-        for name, subset in (('criterion (all lines)', crit), ('criterion (inclusion lines)', crit[crit.criterion_type == 'inclusion']),
-                             ('criterion (exclusion lines)', crit[crit.criterion_type == 'exclusion'])):
+        for name, subset in (() if crit is None else (
+                ('criterion (all lines)', crit), ('criterion (inclusion lines)', crit[crit.criterion_type == 'inclusion']),
+                ('criterion (exclusion lines)', crit[crit.criterion_type == 'exclusion']))):
             pooled[name] = clustered_bootstrap(subset.yes.to_numpy(), subset.p_yes.to_numpy(),
                                                [persons[p_] for p_ in subset.patient_id], draws=args.draws,
                                                seed=args.seed, bins=args.bins)
@@ -432,10 +531,11 @@ def main(argv=None):
             tables['boilerplate'] = clustered_bootstrap([bp_teacher[c]['yes'] for c in w_bp.combination],
                                                         w_bp.p_boilerplate.to_numpy(), w_bp.query_id.to_numpy(),
                                                         draws=args.draws, seed=args.seed, bins=args.bins)
-            w_crit = crit[crit.stratum.str.startswith(workflow + '/')]
-            for name, subset in (('criterion (all lines)', w_crit),
-                                 ('criterion (inclusion lines)', w_crit[w_crit.criterion_type == 'inclusion']),
-                                 ('criterion (exclusion lines)', w_crit[w_crit.criterion_type == 'exclusion'])):
+            w_crit = None if crit is None else crit[crit.stratum.str.startswith(workflow + '/')]
+            for name, subset in (() if w_crit is None else (
+                    ('criterion (all lines)', w_crit),
+                    ('criterion (inclusion lines)', w_crit[w_crit.criterion_type == 'inclusion']),
+                    ('criterion (exclusion lines)', w_crit[w_crit.criterion_type == 'exclusion']))):
                 tables[name] = clustered_bootstrap(
                     subset.yes.to_numpy(), subset.p_yes.to_numpy(),
                     [query_of.get((a, b), a) for a, b in zip(subset.patient_id, subset.cohort_id)],
@@ -443,11 +543,15 @@ def main(argv=None):
             result['decision'][workflow] = tables
         counts = dict(union_pairs=int(len(pairs)), union_pairs_with_match_labels=int(len(labeled)),
                       boilerplate_combinations_scored=int(bp.combination.nunique()),
-                      boilerplate_combinations_labeled=int(len(combos)), criteria_lines=int(len(crit)),
-                      union_pairs_without_cohort_boilerplate=int(len(pairs) - bp[['patient_id', 'cohort_id']].drop_duplicates().shape[0]))
+                      boilerplate_combinations_labeled=int(len(combos)))
+        if crit is not None:
+            counts['criteria_lines'] = int(len(crit))
+        counts['union_pairs_without_cohort_boilerplate'] = int(len(pairs) - bp[['patient_id', 'cohort_id']].drop_duplicates().shape[0])
         result['counts'] = counts
         write_json(output / 'metrics.json', result)
         design = json.loads((output.parent / 'design_notes.json').read_text()) if (output.parent / 'design_notes.json').exists() else []
+        if full:
+            design = design + coverage(sample, criteria)
         (output / 'report.md').write_text(report(result, design + [f'{k}: {v:,}' for k, v in counts.items()]))
         log(f'metrics: {counts}')
         return counts
