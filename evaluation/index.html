@@ -935,6 +935,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Retrospective fidelity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#on-synthetic-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On synthetic data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1936,6 +1953,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Retrospective fidelity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#on-synthetic-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On synthetic data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2025,22 +2059,41 @@ reached through <code>retro_fidelity.teacher_proxy</code>) or <code>--teacher-ur
 cohorts are extracted with the training run's frozen programs, so they match training's ctgov cohort tables; with
 <code>--extraction-source SNAPSHOT</code> they are extracted by a code snapshot (<code>git archive</code> with a <code>commits.json</code>) instead.
 Results go to <code>metrics.json</code> and <code>report.md</code>; progress to <code>run_status.json</code> and <code>logs/</code>.</p>
+<h3 id="on-synthetic-data">On synthetic data<a class="headerlink" href="#on-synthetic-data" title="Permanent link">&para;</a></h3>
+<p>A synthetic run shows how the evaluation works without PHI, for the dashboard's synthetic mode. Its patients are one
+generator split of the n=5000 run (<code>test</code>: the decision model never trained on them), and its cohorts are the run's
+ctgov cohorts, both taken from its TrialSpace corpus instead of the extraction, patients and cohort table stages:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.retro_fidelity.run<span class="w"> </span>--root<span class="w"> </span>&lt;data<span class="w"> </span>root&gt;/no_phi/benchmarks/&lt;evaluation&gt;<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--synthetic-corpus<span class="w"> </span>&lt;<span class="nv">n</span><span class="o">=</span><span class="m">5000</span><span class="w"> </span>run&gt;/trialspace/trialspace_corpus<span class="w"> </span>--synthetic-split<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--patient-queries<span class="w"> </span><span class="m">100</span><span class="w"> </span>--cohort-queries<span class="w"> </span><span class="m">50</span><span class="w"> </span>--criteria-lines<span class="w"> </span><span class="m">1000</span><span class="w"> </span>--embed-device<span class="w"> </span>cuda:0,cuda:1<span class="w"> </span>--gpu<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--no-proxy<span class="w"> </span>--teacher-after<span class="w"> </span>&lt;files<span class="w"> </span>that<span class="w"> </span>must<span class="w"> </span>exist<span class="w"> </span>first&gt;
+</code></pre></div>
+<p><code>--embed-device</code> encodes on GPUs instead of the CPU. <code>--teacher-after</code> holds the label jobs until other teacher work
+is done (such as builds whose manifests it names). TrialSpace round 2 was fine-tuned on every synthetic patient, the
+test split included, so its synthetic retrieval results are optimistic; the run's <code>design_notes.json</code> says so. The
+real-patient evaluation is the meaningful one.</p>
 <h2 id="dual-judge">Dual judge<a class="headerlink" href="#dual-judge" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.build_items<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w"> </span>...<span class="w">    </span><span class="c1"># where the data is</span>
-python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.judge_worker<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w"> </span>--judge<span class="w"> </span>vertex<span class="w">       </span><span class="c1"># or --judge databricks</span>
-python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.judge_worker<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w"> </span>--judge<span class="w"> </span>azure
-python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.compare<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w">          </span><span class="c1"># [--judges vertex,databricks]</span>
+python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.judge_worker<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w"> </span>--judge<span class="w"> </span>databricks
+python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.judge_worker<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w"> </span>--judge<span class="w"> </span>azure<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--endpoint<span class="w"> </span>https://&lt;resource&gt;.openai.azure.com/openai/v1<span class="w"> </span>--deployment<span class="w"> </span>gpt-6.1-sol
+python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.compare<span class="w"> </span>--run-dir<span class="w"> </span>RUN<span class="w">          </span><span class="c1"># [--judges databricks,azure]</span>
 python<span class="w"> </span>-m<span class="w"> </span>matchminer_ai.evaluation.dual_judge.metrics<span class="w"> </span>--run-dir<span class="w"> </span>RUN
 </code></pre></div>
 <p><code>compare</code> compares the two judges whose answers the run holds (while only one has answered, the other is the first
-of Vertex and Azure not taken, and its units wait); name them with <code>--judges</code> when a run has more. The judge,
-comparison, adjudication and metrics modules need only the package and the standard library (plus
-<code>anthropic[vertex]</code> for the Vertex judge), so they can run on another machine that can read and write the run
-directory. The Vertex project is <code>--project</code>, <code>ANTHROPIC_VERTEX_PROJECT_ID</code> or the site config's <code>vertex.project</code>.
-The <code>databricks</code> judge sends the same requests to Claude Opus through a Databricks AI Gateway: the site config's
-<code>databricks.host</code> and <code>databricks.profile</code>, and <code>--model</code> or <code>databricks.endpoints.opus</code> for the endpoint name.
-Azure uses <code>AZURE_OPENAI_ENDPOINT</code> and <code>AZURE_OPENAI_DEPLOYMENT</code>. <code>judge_worker --dry-run</code> prices the remaining
+of Databricks and Azure not taken, and its units wait); name them with <code>--judges</code> when a run has more. The judge,
+comparison, adjudication and metrics modules need only the package and the standard library (plus <code>anthropic</code> and
+<code>databricks-sdk</code> for the Databricks judge), so they can run on another machine that can read and write the run
+directory. Claude judges only through the Databricks gateway (Claude Opus 5.5): the site config's <code>databricks.host</code>
+and <code>databricks.profile</code>, and <code>--model</code> or <code>databricks.endpoints.opus</code> for the endpoint name. Runs judged before
+2026-11-21 through Vertex keep those answers (<code>responses/vertex</code>), which compare and metrics still read. Azure uses
+<code>--endpoint</code> and <code>--deployment</code> (or <code>AZURE_OPENAI_ENDPOINT</code> and <code>AZURE_OPENAI_DEPLOYMENT</code>) with an Entra token from
+the Azure CLI (<code>--az</code>), refreshed every 30 minutes and on a 401 or 403. <code>judge_worker --dry-run</code> prices the remaining
 requests without sending any, and <code>--max-usd</code> caps a judge's spending. The judge prompts are <code>prompts/judge.*.txt</code>.</p>
+<p>A synthetic judge run builds its items from a synthetic fidelity run: <code>build_items --synthetic-notes
+&lt;all_synthetic_notes.parquet&gt; --synthetic-summaries &lt;patient_summaries_with_spaces.parquet&gt; --synthetic-prompts
+&lt;the prompts of the code snapshot that wrote the summaries&gt; --components summary decision</code>. The extraction component
+needs the extraction stage's per-trial checkpoints, which the n=5000 run did not keep.</p>
 <p>Adjudication, browsing runs and rerunning compare and metrics are on the <a href="../apps/dashboard/">dashboard</a>'s
 Benchmarking tab, which finds runs under the site config's <code>dashboard.&lt;mode&gt;.benchmark_roots</code>. Real mode serves this
 PHI on loopback only, with the access token. Decisions are appended to the run's <code>adjudications.jsonl</code> (owner only)
