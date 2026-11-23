@@ -133,7 +133,7 @@ export function PatientInput() {
               setPatient({ inputOpen: !s.inputOpen });
             }}
           >
-            {s.inputOpen ? "Collapse" : "Change patient"}
+            {s.inputOpen ? "Collapse" : "Expand"}
             <ChevronUpIcon className={cn("transition-transform", !s.inputOpen && "rotate-180")} />
           </Button>
         </div>
