@@ -1,5 +1,5 @@
 """Trial management: enrollment slots, edited cohort criteria, user-defined subcohorts and group pins, kept as an
-overlay on the AI-extracted cohorts (Clinical trial management's **Manage a trial** pane).
+overlay on the AI-extracted cohorts (Clinical trial management's **Trial management** sidebar).
 
 **Units.** Slots and criteria belong to a unit:
 
@@ -377,7 +377,7 @@ class ManagementFile:
 
 
 class TrialManager:
-    """The overlay over the app's trial store: effective cohorts, the views of the Manage a trial pane and the
+    """The overlay over the app's trial store: effective cohorts, the views of the Trial management sidebar and the
     center groups, and every change (the routes in ``routes/management.py``)."""
 
     def __init__(self, state, path: Path):
@@ -388,6 +388,9 @@ class TrialManager:
         self.originals = OriginalCohorts(state.settings)
         self.classifying: dict[str, object] = {}  # unit -> the job classifying its lines
         self.errors: dict[str, str] = {}  # unit -> why its last classification failed
+        # (original cohort, its lines' fingerprint) classified automatically once (a trial opened on the pane);
+        # lines still unlabeled after that are retried with Classify, not again on every open.
+        self.auto_tried: set[tuple[str, str]] = set()
         self.lock = threading.Lock()
 
     @property
@@ -545,7 +548,7 @@ class TrialManager:
     # ------------------------------------------------------------------ views
 
     def trial_view(self, trial_id: str) -> dict:
-        """The Manage a trial pane: the trial's merged cohorts, their originals and subcohorts, with slots, criteria,
+        """A trial opened in the Trial management sidebar: its merged cohorts, their originals and subcohorts, with slots, criteria,
         flags and groups; entries whose cohort is gone; the center's groups; the trial's recent changes."""
         from .routes.common import trial_summary
 
@@ -1061,6 +1064,73 @@ class TrialManager:
 
         self.file.change(change, [])
         return counted["n"]
+
+    def originals_to_classify(self, trial_id: str) -> list[str]:
+        """The opened trial's unedited original cohorts with lines no label could be reused for (neither the merged
+        cohort's nor a cached classification), not being classified and not tried automatically before."""
+        trial = self.store["trials"].get(trial_id)
+        version = (trial or {}).get("primary_version")
+        found = self.original_groups(trial_id, version) if version else None
+        if not found or isinstance(found, str):
+            return []
+        units = self.units()
+        out = []
+        for index in sorted({i for group in found[0].values() for i in group}):
+            unit_id = original_id(trial_id, version, index)
+            if (units.get(unit_id) or {}).get("items") is not None:
+                continue  # edited: classified when saved, retried with Classify
+            ai = self.ai_version(unit_id)
+            job = self.classifying.get(unit_id)
+            if ai is None or (job is not None and job.active) or (unit_id, ai["fingerprint"]) in self.auto_tried:
+                continue
+            if any(not line["criterion_type"] for line in ai["lines"]):
+                out.append(unit_id)
+        return out
+
+    def mark_auto_tried(self, unit_ids: list[str]) -> None:
+        for unit_id in unit_ids:
+            ai = self.ai_version(unit_id)
+            if ai is not None:
+                self.auto_tried.add((unit_id, ai["fingerprint"]))
+
+    def center_summary(self, center_id: str) -> dict:
+        """Per trial of the center with anything kept (the Trial management list; reads the file only, never asks a
+        model): its cohorts with slots and their totals, its subcohorts, edits and flags. Totals add up only cohorts of
+        different families (a merged cohort, its originals and their subcohorts are one family); a trial with slots at
+        two levels of one family gets none (``overlap``)."""
+        center = self._require_center(center_id)
+        trials = set(center["trial_ids"])
+        units = self.units()
+        out: dict[str, dict] = {}
+
+        def family(unit_id: str) -> str:
+            unit = units.get(unit_id)
+            if unit and unit["kind"] == "subcohort":
+                return family(unit["parent"])
+            if parse_original(unit_id):
+                ai = self.ai_version(unit_id)
+                return (ai["cohort"].get("merged_into") if ai else None) or unit_id
+            return unit_id
+
+        for unit in units.values():
+            if unit["trial_id"] not in trials:
+                continue
+            entry = out.setdefault(unit["trial_id"], {"with_slots": 0, "subcohorts": 0, "edited": 0, "stale": 0,
+                                                      "families": {}})
+            entry["subcohorts"] += unit["kind"] == "subcohort"
+            entry["edited"] += unit["kind"] != "subcohort" and unit.get("items") is not None
+            entry["stale"] += self.stale(unit["id"], unit, units) is not None
+            if unit.get("slots"):
+                entry["with_slots"] += 1
+                entry["families"].setdefault(family(unit["id"]), []).append(unit["slots"])
+        for entry in out.values():
+            families = entry.pop("families")
+            entry["overlap"] = any(len(v) > 1 for v in families.values())
+            slots = [s for v in families.values() for s in v]
+            entry["slots"] = None if entry["overlap"] or not slots else {
+                k: (sum(s[k] for s in slots if s.get(k) is not None) if any(s.get(k) is not None for s in slots)
+                    else None) for k in SLOT_FIELDS}
+        return {"trials": out, "revision": self.revision}
 
     def classification_input(self, unit_ids: list[str]) -> list[dict]:
         """The cohorts to classify; a unit with the same lines as one before it (a subcohort just reset to its

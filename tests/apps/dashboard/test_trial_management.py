@@ -257,3 +257,29 @@ def test_synthetic_mode_never_uses_a_phi_folder(dataset, tmp_path):
     with pytest.raises(ValueError, match="phi"):
         DashSettings(mode="synthetic", synthetic_run=dataset["root"], store_dir=tmp_path / "no_phi" / "store",
                      trial_management=tmp_path / "phi" / "trial_management.json")
+
+
+def test_opening_a_trial_classifies_its_originals_once_and_the_list_asks_nothing(client, managed, cohort_backend):
+    center = managed.store["trials"]["NCT90000001"]["center_id"]
+    client.put(f"/api/management/units/{MERGED}/slots", json={"available": 2, "enrolled": 1})
+    client.put(f"/api/management/units/NCT90000001-cohort-1/slots", json={"available": 3})
+    summary = client.get(f"/api/management/centers/{center}/summary").json()["trials"]["NCT90000001"]
+    assert summary["slots"] == {"available": 5, "consented": None, "enrolled": 1} and summary["overlap"] is False
+    client.put(f"/api/management/units/{ORIGINAL_A2}/slots", json={"available": 1})  # a second level of one family
+    summary = client.get(f"/api/management/centers/{center}/summary").json()["trials"]["NCT90000001"]
+    assert summary["slots"] is None and summary["overlap"] is True and summary["with_slots"] == 3
+    assert not cohort_backend.calls  # the list never asks a model
+    # Without a working connection nothing is sent, and the page is told why.
+    opened = client.post("/api/management/trials/NCT90000001/open").json()
+    assert opened["units"] == [ORIGINAL_A2] and opened["classifying"] is False and opened["skipped"]
+    connection = {"task": "criteria_labels", "llm_backend": "local", "endpoint": "http://teacher.example:8000/v1",
+                  "model": "fabricated-model", "tokenizer": "fabricated-model"}
+    assert client.post("/api/models", json=connection).status_code == 200
+    cohort_backend.script["Cohort A2"] = {"deboilerplate": {}}
+    opened = client.post("/api/management/trials/NCT90000001/open").json()
+    assert opened["classifying"] is True and wait_job(client, opened["job"]["id"])["status"] == "done"
+    assert len(cohort_backend.calls[0][0]) == 2  # only A2's two lines no label could be reused for
+    assert managed.cohort(ORIGINAL_A2)["management"]["unclassified"] == 0
+    # Cached labels are never asked again.
+    assert client.post("/api/management/trials/NCT90000001/open").json()["units"] == []
+    assert len(cohort_backend.calls) == 1

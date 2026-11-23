@@ -27,7 +27,9 @@ can also check each criteria line, and run the GoodOption check on the trial's d
 checks the cohort's criteria lines against the clinical facts extracted from every candidate's notes. A line fails
 only when the records contradict it; a fact that is simply not documented never fails a line.
 
-**Manage a trial** opens one trial's cohorts for its trial team:
+**Trial management** opens a sidebar beside the groups. It lists the trials the page shows (narrow them with the
+search and filters, or the sidebar's own filter), with each trial's slots and what has been changed. Open a trial to
+work on its cohorts:
 
 - **Slots:** enter the slots available and the numbers consented and enrolled for each cohort. Slots can be kept for
   a cohort, for each of the original cohorts it combines (cohorts with the same criteria are shown as one), or for a
@@ -36,10 +38,12 @@ only when the records contradict it; a fact that is simply not documented never 
   starts with its cohort's criteria; add the sponsor's requirements to them. A diagram shows where each cohort and
   subcohort comes from.
 - **Criteria:** edit, add or remove any cohort's criteria lines. New and changed lines are labeled inclusion or
-  exclusion and key or common automatically, or by you. **Revert to the AI-extracted criteria** undoes the edits.
-  When a cohort with subcohorts changes, you choose whether the subcohorts take the new criteria. If the trial is
-  extracted again and its criteria change, edited cohorts are flagged for review.
-- **Groups:** drag a cohort onto a group to show it there, and add groups of your own.
+  exclusion and key or common automatically, or by you. When you open a trial, the lines of its original cohorts
+  are labeled automatically too. **Revert to the AI-extracted criteria** undoes the edits. When a cohort with
+  subcohorts changes, you choose whether the subcohorts take the new criteria. If the trial is extracted again and
+  its criteria change, edited cohorts are flagged for review.
+- **Groups:** drag a cohort from the sidebar onto a group on the left to show it there. **New group** adds a group
+  of your own to drop cohorts onto.
 
 Find patients, scoring, the criteria checks and screening all use a cohort's current criteria, and subcohorts can be
 searched like any cohort. Changes are saved as you make them and shared with everyone using the dashboard; **Export**

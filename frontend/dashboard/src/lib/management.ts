@@ -1,5 +1,5 @@
 /**
- * Clinical trial management's Manage a trial pane (the server's trial_management.py and routes/management.py):
+ * Clinical trial management's Trial management sidebar (the server's trial_management.py and routes/management.py):
  * slots, edited criteria, subcohorts and group pins, kept in one file shared by everyone using this dashboard.
  */
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -110,6 +110,33 @@ export interface ChangeResult {
   job?: Job;
 }
 
+/** A trial's line on the Trial management list (from the file only; listing never asks a model). */
+export interface TrialBadges {
+  with_slots: number;
+  /** Slot totals over cohort families; null when a family has slots at two levels (``overlap``). */
+  slots: Omit<Slots, "updated_at"> | null;
+  overlap: boolean;
+  subcohorts: number;
+  edited: number;
+  /** Edits whose base changed (to review). */
+  stale: number;
+}
+
+export const managementSummaryOptions = (centerId: string, revision: number | undefined) =>
+  queryOptions({
+    queryKey: ["management", "summary", centerId, revision],
+    queryFn: () =>
+      api.get<{ trials: Record<string, TrialBadges>; revision: number }>(
+        `/api/management/centers/${encodeURIComponent(centerId)}/summary`,
+      ),
+    placeholderData: (previous) => previous,
+  });
+
+/** An opened trial: its original cohorts' lines no label could be reused for are classified (once). */
+export interface OpenResult extends ChangeResult {
+  units: string[];
+}
+
 export const managementStatusOptions = () =>
   queryOptions({
     queryKey: ["management", "status"],
@@ -180,6 +207,8 @@ export const management = {
     api.post<ChangeResult>(`/api/management/units/${enc(unitId)}/reset-to-parent`, { revision }),
   dismissPrevious: (unitId: string) =>
     api.post(`/api/management/units/${enc(unitId)}/dismiss-previous`, {}),
+  openTrial: (trialId: string) =>
+    api.post<OpenResult>(`/api/management/trials/${enc(trialId)}/open`, {}),
   classify: (unitId: string) =>
     api.post<ChangeResult>(`/api/management/units/${enc(unitId)}/classify`, {}),
   remove: (unitId: string) => api.delete(`/api/management/units/${enc(unitId)}`),
@@ -202,7 +231,7 @@ export const management = {
     api.upload<ManagementStatus>("/api/management/import", { file, confirm: "replace" }),
 };
 
-/** The drag-and-drop payload of a cohort (Manage a trial's cards and the group rows). */
+/** The drag-and-drop payload of a cohort (the sidebar's cohort cards and the group rows). */
 export const UNIT_MIME = "application/x-mmai-cohort";
 
 export function slotText(slots: Slots | null | undefined): string {

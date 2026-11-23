@@ -20,8 +20,7 @@ export interface OverviewSearch {
   cohort?: string;
   /** The GoodOption catalog evidence dialog open: `drug:<id>` or `class:<id>` (over trial details, if open). */
   evidence?: string;
-  /** The Manage a trial pane is open, and the trial it manages. */
-  manage?: boolean;
+  /** The trial opened in the Trial management sidebar. */
   manageTrial?: string;
 }
 
@@ -48,7 +47,6 @@ export function validateOverviewSearch(search: Record<string, unknown>): Overvie
     details: text(search.details),
     cohort: text(search.cohort),
     evidence: text(search.evidence),
-    manage: search.manage === true || search.manage === "true" ? true : undefined,
     manageTrial: text(search.manageTrial),
   };
 }

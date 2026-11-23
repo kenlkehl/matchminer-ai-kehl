@@ -1,10 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
-import { CircleCheckIcon, FileTextIcon, GlobeIcon, InfoIcon, UsersIcon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  FileTextIcon,
+  GlobeIcon,
+  InfoIcon,
+  PencilIcon,
+  Trash2Icon,
+  UsersIcon,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -42,10 +51,15 @@ interface TrialGroupSectionProps {
   onCriteria: (cohortId: string) => void;
   /** Opens a drug's or class's catalog evidence. */
   onEvidence?: OpenEvidence;
-  /** A cohort dropped on the group (Manage a trial): put it into the group. */
+  /** A cohort dropped on the group (Trial management): put it into the group. */
   onDropUnit?: (unitId: string) => void;
-  /** The rows can be dragged onto another group (while Manage a trial is open). */
+  /** The rows can be dragged onto another group (while Trial management is open). */
   dragRows?: boolean;
+  /** A cohort is being dragged: the group shows it can take it. */
+  dragging?: boolean;
+  /** A group the center made: rename or delete it. */
+  onRename?: (name: string) => void;
+  onDelete?: () => void;
 }
 
 /** One trial group: its header (as mm-dash's "Group: ... (n trials, m cohorts)") and its cohorts' grid. */
@@ -58,26 +72,97 @@ export function TrialGroupSection({
   onEvidence,
   onDropUnit,
   dragRows = false,
+  dragging = false,
+  onRename,
+  onDelete,
 }: TrialGroupSectionProps) {
   const shown = COLUMNS.filter((c) => columns[c.key]);
   const total = shown.reduce((sum, c) => sum + c.width, 0);
   const trials = new Set(group.rows.map((r) => r.trial.id)).size;
   const target = useDropTarget(onDropUnit);
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <AccordionItem
       value={group.id}
       className={cn(
         "border-gray-300 data-open:bg-gray-100",
-        target.over && "bg-brand-blue/10 ring-2 ring-brand-blue ring-inset",
+        dragging && "outline-2 -outline-offset-4 outline-brand-blue/40 outline-dashed",
+        target.over && "bg-brand-blue/10 outline-brand-blue outline-solid",
       )}
       {...target.props}
     >
-      <AccordionTrigger className="px-4 py-3 font-normal text-gray-900 hover:bg-gray-50 data-open:hover:bg-gray-200/70">
+      <AccordionTrigger
+        className="px-4 py-3 font-normal text-gray-900 hover:bg-gray-50 data-open:hover:bg-gray-200/70"
+        actions={
+          group.custom && onRename && onDelete ? (
+            renaming !== null ? (
+              <form
+                className="flex items-center gap-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (renaming.trim()) onRename(renaming);
+                  setRenaming(null);
+                }}
+              >
+                <Input
+                  aria-label="Group name"
+                  className="h-7 w-56 bg-white"
+                  value={renaming}
+                  autoFocus
+                  onChange={(e) => {
+                    setRenaming(e.target.value);
+                  }}
+                />
+                <Button size="xs" type="submit" disabled={!renaming.trim()}>
+                  Rename
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => {
+                    setRenaming(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </form>
+            ) : (
+              <>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Rename ${group.name}`}
+                  onClick={() => {
+                    setRenaming(group.name);
+                  }}
+                >
+                  <PencilIcon />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Delete ${group.name}`}
+                  onClick={onDelete}
+                >
+                  <Trash2Icon />
+                </Button>
+              </>
+            )
+          ) : null
+        }
+      >
         <span>
           <strong>Group:</strong> {group.name} ({trials} {trials === 1 ? "trial" : "trials"},{" "}
           {group.rows.length} {group.rows.length === 1 ? "cohort" : "cohorts"})
           {group.custom ? (
             <span className="text-xs text-gray-500"> · made by your center</span>
+          ) : null}
+          {dragging ? (
+            <span className="text-xs text-brand-blue">
+              {" "}
+              · drop a cohort here to show it in this group
+            </span>
           ) : null}
         </span>
       </AccordionTrigger>
@@ -278,7 +363,7 @@ function CohortCell({ row, labels }: { row: CohortRow; labels: Record<string, st
   );
 }
 
-/** The cohort's slots (Manage a trial), as entered: its own, never added up with its parent's or subcohorts'. */
+/** The cohort's slots (Trial management), as entered: its own, never added up with its parent's or subcohorts'. */
 function SlotLine({ row }: { row: CohortRow }) {
   if (!row.slots) return null;
   return (

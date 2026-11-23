@@ -590,7 +590,7 @@ function CohortPanel({
                 </p>
               ) : null}
               {cohort.unit?.edited ? (
-                <p className="text-xs text-blue-800">Criteria edited on Manage a trial</p>
+                <p className="text-xs text-blue-800">Criteria edited on Trial management</p>
               ) : null}
               <p className="text-sm text-gray-600">{cohort.trial.short_title}</p>
               <p className="text-xs text-gray-500">

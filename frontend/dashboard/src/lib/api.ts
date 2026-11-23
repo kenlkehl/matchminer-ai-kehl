@@ -173,7 +173,7 @@ export interface CohortRow {
   stale: boolean;
   /** What the row is in Clinical trial management (absent from an older server). */
   unit?: CohortUnit;
-  /** Its enrollment slots, as entered on Manage a trial; null: none entered. */
+  /** Its enrollment slots, as entered on Trial management; null: none entered. */
   slots?: Slots | null;
   /** A user put it into this group (overriding the group rules). */
   pinned?: boolean;
@@ -284,7 +284,7 @@ export interface Meta {
 export interface OverviewGroup {
   id: string;
   name: string;
-  /** A group the center's users made (Manage a trial), not one of the grouping rules'. */
+  /** A group the center's users made (Trial management), not one of the grouping rules'. */
   custom?: boolean;
   trial_count: number;
   rows: CohortRow[];

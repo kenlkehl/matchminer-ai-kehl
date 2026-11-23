@@ -1,4 +1,4 @@
-"""Clinical trial management's Manage a trial pane: slots, edited criteria, subcohorts, groups and the trial
+"""Clinical trial management's Trial management sidebar: slots, edited criteria, subcohorts, groups and the trial
 management file (``trial_management``).
 
 Every change is written to the mode's file at once and shared by everyone using the dashboard. A change of criteria
@@ -128,9 +128,27 @@ def router(state: DashState) -> APIRouter:
         connection = Connection.for_task(state.guidelines.task_settings(session_owner(request), TASK))
         return {**m.describe(), "classifier": {"connection": connection.describe(), "unavailable": unavailable(connection)}}
 
+    @api.get("/api/management/centers/{center_id}/summary")
+    def center_summary(center_id: str):
+        """The Trial management list's badges (the file only; no model is asked)."""
+        return m.center_summary(center_id)
+
     @api.get("/api/management/trials/{trial_id}")
     def trial(trial_id: str):
         return m.trial_view(trial_id)
+
+    @api.post("/api/management/trials/{trial_id}/open")
+    def open_trial(trial_id: str, request: Request):
+        """A trial opened on the Trial management list: its original cohorts' lines that no label could be reused
+        for are classified (once per version of their lines; Classify retries)."""
+        state.trial(trial_id)
+        todo = m.originals_to_classify(trial_id)
+        if not todo:
+            return {"classifying": False, "skipped": None, "units": []}
+        result = after(request, todo)
+        if result["classifying"]:
+            m.mark_auto_tried(todo)
+        return {**result, "units": todo}
 
     @api.put("/api/management/units/{unit_id}/slots")
     def slots(unit_id: str, body: Slots):

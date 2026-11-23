@@ -35,8 +35,9 @@ TrialSpace model and says so on Data and models if they differ.
   [Structured-Record Criteria Screening](../api/structured-criteria.md)), and the search can be limited to patients
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
-  the Patient-centric Trials view. **Manage a trial** opens a pane for one trial's enrollment slots, edited criteria,
-  subcohorts and groups (see [Trial management](#trial-management) below); each group row shows its slots.
+  the Patient-centric Trials view. **Trial management** opens a sidebar beside the groups for the trials' enrollment
+  slots, edited criteria, subcohorts and group placements (see [Trial management](#trial-management) below); each
+  group row shows its slots.
 - **Guideline concordance reporting:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default, or the LLM's reasonableness answer), and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
@@ -82,10 +83,15 @@ TrialSpace model and says so on Data and models if they differ.
 
 ## Trial management
 
-**Manage a trial** (Clinical trial management) tracks enrollment slots and the criteria the center actually enrolls
-by, for one trial at a time: choose a trial of the center by protocol number, NCT number or title. Everything is
-saved as it is changed, to one file per mode shared by everyone using that dashboard
-(`matchminer_ai.apps.dashboard.trial_management`).
+**Trial management** (Clinical trial management) tracks enrollment slots and the criteria the center actually enrolls
+by. Its button opens a sidebar to the right of the center's groups (resizable; the browser remembers whether it is
+open and how wide). The sidebar lists every trial the page's search and filters show, with a quick filter of its own;
+each row shows the trial's protocol and NCT numbers, its title, and what is kept for it: slot totals (when they can be
+added without counting a cohort twice; see Slots), subcohorts, edits and edits to review. The list reads only the
+trial management file. A trial opens in place to its cohorts, each a card with its slots, criteria, group and actions,
+under a diagram of where the cohorts come from (**Enlarge** shows it full size). The criteria editor and the
+criteria comparisons open in dialogs. Everything is saved as it is changed, to one file per mode shared by everyone
+using that dashboard (`matchminer_ai.apps.dashboard.trial_management`).
 
 **Units.** A trial's cohorts are shown at three levels, each with its own slots:
 
@@ -94,16 +100,21 @@ saved as it is changed, to one file per mode shared by everyone using that dashb
 - *original cohorts*: those extracted cohorts, shown under a merged cohort that stands for two or more
   (`original_cohorts`: real mode reads the extraction's `extraction.json` or the listing run's `run_metadata.json`
   with `merge.json`; synthetic mode the run's unmerged and merged cohort tables). Their lines take the merged
-  cohort's labels where the line is the same (under the same heading, apart from its list number); the other lines
-  are classified on request (**Classify**) and the labels cached;
+  cohort's labels where the line is the same (under the same heading, apart from its list number). When a trial is
+  opened in the sidebar, its original cohorts' other lines are classified automatically (the Criteria classification
+  connection, below), once per version of their lines, and the labels cached, so they are never asked again; lines a
+  failed run left unlabeled are retried with **Classify**. Without a working connection nothing is sent and the
+  trial says so. Listing trials never sends a request;
 - *subcohorts*: defined by a user under a merged or an original cohort, for a sponsor's requirements beyond the
   protocol's. A subcohort starts with its parent's current criteria, which are then edited.
 
 A diagram shows where each comes from (original cohorts merged into a cohort, subcohorts defined from one).
 
 **Slots.** Available, consented and enrolled counts per unit, entered by hand, with when they were last changed. A
-unit's slots are its own: a parent's and its children's are never added up, and the pane says when a family has
-slots at more than one level. The group rows show each cohort's slots.
+unit's slots are its own: a parent's and its children's are never added up, and the trial says when a family (a
+merged cohort, its original cohorts and their subcohorts) has slots at more than one level. The sidebar's list adds
+up a trial's slots across its families only when no family has them at two levels, and otherwise says how many
+cohorts have slots. The group rows show each cohort's slots.
 
 **Criteria.** Any unit's lines can be edited, added or removed. Lines keep the cohort pipeline's layout (one line
 each, under "Inclusion criteria:" or "Exclusion criteria:"). An unchanged line keeps its labels; a changed or new
@@ -135,13 +146,16 @@ edit stays in effect and is flagged (**Base changed**, with a comparison) until 
 subcohort whose parent's criteria changed is flagged the same way (keep its criteria, or reset to the parent's). What
 is kept for a cohort the trial no longer has is listed until deleted.
 
-**Groups.** Dragging a cohort (merged, original or subcohort) from the pane, or a row of the groups below while the
-pane is open, onto a group puts it there instead of where the grouping rules (`grouping.yaml`) place it; **Back to
-the rules' group** undoes it. Original cohorts and subcohorts are in a group only when put in one. A center's users
-can also add, rename and delete groups of their own, listed first.
+**Groups.** Dragging a cohort card (merged, original or subcohort) from the sidebar by its head, or a group row while
+the sidebar is open, onto a group in the groups section puts it there instead of where the grouping rules
+(`grouping.yaml`) place it; while a cohort is dragged every group is outlined and the one under it highlighted. The
+card's **back to its rule group** (or **remove from the group**) undoes it. Original cohorts and subcohorts are in a
+group only when put in one. While the sidebar is open, **New group** above the groups adds a group of the center's
+own (listed first, and shown while empty so cohorts can be dropped on it); its header renames or deletes it.
 
-**The file.** `dashboard.<mode>.trial_management` (`--trial-management`), by default `dashboard/trial_management.json`
-under the mode's folder of the data root (real: `phi/real_time/`; synthetic: `no_phi/`). It is versioned JSON
+**The file.** `dashboard.<mode>.trial_management` (`--trial-management`), by default
+`dashboard_trial_management/trial_management.json` under the mode's folder of the data root (real: `phi/real_time/`;
+synthetic: `no_phi/`), outside the store folder, which can be deleted to rebuild the store. It is versioned JSON
 (`mmai-dash-trial-management-v1`), written atomically and owner-only (0600 in a 0700 folder) under a lock, re-read
 when another process wrote it, with a log of what changed and when (never criteria text). A change based on an older
 version of a unit than the file holds is refused, so one user's edit does not silently replace another's. **Export**
@@ -257,7 +271,7 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `--store-dir` (`dashboard.<mode>.store_dir`) | both | `phi/real_time/dashboard`, `no_phi/dashboard_synthetic` | The trial store, cohort vectors and caches (owner only) |
 | `--good-options-catalog` (`dashboard.<mode>.good_options_catalog`) | both | real: `phi/real_time/good_options_catalog/catalog`; synthetic: none | Trials' drugs and mechanism classes; missing: no drugs |
 | `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
-| `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard/trial_management.json`, `no_phi/dashboard_synthetic/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)) |
+| `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard_trial_management/trial_management.json`, `no_phi/dashboard_trial_management/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)); outside the rebuildable store folder |
 | `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
 | `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
 | `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |

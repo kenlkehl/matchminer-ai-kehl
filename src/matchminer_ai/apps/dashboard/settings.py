@@ -135,8 +135,9 @@ class DashSettings(Settings):
             self.good_options_catalog = site_default(self.mode, "good_options_catalog",
                                                      "good_options_catalog/catalog" if real else None)
         if self.trial_management is None:
-            self.trial_management = site_default(self.mode, "trial_management", "dashboard/trial_management.json"
-                                                  if real else "dashboard_synthetic/trial_management.json")
+            # Beside the store, not in it: the store folder is rebuildable, the users' edits are not.
+            self.trial_management = site_default(self.mode, "trial_management",
+                                                  "dashboard_trial_management/trial_management.json")
         self.trial_management = Path(self.trial_management).expanduser()
         self.trial_data = Path(self.trial_data).expanduser() if self.trial_data else None
         self.oa_db = Path(self.oa_db).expanduser() if self.oa_db else None
@@ -222,8 +223,7 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
                         "(default: dashboard.good_options_catalog; missing: no drugs)")
     parser.add_argument("--trial-management", type=Path, help="the trial management file: slots, edited criteria, "
                         "subcohorts and group pins (default: dashboard.<mode>.trial_management, else "
-                        "dashboard/trial_management.json (real) or dashboard_synthetic/trial_management.json "
-                        "(synthetic) under the mode's folder of the data root)")
+                        "dashboard_trial_management/trial_management.json under the mode's folder of the data root)")
     parser.add_argument("--rebuild-poll-seconds", type=float, help="how often to look for new extraction results (default 30)")
     parser.add_argument("--llm-backend", help="the default model connection: claude_databricks (default when the site "
                         "config names the Databricks gateway and a Haiku endpoint), a Vertex profile (gemini4_vertex, the "
