@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 
 HERE = Path(__file__).resolve().parent
-from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, component_module, log, make_request, private, private_dir,  # noqa: E402
+from matchminer_ai.evaluation.dual_judge.judging import (COMPONENTS, DEFAULT_PAIR, component_module, log, make_request, private, private_dir,  # noqa: E402
                      sha256, write_json, write_jsonl)
 from matchminer_ai.evaluation.dual_judge import judge_worker
 from matchminer_ai.training.paths import PACKAGE, no_phi
@@ -133,7 +133,7 @@ def main(argv=None):
         kept = sum(r['request_id'] in old_ids for r in requests)
         log(f'{name}: {len(items)} items, {len(requests)} requests ({kept} unchanged from the previous build), '
             f'{chars / 1e6:.2f}M characters (largest {manifest["components"][name]["max_request_chars"] / 1e6:.2f}M)')
-    for judge in ('databricks', 'azure'):
+    for judge in DEFAULT_PAIR:
         judge_worker.main(['--run-dir', str(args.run_dir), '--judge', judge, '--dry-run',
                            '--components', *[c for c in COMPONENTS if (args.run_dir / 'requests' / f'{c}.jsonl').exists()]])
     return 0

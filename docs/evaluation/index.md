@@ -11,7 +11,7 @@ Install with the evaluation extra: `uv pip install -e ".[training,evaluation]"`.
 | --- | --- |
 | `evaluation.retro_cohorts` | Retrospective denominators from an institution's structured EHR extract (its location is the site config's `paths.retro_source_root`): trial-treatment starts and standard-of-care (SOC) treatment starts with their index dates (`pull_denominators`), the SOC trial sample (`sample_soc_trials`), note-level datasets cut before the index date with the event's own trial identifiers masked (`build_note_level_dataset`), and their serial summaries on the site's teacher server (`summarize_retro_cohorts`, `endpoints.teacher.url`). |
 | `evaluation.retro_fidelity` | Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of three rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family. |
-| `evaluation.dual_judge` | Two frontier LLM judges (Claude on Vertex AI or a Databricks AI Gateway, GPT on Azure) grade cohort extraction, patient summaries and the decision questions; the user adjudicates disagreements on the dashboard's Benchmarking tab. |
+| `evaluation.dual_judge` | Two frontier LLM judges (Claude Opus through a Databricks AI Gateway and Gemini on Vertex AI; GPT on Azure before 2026-11-23) grade cohort extraction, patient summaries and the decision questions; the user adjudicates disagreements on the dashboard's Benchmarking tab. |
 | `evaluation.cohort_lineitems` | One row per cohort for a table of ctgov-style listings, extracted with training's ctgov extractor (`training.trials.extract_ctgov_cohorts`), under the column names the evaluations read. |
 
 ## Retrospective fidelity
@@ -69,23 +69,25 @@ real-patient evaluation is the meaningful one.
 ```bash
 python -m matchminer_ai.evaluation.dual_judge.build_items --run-dir RUN ...    # where the data is
 python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge databricks
-python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge azure \
-    --endpoint https://<resource>.openai.azure.com/openai/v1 --deployment gpt-6.1-sol
-python -m matchminer_ai.evaluation.dual_judge.compare --run-dir RUN          # [--judges databricks,azure]
+python -m matchminer_ai.evaluation.dual_judge.judge_worker --run-dir RUN --judge gemini
+python -m matchminer_ai.evaluation.dual_judge.compare --run-dir RUN          # [--judges databricks,gemini]
 python -m matchminer_ai.evaluation.dual_judge.metrics --run-dir RUN
 ```
 
 `compare` compares the two judges whose answers the run holds (while only one has answered, the other is the first
-of Databricks and Azure not taken, and its units wait); name them with `--judges` when a run has more. It queues
+of Databricks and Gemini not taken, and its units wait); name them with `--judges` when a run has more. It queues
 disputed and single-judge units for adjudication; `--audit-fraction` also queues a seeded sample of agreed units
 (off by default). The judge,
 comparison, adjudication and metrics modules need only the package and the standard library (plus `anthropic` and
-`databricks-sdk` for the Databricks judge), so they can run on another machine that can read and write the run
+`databricks-sdk` for the Databricks judge, and `google-auth` for Gemini), so they can run on another machine that can read and write the run
 directory. Claude judges only through the Databricks gateway (Claude Opus 5.5): the site config's `databricks.host`
 and `databricks.profile`, and `--model` or `databricks.endpoints.opus` for the endpoint name. Runs judged before
-2026-11-21 through Vertex keep those answers (`responses/vertex`), which compare and metrics still read. Azure uses
-`--endpoint` and `--deployment` (or `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT`) with an Entra token from
-the Azure CLI (`--az`), refreshed every 30 minutes and on a 401 or 403. `judge_worker --dry-run` prices the remaining
+2026-11-21 through Vertex keep those answers (`responses/vertex`), which compare and metrics still read. The second
+judge is Gemini 4 Neon (`--model`, default `google/gemini-4-neon`) on Vertex's OpenAI-compatible route in the site
+config's `vertex.project`, with Application Default Credentials and the answer schema enforced. GPT-6.1 Sol on Azure
+(`--judge azure`, the second judge until 2026-11-23) uses `--endpoint` and `--deployment` (or `AZURE_OPENAI_ENDPOINT`
+and `AZURE_OPENAI_DEPLOYMENT`) with an Entra token from the Azure CLI (`--az`), refreshed every 30 minutes and on a
+401 or 403; a run that holds its answers too compares the pair `--judges` names. `judge_worker --dry-run` prices the remaining
 requests without sending any, and `--max-usd` caps a judge's spending. The judge prompts are `prompts/judge.*.txt`.
 
 A synthetic judge run builds its items from a synthetic fidelity run: `build_items --synthetic-notes

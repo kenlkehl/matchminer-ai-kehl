@@ -24,10 +24,11 @@ import time
 
 COMPONENTS = ('extraction', 'summary', 'decision')
 # The judges a run can hold answers from; a run compares the two whose answers it holds (run_judges). judge_worker
-# sends to databricks and azure only: vertex is the Claude route of runs judged before 2026-11-21, kept to read them.
-KNOWN_JUDGES = ('vertex', 'databricks', 'azure')
+# sends to databricks, gemini and azure: vertex is the Claude route of runs judged before 2026-11-21, kept to read
+# them. Gemini 4 Neon is the second judge since 2026-11-23 (user), in place of GPT-6.1 Sol.
+KNOWN_JUDGES = ('vertex', 'databricks', 'gemini', 'azure')
 JUDGE_NAMES = dict(vertex='Claude Opus 5.5 (Vertex)', databricks='Claude Opus 5.5 (Databricks)',
-                   azure='GPT-6.1 Sol (Azure)')
+                   gemini='Gemini 4 Neon (Vertex)', azure='GPT-6.1 Sol (Azure)')
 HERE = Path(__file__).resolve().parent
 
 
@@ -56,7 +57,7 @@ def log(message):
 
 # --- files ---------------------------------------------------------------------------------------------------------
 
-DEFAULT_PAIR = ('databricks', 'azure')
+DEFAULT_PAIR = ('databricks', 'gemini')
 
 
 def run_judges(run_dir, chosen=None):
@@ -145,7 +146,7 @@ def sha256(value):
 # --usd-out). Anthropic reports cache writes and reads apart from input_tokens and bills them at 1.25x and 0.1x the
 # input price; OpenAI counts cached tokens inside input_tokens, so they are billed here at the full price.
 PRICES = dict(vertex=dict(usd_in=4.0, usd_out=20.0), databricks=dict(usd_in=4.0, usd_out=20.0),
-              azure=dict(usd_in=5.0, usd_out=30.0))
+              gemini=dict(usd_in=3.0, usd_out=15.0), azure=dict(usd_in=5.0, usd_out=30.0))
 
 
 def usage_cost(usage, prices):

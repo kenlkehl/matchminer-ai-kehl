@@ -3,20 +3,25 @@
 
   databricks  Claude Opus 5.5 through a Databricks AI Gateway (``anthropic`` and ``databricks-sdk``; --model, else the
               site config's databricks.endpoints.opus; the site config's databricks.host and databricks.profile)
-  azure       GPT-6.1 Sol on Azure (Responses API over HTTPS; an Entra token from ``az`` or AZURE_OPENAI_API_KEY)
+  gemini      Gemini 4 Neon on Vertex (the OpenAI-compatible chat route; Application Default Credentials and the site
+              config's vertex.project; ``google-auth``). The second judge since 2026-11-23 (user).
+  azure       GPT-6.1 Sol on Azure, the second judge before then (Responses API over HTTPS; an Entra token from ``az``
+              or AZURE_OPENAI_API_KEY)
 
 Both judges receive the same bytes (``requests/<component>.jsonl``), whose system text ends with the answer's JSON
-schema, with no sampling parameters. Azure also enforces the schema (strict ``json_schema``); Vertex cannot (the
-project's organization policy forbids structured outputs for partner models, 2026-11-18). An answer that
+schema, with no sampling parameters. Azure and Gemini also enforce the schema (``json_schema``); Claude on Vertex
+could not (the project's organization policy forbids structured outputs for partner models, 2026-11-18). An answer that
 breaks the schema or the component's coverage rules is retried once with the errors appended; refusals,
 truncation and twice-invalid answers are final and go to the adjudication queue as single-judge units. A judge
 never falls back to another model. Answers go to ``responses/<judge>/<component>.jsonl``, one row per attempt.
 
-Needs only the standard library, plus ``anthropic`` and ``databricks-sdk`` for the databricks judge, so it runs on any machine that
+Needs only the standard library, plus ``anthropic`` and ``databricks-sdk`` for the databricks judge and ``google-auth`` for
+the gemini judge, so it runs on any machine that
 can read and write the run directory (mode 600/700: run it as the owner).
 
   python judge_worker.py --run-dir RUN --judge databricks --dry-run        # price the remaining requests
   python judge_worker.py --run-dir RUN --judge databricks --limit 1        # one live request per component
+  python judge_worker.py --run-dir RUN --judge gemini
   python judge_worker.py --run-dir RUN --judge azure \\
       --endpoint https://<resource>.openai.azure.com/openai/v1 --deployment <gpt-6.1-sol deployment>
 """
@@ -41,6 +46,7 @@ FINAL = ('ok', 'refusal', 'max_tokens', 'invalid')
 DEFAULTS = dict(
     databricks=dict(model=None, concurrency=16, min_interval=0.0, **PRICES['databricks']),  # the gateway endpoint name
     azure=dict(model=None, concurrency=3, min_interval=2.0, **PRICES['azure']),  # Azure deployments are named by the user
+    gemini=dict(model='google/gemini-4-neon', concurrency=8, min_interval=0.5, **PRICES['gemini']),
 )
 # --dry-run estimates, from the Opus smoke run (2026-11-18): output tokens per request with some margin for a judge
 # that reasons longer, and characters per input token (clinical notes and criteria tokenize densely: ~2.0)
@@ -199,6 +205,77 @@ class AzureJudge:
         return 'ok', ''.join(text), meta
 
 
+class GeminiJudge:
+    """Gemini on Vertex's OpenAI-compatible chat route, signed with an Application Default Credentials token."""
+    name = 'gemini'
+
+    def __init__(self, args):
+        from matchminer_ai.llm.connections import vertex_endpoint, vertex_project
+        from matchminer_ai.llm.remote_auth import GoogleADCAccessTokenProvider
+        project = vertex_project()
+        if not project:
+            raise SystemExit("gemini needs the site config's vertex.project")
+        self.url = vertex_endpoint(project) + '/chat/completions'
+        self.model, self.effort = args.model, args.effort
+        self.tokens = GoogleADCAccessTokenProvider(project)
+
+    def body(self, request, user):
+        return {'model': self.model,
+                'messages': [{'role': 'system', 'content': request['system']}, {'role': 'user', 'content': user}],
+                'reasoning_effort': self.effort, 'max_tokens': request['max_output_tokens'],
+                'response_format': {'type': 'json_schema', 'json_schema': {'name': request['schema_name'],
+                                                                           'schema': request['schema']}}}
+
+    def call(self, request, user):
+        data = json.dumps(self.body(request, user)).encode()
+        last = '429/5xx'
+        for attempt in range(10):
+            http = urllib.request.Request(self.url, data=data, method='POST',
+                                          headers={'Content-Type': 'application/json',
+                                                   'Authorization': f'Bearer {self.tokens.token()}'})
+            try:
+                with urllib.request.urlopen(http, timeout=3600) as response:
+                    return self.parse(json.load(response))
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429 or exc.code >= 500 or exc.code == 401:
+                    time.sleep(min(300, 5 * 2 ** attempt) + random.random())
+                    last = f'HTTP {exc.code}'
+                    continue
+                try:  # keep only the service's error message, never request content or headers
+                    error = json.loads(exc.read())
+                    message = (error[0] if isinstance(error, list) else error).get('error', {}).get('message', '')
+                except Exception:  # noqa: BLE001
+                    message = ''
+                raise RuntimeError(f'HTTP {exc.code}: {mask(message)[:300]}') from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                last = type(exc).__name__
+                time.sleep(min(300, 5 * 2 ** attempt) + random.random())
+        raise RuntimeError(f'Vertex request failed after 10 attempts ({last})')
+
+    @staticmethod
+    def parse(raw):
+        usage = raw.get('usage') or {}
+        reasoning = (usage.get('completion_tokens_details') or {}).get('reasoning_tokens', 0) or 0
+        meta = dict(served_model=raw.get('model'), provider_id=raw.get('id'),
+                    usage=dict(input_tokens=usage.get('prompt_tokens', 0),
+                               # Vertex counts thinking apart from completion tokens; both bill as output
+                               output_tokens=(usage.get('completion_tokens', 0) or 0) + reasoning,
+                               cached_input_tokens=(usage.get('prompt_tokens_details') or {}).get('cached_tokens', 0),
+                               reasoning_tokens=reasoning))
+        choice = (raw.get('choices') or [None])[0]
+        if choice is None:  # a blocked prompt has no candidates
+            meta['stop_reason'] = 'blocked'
+            return 'refusal', '', meta
+        meta['stop_reason'] = choice.get('finish_reason')
+        text = (choice.get('message') or {}).get('content') or ''
+        if choice.get('finish_reason') == 'length':
+            return 'max_tokens', text, meta
+        if choice.get('finish_reason') not in (None, 'stop'):  # safety and other stops: no usable answer
+            meta['refusal_category'] = choice.get('finish_reason')
+            return 'refusal', '', meta
+        return 'ok', text, meta
+
+
 # --- the run -------------------------------------------------------------------------------------------------------
 
 def cost(usage, args):
@@ -262,7 +339,7 @@ def judge_one(judge, request, module, journal, args, spend):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--run-dir', required=True, type=Path)
-    p.add_argument('--judge', required=True, choices=('databricks', 'azure'))
+    p.add_argument('--judge', required=True, choices=('databricks', 'gemini', 'azure'))
     p.add_argument('--components', nargs='+', default=list(COMPONENTS), choices=COMPONENTS)
     p.add_argument('--limit', type=int, help='at most this many new requests per component (a live test)')
     p.add_argument('--concurrency', type=int)
@@ -273,8 +350,8 @@ def main(argv=None):
     p.add_argument('--effort', default='high')
     p.add_argument('--retry-failed', action='store_true', help='also resend refused, truncated and invalid requests')
     p.add_argument('--dry-run', action='store_true', help='price the remaining requests; send nothing')
-    p.add_argument('--model', help="the databricks gateway endpoint name (default: the site config's "
-                                   'databricks.endpoints.opus)')
+    p.add_argument('--model', help="databricks: the gateway endpoint name (default: the site config's "
+                                   'databricks.endpoints.opus); gemini: the Vertex model (default google/gemini-4-neon)')
     p.add_argument('--endpoint', default=os.environ.get('AZURE_OPENAI_ENDPOINT'))
     p.add_argument('--deployment', default=os.environ.get('AZURE_OPENAI_DEPLOYMENT'))
     p.add_argument('--az', default='az', help='Azure CLI executable for Entra tokens')
@@ -312,7 +389,7 @@ def main(argv=None):
         return 0
     if not work:
         return 0
-    judge = dict(databricks=DatabricksJudge, azure=AzureJudge)[args.judge](args)
+    judge = dict(databricks=DatabricksJudge, gemini=GeminiJudge, azure=AzureJudge)[args.judge](args)
     modules = {c: component_module(c) for c in args.components}
     journals = {c: Journal(args.run_dir / 'responses' / args.judge / f'{c}.jsonl') for c in args.components}
     budget, gate = dict(spent=spent), threading.Lock()
