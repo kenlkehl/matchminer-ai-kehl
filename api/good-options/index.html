@@ -3250,10 +3250,7 @@ runs. The two keys themselves stay in it, as they always were.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3710</span>
-<span class="normal">3711</span>
-<span class="normal">3712</span>
-<span class="normal">3713</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3713</span>
 <span class="normal">3714</span>
 <span class="normal">3715</span>
 <span class="normal">3716</span>
@@ -4297,7 +4294,10 @@ runs. The two keys themselves stay in it, as they always were.</p>
 <span class="normal">4754</span>
 <span class="normal">4755</span>
 <span class="normal">4756</span>
-<span class="normal">4757</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">build_good_option_catalog</span><span class="p">(</span>
+<span class="normal">4757</span>
+<span class="normal">4758</span>
+<span class="normal">4759</span>
+<span class="normal">4760</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">build_good_option_catalog</span><span class="p">(</span>
     <span class="n">nct_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="n">output_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -5369,10 +5369,7 @@ runs. The two keys themselves stay in it, as they always were.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4925</span>
-<span class="normal">4926</span>
-<span class="normal">4927</span>
-<span class="normal">4928</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4928</span>
 <span class="normal">4929</span>
 <span class="normal">4930</span>
 <span class="normal">4931</span>
@@ -5580,7 +5577,10 @@ runs. The two keys themselves stay in it, as they always were.</p>
 <span class="normal">5133</span>
 <span class="normal">5134</span>
 <span class="normal">5135</span>
-<span class="normal">5136</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_good_option_catalog</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="normal">5136</span>
+<span class="normal">5137</span>
+<span class="normal">5138</span>
+<span class="normal">5139</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_good_option_catalog</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Validate file hashes, identities, roles, and terminal research states."""</span>
 
     <span class="n">root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
@@ -5819,10 +5819,7 @@ validation cost once. Treat a cached catalog as read-only.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">5268</span>
-<span class="normal">5269</span>
-<span class="normal">5270</span>
-<span class="normal">5271</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">5271</span>
 <span class="normal">5272</span>
 <span class="normal">5273</span>
 <span class="normal">5274</span>
@@ -5840,7 +5837,10 @@ validation cost once. Treat a cached catalog as read-only.</p>
 <span class="normal">5286</span>
 <span class="normal">5287</span>
 <span class="normal">5288</span>
-<span class="normal">5289</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_good_option_catalog</span><span class="p">(</span>
+<span class="normal">5289</span>
+<span class="normal">5290</span>
+<span class="normal">5291</span>
+<span class="normal">5292</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_good_option_catalog</span><span class="p">(</span>
     <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GoodOptionCatalog</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Load a Parquet bundle and optionally verify its full manifest contract.</span>
@@ -5886,10 +5886,7 @@ validation cost once. Treat a cached catalog as read-only.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">778</span>
-<span class="normal">779</span>
-<span class="normal">780</span>
-<span class="normal">781</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">781</span>
 <span class="normal">782</span>
 <span class="normal">783</span>
 <span class="normal">784</span>
@@ -5917,7 +5914,10 @@ validation cost once. Treat a cached catalog as read-only.</p>
 <span class="normal">806</span>
 <span class="normal">807</span>
 <span class="normal">808</span>
-<span class="normal">809</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_intervention_screening_messages</span><span class="p">(</span>
+<span class="normal">809</span>
+<span class="normal">810</span>
+<span class="normal">811</span>
+<span class="normal">812</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_intervention_screening_messages</span><span class="p">(</span>
     <span class="n">trial_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">interventions</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">_CtgovIntervention</span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Build a patient-free screen for cancer-treatment drug candidates."""</span>
