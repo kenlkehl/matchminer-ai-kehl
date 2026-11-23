@@ -584,6 +584,34 @@ def test_patient_prompt_budget_keeps_every_prompt_under_it(config, monkeypatch, 
     assert f"PART {len(prompts)} OF {len(prompts)}" in prompts[-1]
 
 
+def test_patient_prompt_that_cannot_fit_the_context_fails_that_patient(config, monkeypatch, tmp_path):
+    """Prompt sizes are counted from their parts (instructions, record, counted fragments), not by tokenizing each
+    whole prompt; a patient whose chunk would not fit the context with the output reserve fails, the others run."""
+    words = WordTokenizer()
+    from matchminer_ai.llm.prompts import load_prompt_text
+    from matchminer_ai.patients.extraction.common import fill
+    from matchminer_ai.patients.extraction.patient_records import _resolve_settings
+
+    template = load_prompt_text("patient.extraction.patient.txt")
+    empty = fill(template, {"field_guide": s.render_field_guide("patient", ()), "extension_guidance": "",
+                            "record": "(none yet)", "part": "1", "parts": "1", "notes": ""})
+    max_tokens = _resolve_settings(config)[11]
+    config.patient_extraction = {**config.patient_extraction, "chunk_tokens": 2000, "chunk_overlap_tokens": 10,
+                                 "context_tokens": len(words(empty)["input_ids"]) + max_tokens + 1024 + 300}
+    notes = pd.DataFrame(
+        [{"patient_id": "short", "note_text": " ".join(f"s{i}" for i in range(150)), "note_date": "2024-01-01"}]
+        + [{"patient_id": "long", "note_text": " ".join(f"l{n}x{i}" for i in range(150)),
+            "note_date": f"2024-0{n + 1}-01"} for n in range(6)])
+    backend = FakeBackend({"PART": [_patient_answer()]})
+    install(monkeypatch, backend)
+    result = extract_patient_records(notes, config=config, checkpoint_dir=tmp_path).set_index("patient_id")
+    assert result.loc["short", "extraction_status"] == "complete"
+    assert result.loc["long", "extraction_status"] == "failed" and "context_tokens" in result.loc["long", "error"]
+    prompts = ["\n".join(m["content"] for m in p.messages) for call in backend.calls for p in call[0]]
+    assert len(prompts) == 1 and len(words(prompts[0])["input_ids"]) + max_tokens + 1024 <= (
+        config.patient_extraction["context_tokens"])
+
+
 def test_disease_assessment_site_groups_and_present_status():
     item_type = next(t for t in s.CORE_ITEM_TYPES if t.name == "disease_assessment")
     assert "present" in v.DISEASE_STATUSES.codes and "mmai-clinical-extraction-v3" in s.SCHEMA_VERSIONS

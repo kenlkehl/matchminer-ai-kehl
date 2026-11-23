@@ -516,6 +516,19 @@ def extract_patient_records(
     def chunk_of(pid, index):
         return chunks[pid][index] if budget is None else current[pid]
 
+    fixed: list[int] = []
+
+    def prompt_size(record, notes_tokens):
+        """A prompt's tokens, counted from its parts: the instructions (tokenized once), the record so far, and the
+        notes (whose fragments were counted when they were made). Tokenizing every whole prompt on the loop that
+        records answers and sends requests held that loop for minutes at a time."""
+        if not fixed:
+            fixed.append(count(fill(template, {
+                "field_guide": guide, "extension_guidance": f"\n{guidance}\n" if guidance else "",
+                "record": "", "part": "1", "parts": "1", "notes": "",
+            })))
+        return fixed[0] + count(record) + notes_tokens
+
     writer = _CheckpointWriter(CHECKPOINT_THREADS) if folder is not None else None
 
     def save(pid):
@@ -544,9 +557,10 @@ def extract_patient_records(
         }
         if budget is None:
             chunk = chunks[pid][index]
+            base = None
         else:
             # The next fragments that fit the budget beside the record so far (at least one).
-            base = count(fill(template, {**values, "parts": str(s["chunk_count"]), "notes": ""}))
+            base = prompt_size(record, 0)
             room = min(chunk_tokens, budget - base)
             chunk, used = [], 0
             for fragment in fragments[pid][s["next_fragment"]:]:
@@ -562,7 +576,8 @@ def extract_patient_records(
             s["chunk_count"] = index + 1 + (math.ceil(left / max(1, room)) if left else 0)
         content = fill(template, {**values, "parts": str(s["chunk_count"]), "notes": render_chunk(chunk)})
         if context and max_tokens:
-            prompt_tokens = len(tokenizer(content, add_special_tokens=False)["input_ids"])
+            notes_tokens = sum(f["tokens"] + HEADER_TOKENS for f in chunk)
+            prompt_tokens = (prompt_size(record, notes_tokens) if base is None else base + notes_tokens)
             if prompt_tokens + max_tokens + 1024 > context:
                 return None
         return prompt_messages(content, head, settings)
