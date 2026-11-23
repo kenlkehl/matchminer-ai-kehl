@@ -48,6 +48,8 @@ interface TrialGroupSectionProps {
   labels: Record<string, string>;
   onDetails: (trialId: string) => void;
   onCriteria: (cohortId: string) => void;
+  /** Opens the trial in the Trial management sidebar, at the row's cohort. */
+  onManage?: (trialId: string, cohortId: string) => void;
   /** Opens a drug's or class's catalog evidence. */
   onEvidence?: OpenEvidence;
   /** A cohort dropped on the group (Trial management): put it into the group. */
@@ -68,6 +70,7 @@ export function TrialGroupSection({
   labels,
   onDetails,
   onCriteria,
+  onManage,
   onEvidence,
   onDropUnit,
   dragRows = false,
@@ -190,6 +193,7 @@ export function TrialGroupSection({
                   labels={labels}
                   onDetails={onDetails}
                   onCriteria={onCriteria}
+                  onManage={onManage}
                   onEvidence={onEvidence}
                 />
               ))}
@@ -210,6 +214,7 @@ function CohortRowView({
   labels,
   onDetails,
   onCriteria,
+  onManage,
   onEvidence,
 }: {
   row: CohortRow;
@@ -218,6 +223,7 @@ function CohortRowView({
   labels: Record<string, string>;
   onDetails: (trialId: string) => void;
   onCriteria: (cohortId: string) => void;
+  onManage: ((trialId: string, cohortId: string) => void) | undefined;
   onEvidence: OpenEvidence | undefined;
 }) {
   return (
@@ -229,7 +235,7 @@ function CohortRowView({
         dragUnit(e, row.cohort_id);
       }}
     >
-      {columns.irbPi ? <IrbPiCell row={row} onDetails={onDetails} /> : null}
+      {columns.irbPi ? <IrbPiCell row={row} onDetails={onDetails} onManage={onManage} /> : null}
       {columns.cohort ? <CohortCell row={row} labels={labels} /> : null}
       {columns.slots ? <SlotsCell row={row} /> : null}
       {columns.eligibility ? <EligibilityCell row={row} onCriteria={onCriteria} /> : null}
@@ -274,7 +280,15 @@ export function SourceIcon({ version }: { version: CohortRow["version"] }) {
   );
 }
 
-function IrbPiCell({ row, onDetails }: { row: CohortRow; onDetails: (trialId: string) => void }) {
+function IrbPiCell({
+  row,
+  onDetails,
+  onManage,
+}: {
+  row: CohortRow;
+  onDetails: (trialId: string) => void;
+  onManage: ((trialId: string, cohortId: string) => void) | undefined;
+}) {
   const t = row.trial;
   return (
     <Cell>
@@ -285,7 +299,7 @@ function IrbPiCell({ row, onDetails }: { row: CohortRow; onDetails: (trialId: st
       {t.site_pi ? <div className="font-semibold">{t.site_pi}</div> : null}
       <div>{t.short_title}</div>
       <div className="text-xs text-gray-500">{[t.phase, t.nct_id].filter(Boolean).join(" · ")}</div>
-      <div className="mt-2 text-center print:hidden">
+      <div className="mt-2 flex flex-col items-center gap-0.5 print:hidden">
         <button
           type="button"
           className="link text-xs"
@@ -295,6 +309,18 @@ function IrbPiCell({ row, onDetails }: { row: CohortRow; onDetails: (trialId: st
         >
           Trial details
         </button>
+        {onManage ? (
+          <button
+            type="button"
+            className="link text-xs"
+            title="Open this trial and cohort in Trial management"
+            onClick={() => {
+              onManage(t.id, row.cohort_id);
+            }}
+          >
+            Manage trial
+          </button>
+        ) : null}
       </div>
     </Cell>
   );

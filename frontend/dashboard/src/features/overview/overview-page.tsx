@@ -153,7 +153,12 @@ function useOverview(view: CenterView | undefined) {
     },
     clearFilters: () => {
       setClears((n) => n + 1);
-      go((prev) => ({ center: prev.center, cols: prev.cols, manageTrial: prev.manageTrial }));
+      go((prev) => ({
+        center: prev.center,
+        cols: prev.cols,
+        manageTrial: prev.manageTrial,
+        manageCohort: prev.manageCohort,
+      }));
     },
     setColumn: (key: keyof ReturnType<typeof visibleColumns>, visible: boolean) => {
       go((prev) => ({ ...prev, cols: { ...prev.cols, [key]: visible } }));
@@ -171,9 +176,13 @@ function useOverview(view: CenterView | undefined) {
     showEvidence: (evidence: string | undefined) => {
       go((prev) => ({ ...prev, evidence }));
     },
-    /** The trial opened in the Trial management sidebar (none: the list only). */
-    manageTrial: (manageTrial: string | undefined) => {
-      go((prev) => ({ ...prev, manageTrial }));
+    /** The trial opened in the Trial management sidebar (none: the list only), and the cohort to show. */
+    manageTrial: (manageTrial: string | undefined, manageCohort?: string) => {
+      go((prev) => ({
+        ...prev,
+        manageTrial,
+        manageCohort: manageTrial ? manageCohort : undefined,
+      }));
     },
   };
 }
@@ -360,6 +369,10 @@ function CenterOverview({
                       overview.open({ cohort });
                     }}
                     onEvidence={overview.showEvidence}
+                    onManage={(trialId, cohortId) => {
+                      setSidebar(true);
+                      overview.manageTrial(trialId, cohortId);
+                    }}
                     dragRows={managing}
                     dragging={dragging}
                     onDropUnit={(unitId) => {
@@ -416,7 +429,10 @@ function CenterOverview({
                   trials={listed}
                   managementRevision={managementRevision}
                   trialId={search.manageTrial}
-                  onTrial={overview.manageTrial}
+                  cohortId={search.manageCohort}
+                  onTrial={(trialId) => {
+                    overview.manageTrial(trialId);
+                  }}
                   onClose={() => {
                     setSidebar(false);
                     overview.manageTrial(undefined);

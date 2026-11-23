@@ -74,6 +74,7 @@ export function TrialManagementSidebar({
   trials,
   managementRevision,
   trialId,
+  cohortId,
   onTrial,
   onClose,
 }: {
@@ -82,6 +83,8 @@ export function TrialManagementSidebar({
   trials: TrialSummary[];
   managementRevision: number | undefined;
   trialId: string | undefined;
+  /** The cohort to show in the open trial (the groups' Manage trial). */
+  cohortId: string | undefined;
   onTrial: (trialId: string | undefined) => void;
   onClose: () => void;
 }) {
@@ -140,6 +143,7 @@ export function TrialManagementSidebar({
             trial={t}
             badges={summary?.trials[t.id]}
             open={t.id === trialId}
+            cohortId={t.id === trialId ? cohortId : undefined}
             onToggle={() => {
               onTrial(t.id === trialId ? undefined : t.id);
             }}
@@ -157,11 +161,13 @@ function TrialRow({
   trial,
   badges,
   open,
+  cohortId,
   onToggle,
 }: {
   trial: TrialSummary;
   badges: TrialBadges | undefined;
   open: boolean;
+  cohortId: string | undefined;
   onToggle: () => void;
 }) {
   const row = useRef<HTMLLIElement>(null);
@@ -201,7 +207,7 @@ function TrialRow({
       </button>
       {open ? (
         <div className="px-3 pb-3">
-          <TrialManager trialId={trial.id} />
+          <TrialManager trialId={trial.id} cohortId={cohortId} />
         </div>
       ) : null}
     </li>
@@ -395,11 +401,22 @@ function useOpenTrial(trialId: string) {
   return notice;
 }
 
-function TrialManager({ trialId }: { trialId: string }) {
+function TrialManager({ trialId, cohortId }: { trialId: string; cohortId: string | undefined }) {
   const query = useQuery(trialManagementOptions(trialId));
   const opened = useOpenTrial(trialId);
   const [editing, setEditing] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(cohortId ?? null);
+  // The groups' Manage trial names a cohort: it is highlighted and scrolled to once its card is shown.
+  const loaded = Boolean(query.data);
+  const shownAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cohortId || !loaded || shownAt.current === cohortId) return;
+    shownAt.current = cohortId;
+    setSelected(cohortId);
+    requestAnimationFrame(() => {
+      document.getElementById(`unit-${cohortId}`)?.scrollIntoView({ block: "center" });
+    });
+  }, [cohortId, loaded]);
   const [notice, setNotice] = useState("");
   const [enlarged, setEnlarged] = useState(false);
   const [resetting, setResetting] = useState(false);

@@ -92,7 +92,9 @@ each row shows the trial's protocol and NCT numbers, its title, and what is kept
 added without counting a cohort twice; see Slots), subcohorts, edits and edits to review. The list reads only the
 trial management file. A trial opens in place to its cohorts, each a card with its slots, criteria, group and actions,
 under a diagram of where the cohorts come from (**Enlarge** shows it full size). The criteria editor and the
-criteria comparisons open in dialogs. Everything is saved as it is changed, to one file per mode shared by everyone
+criteria comparisons open in dialogs. **Manage trial**, under a group row's **Trial details**, opens the sidebar on that
+row's trial with its cohort (merged, original or subcohort) highlighted and in view; the page's address keeps both
+(`manageTrial`, `manageCohort`), so a reload or a shared link opens the same place. Everything is saved as it is changed, to one file per mode shared by everyone
 using that dashboard (`matchminer_ai.apps.dashboard.trial_management`).
 
 **Units.** A trial's cohorts are shown at three levels, each with its own slots:
