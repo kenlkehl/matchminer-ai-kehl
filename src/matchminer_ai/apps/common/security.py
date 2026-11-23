@@ -47,10 +47,14 @@ def cross_origin_write(method: str, headers) -> str | None:
     """Why a request is refused as a cross-origin write (None when it is a read or same-origin)."""
     if method in {"GET", "HEAD", "OPTIONS"}:
         return None
-    origin = headers.get("origin")
+    origin, site = headers.get("origin"), headers.get("sec-fetch-site")
+    # A same-origin form submission under Referrer-Policy: no-referrer carries Origin: null (the sign-in form); the
+    # browser's own Sec-Fetch-Site, which a page cannot set, says whether it came from this origin.
+    if origin == "null" and site == "same-origin":
+        return None
     if origin and urlsplit(origin).netloc != headers.get("host"):
         return "Cross-origin request rejected"
-    if headers.get("sec-fetch-site") == "cross-site":
+    if site == "cross-site":
         return "Cross-site request rejected"
     return None
 

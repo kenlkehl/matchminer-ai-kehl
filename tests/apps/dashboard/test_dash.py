@@ -236,6 +236,16 @@ def test_loopback_host_cross_origin_writes_and_the_access_token(dash):
         refused = client.post("/api/llm", json={}, headers={"origin": "http://other.example"})
         assert refused.status_code == 403
     with TestClient(create_app(dash, access_token=token), base_url="http://127.0.0.1") as client:
+        # The sign-in form under Referrer-Policy: no-referrer: the browser sends Origin: null with its own
+        # Sec-Fetch-Site, which tells a same-origin submission from another site's.
+        form = {"content-type": "application/x-www-form-urlencoded", "origin": "null"}
+        cross = client.post("/login", content=f"token={token}", headers={**form, "sec-fetch-site": "cross-site"},
+                            follow_redirects=False)
+        assert cross.status_code == 403
+        same = client.post("/login", content=f"token={token}", headers={**form, "sec-fetch-site": "same-origin"},
+                           follow_redirects=False)
+        assert same.status_code == 303
+    with TestClient(create_app(dash, access_token=token), base_url="http://127.0.0.1") as client:
         assert client.get("/api/meta", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
