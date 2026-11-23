@@ -64,6 +64,7 @@ export function duration(seconds: number | null | undefined): string {
 const JUDGE_NAMES: Record<string, string> = {
   vertex: "Claude Opus 5.5 (Vertex)",
   databricks: "Claude Opus 5.5 (Databricks)",
+  gemini: "Gemini 4 Neon (Vertex)",
   azure: "GPT-6.1 Sol (Azure)",
 };
 

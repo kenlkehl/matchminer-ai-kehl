@@ -132,9 +132,12 @@ class Benchmarks:
                            updated=updated_at(directory, ("run_status.json", "metrics/metrics.json")))
             else:
                 build = read_json(directory / "build.json") or {}
+                answered = (sorted(p.name for p in (directory / "responses").iterdir() if p.is_dir())
+                            if (directory / "responses").is_dir() else [])
+                # The two judges compared (the run's judges); others' earlier answers are kept but not compared.
+                compared = list((read_json(directory / "compare" / "summary.json") or {}).get("judges") or [])
                 row.update(components={c: (v or {}).get("items") for c, v in (build.get("components") or {}).items()},
-                           judges=sorted(p.name for p in (directory / "responses").iterdir() if p.is_dir())
-                           if (directory / "responses").is_dir() else [],
+                           judges=compared or answered, other_judges=[j for j in answered if compared and j not in compared],
                            compared=(directory / "compare" / "summary.json").is_file(),
                            has_metrics=(directory / "metrics" / "metrics.json").is_file(),
                            adjudications=self._decision_count(directory),

@@ -168,6 +168,14 @@ function JudgeRuns({ runs }: { runs: RunRow[] }) {
                   {judgeName(j)}
                 </p>
               ))}
+              {run.other_judges?.length ? (
+                <p
+                  className="text-xs whitespace-nowrap text-gray-500"
+                  title="Answers kept from an earlier judge, outside the comparison"
+                >
+                  Earlier: {run.other_judges.map(judgeName).join(", ")}
+                </p>
+              ) : null}
             </TableCell>
             <TableCell>
               <div className="flex flex-wrap gap-1">

@@ -17,7 +17,10 @@ export interface RunRow {
   jobs?: Record<string, number>;
   /** Judge: items per component. */
   components?: Record<string, number | null>;
+  /** The two judges compared (the judges with answers, before a comparison). */
   judges?: string[];
+  /** Judges whose earlier answers the run keeps, outside the comparison. */
+  other_judges?: string[];
   compared?: boolean;
   adjudications?: number;
 }

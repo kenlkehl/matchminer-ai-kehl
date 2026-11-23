@@ -70,7 +70,7 @@ def test_benchmarks_find_runs_and_adjudicate_through_the_app(tmp_path):
         Benchmarks("synthetic", roots=[tmp_path / "phi"])
     benchmarks = Benchmarks("synthetic", roots=[tmp_path / "no_phi"], user="reviewer")
     [found] = benchmarks.runs()
-    assert found["kind"] == "judge" and found["judges"] == ["databricks", "vertex"] and found["compared"]
+    assert found["kind"] == "judge" and found["judges"] == ["vertex", "databricks"] and found["compared"]  # the compared pair
     store = benchmarks.store(found["id"])
     assert store.state()["components"]["decision"]["queued"] == 1  # b-2: the judges disagree
     item = store.item("decision", "b-2")
