@@ -533,12 +533,10 @@ class _CatalogCheckpointStore:
         if not path.is_file():
             return None
         value = json.loads(path.read_text(encoding="utf-8"))
-        expected_input = _stable_sha256(input_value)
         expected = {
             "run_fingerprint_sha256": self.run_fingerprint,
             "stage": stage,
             "key": str(key),
-            "input_fingerprint_sha256": expected_input,
         }
         mismatched = {
             field: (value.get(field), expected_value)
@@ -547,6 +545,11 @@ class _CatalogCheckpointStore:
         }
         if mismatched:
             raise ValueError(f"Incompatible catalog checkpoint {path}: {mismatched}")
+        # The same run's checkpoint for an input that has since changed is stale, and the stage redoes it: a class
+        # whose research a resumed build retried (it was incomplete) has new evidence, so its synthesis is redone.
+        if value.get("input_fingerprint_sha256") != _stable_sha256(input_value):
+            logging.getLogger(__name__).info("Redoing %s %s: its input changed since it was saved", stage, key)
+            return None
         data = value.get("data")
         if not isinstance(data, Mapping):
             raise ValueError(f"Catalog checkpoint has invalid data: {path}")

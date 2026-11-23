@@ -4624,3 +4624,19 @@ def test_remote_stages_resume_checkpoints_written_by_the_grouped_code(
     classes = catalog.drug_classes.set_index("drug_id")["class_name"]
     assert classes[drug.drug_id] == "Checkpointed kinase inhibitor"
     assert set(catalog.trial_intervention_screening["included"]) == {True}
+
+
+def test_a_checkpoint_whose_input_changed_is_redone(tmp_path):
+    """A resumed build that redid a stage (incomplete class research) changes the next stage's input: that stage's
+    checkpoint is stale and is redone, while a checkpoint from another run still stops the build."""
+    store = catalog_module._CatalogCheckpointStore.open(tmp_path / "c", run_spec={"run": 1}, reset=False)
+    store.save("class_synthesis", "NCIT:C1", input_value={"evidence": ["a"]}, data={"facts": [1]})
+    assert store.load("class_synthesis", "NCIT:C1", input_value={"evidence": ["a"]}) == {"facts": [1]}
+    assert store.load("class_synthesis", "NCIT:C1", input_value={"evidence": ["a", "b"]}) is None
+    other = catalog_module._CatalogCheckpointStore.open(tmp_path / "d", run_spec={"run": 2}, reset=False)
+    path = store._item_path("class_synthesis", "NCIT:C1")
+    target = other._item_path("class_synthesis", "NCIT:C1")
+    target.parent.mkdir(parents=True)
+    target.write_text(path.read_text())
+    with pytest.raises(ValueError, match="Incompatible catalog checkpoint"):
+        other.load("class_synthesis", "NCIT:C1", input_value={"evidence": ["a"]})
