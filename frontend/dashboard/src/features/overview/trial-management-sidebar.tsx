@@ -102,9 +102,13 @@ export function TrialManagementSidebar({
   return (
     <aside
       aria-label="Trial management"
+      data-sidebar-scroll
       className="sticky top-[var(--app-tabs-h,3rem)] flex max-h-[calc(100svh_-_var(--app-tabs-h,3rem))] flex-col overflow-y-auto print:hidden"
     >
-      <div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-gray-200 bg-slate-50 px-3 pt-3 pb-2">
+      <div
+        data-sidebar-header
+        className="sticky top-0 z-10 flex flex-col gap-2 border-b border-gray-200 bg-slate-50 px-3 pt-3 pb-2"
+      >
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-bold text-gray-900">Trial management</h2>
           <Button
@@ -172,7 +176,7 @@ function TrialRow({
 }) {
   const row = useRef<HTMLLIElement>(null);
   useEffect(() => {
-    if (open) row.current?.scrollIntoView({ block: "nearest" });
+    if (open) scrollInSidebar(row.current, "nearest");
   }, [open]);
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
@@ -414,7 +418,7 @@ function TrialManager({ trialId, cohortId }: { trialId: string; cohortId: string
     shownAt.current = cohortId;
     setSelected(cohortId);
     requestAnimationFrame(() => {
-      document.getElementById(`unit-${cohortId}`)?.scrollIntoView({ block: "center" });
+      scrollInSidebar(document.getElementById(`unit-${cohortId}`), "center");
     });
   }, [cohortId, loaded]);
   const [notice, setNotice] = useState("");
@@ -446,7 +450,7 @@ function TrialManager({ trialId, cohortId }: { trialId: string; cohortId: string
   const select = (id: string) => {
     setSelected(id);
     setEnlarged(false);
-    document.getElementById(`unit-${id}`)?.scrollIntoView({ block: "nearest" });
+    scrollInSidebar(document.getElementById(`unit-${id}`), "nearest");
   };
   const t = data.trial;
   return (
@@ -1377,4 +1381,23 @@ function ChangeLog({ data }: { data: TrialManagementView }) {
       </ul>
     </details>
   );
+}
+
+/**
+ * Scroll the sidebar (only) so ``el`` is in view below its sticky header: unlike scrollIntoView, the page itself
+ * stays put.
+ */
+function scrollInSidebar(el: HTMLElement | null | undefined, block: "center" | "nearest") {
+  const box = el?.closest<HTMLElement>("[data-sidebar-scroll]");
+  if (!el || !box) return;
+  const header = box.querySelector<HTMLElement>("[data-sidebar-header]")?.offsetHeight ?? 0;
+  const outer = box.getBoundingClientRect();
+  const inner = el.getBoundingClientRect();
+  const offset = inner.top - outer.top + box.scrollTop;
+  let top: number;
+  if (block === "center") top = offset - header - (box.clientHeight - header - inner.height) / 2;
+  else if (inner.top < outer.top + header) top = offset - header - 8;
+  else if (inner.bottom > outer.bottom) top = offset - box.clientHeight + inner.height + 8;
+  else return;
+  box.scrollTo({ top: Math.max(0, top) });
 }
