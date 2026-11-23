@@ -48,7 +48,9 @@ TrialSpace model and says so on Data and models if they differ.
   notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are summarized.
   - *Trials:* the ranked trial cohorts with the decision model's or the LLM's scores, and the GoodOption check. A
     trial's criteria check runs on the decision model or the LLM (the toggle), or on the patient's structured records
-    (**Check with structured data**).
+    (**Check with structured data**). **Only cohorts with open slots** (off by default) searches only the cohorts with
+    slots available on Trial management: the cohort's own, one of its original cohorts', or a subcohort's of either.
+    Each result shows its open slots.
   - *Guidelines:* guideline spaces for the patient's summary (TrialSpace's candidates ranked by the decision model
     or the LLM), their workup and treatment menus with sources, a workup review, and a Markdown report.
   - *Structured data:* the clinical facts extracted from the notes, patient level or note by note, each with its

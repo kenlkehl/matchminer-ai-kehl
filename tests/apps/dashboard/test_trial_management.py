@@ -325,3 +325,21 @@ def test_reset_this_trial_and_clear_all(client, managed):
     for _ in range(22):  # only the newest 20 clear and reset copies are kept
         client.post("/api/management/clear", json={"confirm": "clear"})
     assert len(list(path.parent.glob(f"{path.stem}.before-c*"))) + len(list(path.parent.glob(f"{path.stem}.before-r*"))) == 20
+
+
+def test_patient_search_can_take_only_cohorts_with_open_slots(client, managed):
+    found = client.post("/api/match/trials-for-patient", json={"patient_id": "patient_a", "k": 10}).json()
+    assert found["results"] and all(r["open_slots"] == [] for r in found["results"])
+    none = client.post("/api/match/trials-for-patient",
+                       json={"patient_id": "patient_a", "k": 10, "open_slots_only": True}).json()
+    assert none["results"] == [] and none["open_slots_only"] is True
+    # Slots on a subcohort of an original cohort open its merged cohort; zero available does not.
+    sub = client.post("/api/management/subcohorts", json={"parent_id": ORIGINAL_A2, "name": "Sponsor: ex-US"}).json()
+    client.put(f"/api/management/units/{sub['id']}/slots", json={"available": 3})
+    other = next(r["cohort"]["cohort_id"] for r in found["results"] if r["cohort"]["cohort_id"] != MERGED)
+    client.put(f"/api/management/units/{other}/slots", json={"available": 0, "enrolled": 4})
+    only = client.post("/api/match/trials-for-patient",
+                       json={"patient_id": "patient_a", "k": 10, "open_slots_only": True}).json()
+    assert [r["cohort"]["cohort_id"] for r in only["results"]] == [MERGED]
+    assert only["results"][0]["open_slots"] == [{"id": sub["id"], "kind": "subcohort", "name": "Sponsor: ex-US",
+                                                 "available": 3}]

@@ -58,6 +58,7 @@ Choose one patient: a patient from the list, a summary you enter, or clinical no
 or text) that the app summarizes. Then:
 
 - **Trials:** the trial cohorts that fit the patient, ranked and scored, with filters by phase and disease center.
+  **Only cohorts with open slots** searches only cohorts with slots available on Trial management.
   Each trial's criteria can be checked line by line, and the GoodOption check weighs the trial's drugs for this
   patient using the published evidence gathered for each drug and drug class.
 - **Guidelines:** the guideline populations (NCCN and NCI PDQ) that fit the patient, with their recommended workup

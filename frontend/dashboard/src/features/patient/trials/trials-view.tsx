@@ -93,7 +93,7 @@ function SearchBar() {
   const fromCorpus = usePatientValue((s) => s.fromCorpus);
   const summary = usePatientValue((s) => s.summary);
   const otherHistory = usePatientValue((s) => s.otherHistory);
-  const allCohorts = useAiState().allCohorts;
+  const { allCohorts, openSlotsOnly, result } = useAiState();
   const noun = usePatientNoun();
   const byPatient = !!patientId && fromCorpus;
   const ready = byPatient || hasSummary(summary);
@@ -109,8 +109,13 @@ function SearchBar() {
       setPatient({ inputOpen: false });
     },
   });
-  const submit = () => {
-    const common = { k: 50, per_trial: !allCohorts, scope: "dashboard" };
+  const submit = (slotsOnly = openSlotsOnly) => {
+    const common = {
+      k: 50,
+      per_trial: !allCohorts,
+      scope: "dashboard",
+      open_slots_only: slotsOnly,
+    };
     search.mutate(
       byPatient
         ? { ...common, patient_id: patientId }
@@ -137,7 +142,25 @@ function SearchBar() {
         </p>
         {search.error ? <p className="text-red-700">{search.error.message}</p> : null}
       </div>
-      <Button disabled={!ready || search.isPending} onClick={submit}>
+      <Label
+        className="gap-1.5 text-sm font-normal text-gray-700"
+        title="Search only the cohorts with slots available, entered on Clinical trial management's Trial management for the cohort, one of its original cohorts or a subcohort"
+      >
+        <Checkbox
+          checked={openSlotsOnly}
+          onCheckedChange={(checked) => {
+            setAiState({ openSlotsOnly: checked });
+            if (result && ready && !search.isPending) submit(checked);
+          }}
+        />
+        Only cohorts with open slots
+      </Label>
+      <Button
+        disabled={!ready || search.isPending}
+        onClick={() => {
+          submit();
+        }}
+      >
         {search.isPending ? <Spinner /> : <SearchIcon />}
         Find trials
       </Button>
@@ -264,7 +287,9 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
           <p className="text-sm text-gray-600 italic">{AI_DISCLAIMER}</p>
           {shown.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-500">
-              No trials match. Try changing filters to display more trials.
+              {result.open_slots_only && result.results.length === 0
+                ? "No cohorts have slots available on Trial management. Turn off Only cohorts with open slots to search them all."
+                : "No trials match. Try changing filters to display more trials."}
             </p>
           ) : (
             <ol className="flex flex-col gap-3">
@@ -456,6 +481,19 @@ function TrialCard({
               {t.phase ? <Fact label="Phase">{t.phase}</Fact> : null}
               <Fact label="Protocol">{t.protocol_no || t.nct_id}</Fact>
               <Fact label="Managed by">{t.center}</Fact>
+              {row.open_slots?.length ? (
+                <Fact label="Open slots">
+                  <span className="font-semibold text-emerald-800">
+                    {row.open_slots
+                      .map((s) =>
+                        s.id === row.cohort.cohort_id
+                          ? String(s.available)
+                          : `${String(s.available)} (${s.kind === "subcohort" ? "subcohort" : "original cohort"} ${s.name ?? s.id})`,
+                      )
+                      .join(" · ")}
+                  </span>
+                </Fact>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-0.5">
               {t.sites.length ? (

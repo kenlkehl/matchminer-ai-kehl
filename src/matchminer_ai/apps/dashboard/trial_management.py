@@ -421,6 +421,7 @@ class TrialManager:
         # lines still unlabeled after that are retried with Classify, not again on every open.
         self.auto_tried: set[tuple[str, str]] = set()
         self.lock = threading.Lock()
+        self._open_slots: tuple[int, dict] | None = None  # (revision, family -> its units with slots available)
 
     @property
     def store(self) -> dict:
@@ -1228,13 +1229,7 @@ class TrialManager:
         out: dict[str, dict] = {}
 
         def family(unit_id: str) -> str:
-            unit = units.get(unit_id)
-            if unit and unit["kind"] == "subcohort":
-                return family(unit["parent"])
-            if parse_original(unit_id):
-                ai = self.ai_version(unit_id)
-                return (ai["cohort"].get("merged_into") if ai else None) or unit_id
-            return unit_id
+            return self.family_of(unit_id, units)
 
         for unit in units.values():
             if unit["trial_id"] not in trials:
@@ -1255,6 +1250,34 @@ class TrialManager:
                 k: (sum(s[k] for s in slots if s.get(k) is not None) if any(s.get(k) is not None for s in slots)
                     else None) for k in SLOT_FIELDS}
         return {"trials": out, "revision": self.revision}
+
+    def family_of(self, unit_id: str, units: dict) -> str:
+        """A unit's family: a merged cohort, its original cohorts and the subcohorts of either are one (named by
+        the merged cohort; an original merged into none, or a store cohort, is its own)."""
+        unit = units.get(unit_id)
+        if unit and unit["kind"] == "subcohort":
+            return self.family_of(unit["parent"], units)
+        if parse_original(unit_id):
+            ai = self.ai_version(unit_id)
+            return (ai["cohort"].get("merged_into") if ai else None) or unit_id
+        return unit_id
+
+    def open_slots(self) -> dict[str, list[dict]]:
+        """Family -> its units with slots available (above zero), ``{id, kind, name, available}`` each: what
+        Patient-centric's "Only cohorts with open slots" reads for a merged cohort. Rebuilt when the file changes."""
+        revision = self.revision
+        if self._open_slots is None or self._open_slots[0] != revision:
+            units = self.units()
+            index: dict[str, list[dict]] = {}
+            for unit in units.values():
+                available = (unit.get("slots") or {}).get("available")
+                if available is not None and available > 0:
+                    cohort = self.effective(unit["id"])
+                    index.setdefault(self.family_of(unit["id"], units), []).append(
+                        {"id": unit["id"], "kind": unit["kind"], "name": cohort["name"] if cohort else unit.get("name"),
+                         "available": available})
+            self._open_slots = (revision, index)
+        return self._open_slots[1]
 
     def classification_input(self, unit_ids: list[str]) -> list[dict]:
         """The cohorts to classify; a unit with the same lines as one before it (a subcohort just reset to its

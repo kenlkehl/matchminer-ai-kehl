@@ -36,6 +36,9 @@ class TrialsForPatient(BaseModel):
     k: int | None = None
     scope: str = "dashboard"  # "dashboard": the cohorts the dashboards show; "all": both versions of every trial
     per_trial: bool = True
+    # Only cohorts with slots available, entered on Trial management for the cohort, its original cohorts or a
+    # subcohort of either (user, 2026-11-23; off by default).
+    open_slots_only: bool = False
 
 
 class ScoreRequest(BaseModel):
@@ -161,6 +164,15 @@ def router(state: DashState) -> APIRouter:
                 raise ValueError("choose a patient or enter a cancer summary")
             store = state.store
             scope = [c["id"] for c in store["cohorts"].values() if request.scope == "all" or c["primary"]]
+            open_slots = state.management.open_slots()
+            if request.open_slots_only:
+                scope = [c for c in scope if c in open_slots]
+                if not scope:
+                    return {"direction": "trials_for_patient",
+                            "patient": {**state.patient_summary(entity["id"]), "key": entity["key"],
+                                        "boilerplate": entity["boilerplate"]},
+                            "k": 0, "searched": 0, "of": 0, "round": state.round.number, "search_ms": 0.0,
+                            "open_slots_only": True, "results": []}
             ids, matrix = state.cohort_matrix(scope)
             if not ids:
                 raise HTTPException(409, "The trial cohorts' TrialSpace vectors are still being made; try again shortly.")
@@ -175,7 +187,8 @@ def router(state: DashState) -> APIRouter:
             order.append(i)
             if len(order) == k:
                 break
-        rows = [{"rank": rank, "cohort": cohort_row(state, state.cohort(ids[i])), "cosine": round(float(scores[i]), 5)}
+        rows = [{"rank": rank, "cohort": cohort_row(state, state.cohort(ids[i])), "cosine": round(float(scores[i]), 5),
+                 "open_slots": open_slots.get(ids[i], [])}
                 for rank, i in enumerate(order, 1)]
         pairs = [state.pair(entity["id"], r["cohort"]["cohort_id"]) for r in rows]
         for row, cached in zip(rows, state.decisions.cached_scores(pairs)):
@@ -183,7 +196,8 @@ def router(state: DashState) -> APIRouter:
         return {"direction": "trials_for_patient", "patient": {**state.patient_summary(entity["id"]), "key": entity["key"],
                                                                 "boilerplate": entity["boilerplate"]},
                 "k": k, "searched": len(ids), "of": len(scope), "round": state.round.number,
-                "search_ms": round((time.monotonic() - started) * 1000, 1), "results": rows}
+                "search_ms": round((time.monotonic() - started) * 1000, 1),
+                "open_slots_only": request.open_slots_only, "results": rows}
 
     def search_pairs(direction: str, query_id: str, target_ids: list[str], limit: int):
         if direction not in DIRECTIONS:

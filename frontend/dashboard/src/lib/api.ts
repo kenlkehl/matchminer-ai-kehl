@@ -562,11 +562,21 @@ export interface PatientsForCohortResult {
   results: PatientHit[];
 }
 
+/** A cohort of a result's family (itself, an original cohort or a subcohort) with slots available. */
+export interface OpenSlot {
+  id: string;
+  kind: string;
+  name: string | null;
+  available: number;
+}
+
 export interface CohortHit {
   rank: number;
   cohort: CohortRow;
   cosine: number;
   scores: PairScores;
+  /** Its family's cohorts with slots available (Trial management). */
+  open_slots?: OpenSlot[];
 }
 
 export interface TrialsForPatientResult {
@@ -577,6 +587,8 @@ export interface TrialsForPatientResult {
   of: number;
   round: number;
   search_ms: number;
+  /** The search took only cohorts with open slots. */
+  open_slots_only?: boolean;
   results: CohortHit[];
 }
 

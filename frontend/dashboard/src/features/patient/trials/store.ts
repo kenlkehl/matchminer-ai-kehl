@@ -31,6 +31,8 @@ export const DEFAULT_FILTERS: AiFilters = {
 export interface TrialsState {
   result: TrialsForPatientResult | null;
   allCohorts: boolean;
+  /** Search only cohorts with slots available on Trial management (off by default). */
+  openSlotsOnly: boolean;
   filters: AiFilters;
   searches: number;
   /**
@@ -43,6 +45,7 @@ export interface TrialsState {
 const initial: TrialsState = {
   result: null,
   allCohorts: false,
+  openSlotsOnly: false,
   filters: DEFAULT_FILTERS,
   searches: 0,
   summaryHeight: null,
