@@ -377,17 +377,18 @@ def extract_document_records(
             model_metadata_cache_dir=resolved.model_metadata_cache_dir,
         )
         # Prompts are built as requests are sent, so a large run never holds
-        # every rendered prompt at once.
+        # every rendered prompt at once. A window of notes waits beyond those in
+        # flight: the queue sends more than its window when the endpoints take
+        # more, so a fixed number of notes outstanding would hold a run below them.
         waiting = iter(pending)
+        window = chunk_size * chunks_in_flight
 
         def feed():
-            note = next(waiting, None)
-            if note is not None:
+            while len(queue) < window and (note := next(waiting, None)) is not None:
                 original = messages(note)
                 queue.add((note["note_id"], 1, original), original, "main")
 
-        for _ in range(2 * chunk_size * chunks_in_flight):
-            feed()
+        feed()
 
         def record(item, answer, reasoning, finish_reason, provenance):
             note_id, attempt, original = item

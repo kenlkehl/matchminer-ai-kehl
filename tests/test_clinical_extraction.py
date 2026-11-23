@@ -662,3 +662,47 @@ def test_a_request_queue_keeps_the_endpoints_ceilings_in_flight_when_above_its_w
     answered = []
     queue.run(lambda item, *_: answered.append(item))
     assert sorted(answered) == list(range(12)) and load["peak"] == 6
+
+
+def test_document_extraction_fills_the_endpoints_ceilings(config, monkeypatch):
+    """Notes are added as answers return; a fixed number outstanding would keep a large run below the ceilings."""
+    import asyncio
+    from types import SimpleNamespace
+
+    load = {"now": 0, "peak": 0, "issued": 0, "served": 0}
+
+    class Session:
+        model_metadata = {}
+
+        def request_capacity(self):
+            return 8
+
+        async def generate(self, prompt, runtime):
+            load["now"] += 1
+            load["peak"] = max(load["peak"], load["now"])
+            ticket, load["issued"] = load["issued"], load["issued"] + 1
+            while load["served"] < ticket:  # answers return one at a time, in order
+                await asyncio.sleep(0.001)
+            await asyncio.sleep(0.001)
+            load["served"] += 1
+            load["now"] -= 1
+            return SimpleNamespace(summary="{}", reasoning="", finish_reason="stop", response_metadata=None)
+
+    class Backend:
+        def open_request_session(self, config, cache_dir=None):
+            class Context:
+                async def __aenter__(self):
+                    return Session()
+
+                async def __aexit__(self, *exc):
+                    return None
+            return Context()
+
+    monkeypatch.setattr("matchminer_ai.patients.extraction.documents.get_llm_backend", lambda _c: Backend())
+    config.remote["max_concurrent_requests"] = 1  # a window of two notes on the preset's one server
+    config.document_extraction.update(batch_size=2, batches_in_flight=1, max_attempts=1,
+                                      reasoning_off_fallback=False)
+    notes = pd.DataFrame({"patient_id": ["p1"] * 24, "note_text": [f"Fabricated note {n}." for n in range(24)],
+                          "note_date": ["2024-01-01"] * 24})
+    records = extract_document_records(notes, config=config)
+    assert len(records) == 24 and load["peak"] == 8

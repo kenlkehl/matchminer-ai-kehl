@@ -235,7 +235,8 @@ tokenized. The chunks are the same as a single process makes, so the number of w
 the checkpoints.
 
 With a server registry, the requests in flight follow the servers' ceilings added up, when that is more than the
-window. `check_extraction_settings(config)` checks both sections' settings without notes; `preprocess_extractions` runs
+window, at both levels: patients and notes are added as answers return, keeping a window waiting beyond those in
+flight. `check_extraction_settings(config)` checks both sections' settings without notes; `preprocess_extractions` runs
 it before it reads the notes, so a bad value fails at once rather than after a large store's notes have loaded.
 
 ## Checkpoints
