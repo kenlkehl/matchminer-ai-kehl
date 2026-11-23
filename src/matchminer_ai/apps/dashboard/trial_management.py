@@ -60,6 +60,8 @@ MAX_NAME = 200
 MAX_SUBCOHORTS = 50
 MAX_GROUPS = 100
 LOG_LIMIT = 2000
+#: Copies kept from before a clear or reset (user, 2026-11-23: keep the last 20); older ones are deleted.
+KEPT_BACKUPS = 20
 _LABEL = re.compile(r"\s*(inclusion|exclusion)\s+criteria\s*:?\s*", re.IGNORECASE)
 _ORIGINAL = re.compile(r"^(?P<trial>.+?)-(?:(?P<ctgov>ctgov)-)?original-(?P<index>\d+)$")
 _SUBCOHORT = re.compile(r"^(?P<trial>.+?)-sub-[0-9a-f]{8}$")
@@ -354,6 +356,14 @@ class ManagementFile:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
 
+    def _prune_backups(self) -> None:
+        """Keep the newest ``KEPT_BACKUPS`` clear and reset copies (the import copy is a single file, replaced)."""
+        copies = [p for p in self.path.parent.glob(f"{self.path.stem}.before-*{self.path.suffix}")
+                  if p.name.startswith((f"{self.path.stem}.before-clear-", f"{self.path.stem}.before-reset-"))]
+        copies.sort(key=lambda p: (p.stat().st_mtime_ns, p.name))
+        for old in copies[:-KEPT_BACKUPS]:
+            old.unlink(missing_ok=True)
+
     def change(self, function, entries, *, backup: Path | None = None):
         """Apply ``function(doc)`` to a copy of the current document and write it, with log ``entries`` (a list, or
         a function of the function's value); returns the function's value. ``backup``: first keep the file there."""
@@ -367,6 +377,7 @@ class ManagementFile:
                 entries = entries(value)
             if backup is not None and self.path.exists():
                 self._keep_copy(backup)
+                self._prune_backups()
             at = now()
             doc["revision"] = int(doc.get("revision") or 0) + 1
             doc["updated_at"] = at

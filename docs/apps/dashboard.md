@@ -167,7 +167,7 @@ and real mode's never in a `no_phi` one. In synthetic mode, anyone who can reach
 **Clearing.** Two actions remove what users entered; each confirmation lists what goes, with counts, and offers
 **Export first**. Before either writes, the file is kept beside itself, owner-only, as
 `trial_management.before-clear-<UTC time>.json` or `trial_management.before-reset-<trial>-<UTC time>.json`, so
-importing that copy undoes it. Both are recorded in the log with their counts.
+importing that copy undoes it; the newest 20 such copies are kept. Both are recorded in the log with their counts.
 
 - **Clear all** (the sidebar's header) removes everything in the mode's file: slots, criteria edits, subcohorts,
   group placements and the centers' own groups, in every center. The button enables only once **clear** is typed.

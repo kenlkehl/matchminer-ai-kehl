@@ -322,3 +322,6 @@ def test_reset_this_trial_and_clear_all(client, managed):
     assert [e["action"] for e in doc["log"]][-2:] == ["trial reset", "cleared"]
     assert "Edited first line" not in json.dumps(doc["log"])  # counts, never criteria text
     assert client.post("/api/management/clear", json={"confirm": "yes"}).status_code == 400
+    for _ in range(22):  # only the newest 20 clear and reset copies are kept
+        client.post("/api/management/clear", json={"confirm": "clear"})
+    assert len(list(path.parent.glob(f"{path.stem}.before-c*"))) + len(list(path.parent.glob(f"{path.stem}.before-r*"))) == 20
