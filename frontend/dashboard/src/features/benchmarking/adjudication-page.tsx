@@ -49,7 +49,11 @@ export function AdjudicationPage() {
   const itemId =
     search.item && items.some((i) => i.item_id === search.item)
       ? search.item
-      : (items.find(hasOpen) ?? items[0])?.item_id;
+      : (items.find(hasOpen) ?? items.find((i) => i.queued > 0) ?? items[0])?.item_id;
+  // The items the list and the arrows go through: those with queued units (all of them with "Show agreed
+  // units"), and the item open now.
+  const listed = items.filter((i) => showAll || i.queued > 0 || i.item_id === itemId);
+  const at = listed.findIndex((i) => i.item_id === itemId);
 
   const itemQuery = useQuery({
     ...adjudicationItemOptions(runId, component ?? "", itemId ?? "", showRef),
@@ -72,20 +76,13 @@ export function AdjudicationPage() {
     }
   }, [component, itemId, search.component, search.item, open]);
 
+  // One item back or on in the list, decided or not.
   const step = useCallback(
     (direction: number) => {
-      if (!component || !items.length) return;
-      let i = items.findIndex((x) => x.item_id === itemId);
-      for (let n = 0; n < items.length; n++) {
-        i = (i + direction + items.length) % items.length;
-        const row = items[i];
-        if (row && hasOpen(row)) {
-          open(component, row.item_id);
-          return;
-        }
-      }
+      const row = listed[at + direction];
+      if (component && at >= 0 && row) open(component, row.item_id);
     },
-    [component, items, itemId, open],
+    [component, listed, at, open],
   );
 
   return (
@@ -138,8 +135,9 @@ export function AdjudicationPage() {
               <Button
                 variant="outline"
                 size="icon-sm"
-                title="Previous item with open units ([)"
-                aria-label="Previous item with open units"
+                title="Previous item ([)"
+                aria-label="Previous item"
+                disabled={at <= 0}
                 onClick={() => {
                   step(-1);
                 }}
@@ -154,7 +152,7 @@ export function AdjudicationPage() {
                   open(component, e.target.value);
                 }}
               >
-                {items.map((i) => (
+                {listed.map((i) => (
                   <option key={i.item_id} value={i.item_id}>
                     {i.title}
                     {i.stratum ? ` [${i.stratum}]` : ""} {i.decided}/{i.queued}
@@ -164,8 +162,9 @@ export function AdjudicationPage() {
               <Button
                 variant="outline"
                 size="icon-sm"
-                title="Next item with open units (])"
-                aria-label="Next item with open units"
+                title="Next item (])"
+                aria-label="Next item"
+                disabled={at < 0 || at >= listed.length - 1}
                 onClick={() => {
                   step(1);
                 }}

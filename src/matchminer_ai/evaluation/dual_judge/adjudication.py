@@ -3,7 +3,8 @@
 The dashboard's Benchmarking tab serves it (``apps.dashboard.benchmarking``); ``Store`` reads the run directory's
 items and ``compare/units.jsonl`` (rerun compare.py to pick up new answers; the store reloads it when it changes) and
 appends every decision to ``adjudications.jsonl`` (owner only; the latest decision per unit wins; "skip" withdraws
-one). Judges appear as Judge 1 and Judge 2 in an order fixed per item and are named only after a decision; for
+one). Judges appear as Judge 1 and Judge 2 in an order shuffled per unit (each statement or question, so naming the
+judges of one unit tells nothing about the next) and are named only after that unit's decision; for
 decision questions the teacher's answer and the decision model's P(yes) are shown only after a decision too, unless
 the reviewer asks to see them first. The items are PHI for the summary and decision components.
 """
@@ -45,9 +46,10 @@ class Store:
     def decisions(self):
         return latest_decisions(read_jsonl(self.run_dir / 'adjudications.jsonl'))
 
-    def order(self, component, item_id):
+    def order(self, unit_id):
+        """The unit's judges as Judge 1 and Judge 2: a shuffle seeded by the unit, the same on every reload."""
         judges = list(self.judges)
-        random.Random(f'{component}:{item_id}:judge-order').shuffle(judges)
+        random.Random(f'{unit_id}:judge-order').shuffle(judges)
         return judges
 
     def state(self):
@@ -68,7 +70,8 @@ class Store:
                                       decided=sum(r['decided'] for r in rows))
             return dict(components=out, compared_at=self.units_mtime)
 
-    def unit_view(self, unit, item, decisions, order, show_reference=False):
+    def unit_view(self, unit, item, decisions, show_reference=False):
+        order = self.order(unit['unit_id'])
         module = self.modules[unit['component']]
         kind = module.KINDS[unit['kind']]
         collapse = kind.get('collapse') or {}
@@ -92,8 +95,8 @@ class Store:
         with self.lock:
             self.reload()
             item = self.items[component][item_id]
-            decisions, order = self.decisions(), self.order(component, item_id)
-            units = [self.unit_view(self.units[i], item, decisions, order, show_reference)
+            decisions = self.decisions()
+            units = [self.unit_view(self.units[i], item, decisions, show_reference)
                      for i in self.by_item.get((component, item_id), [])]
             return dict(component=component, item_id=item_id, view=self.modules[component].view(item), units=units)
 
@@ -110,7 +113,7 @@ class Store:
                 allowed = {(kind.get('collapse') or {}).get(v, v) for v in kind['values']}
                 if value not in allowed:
                     raise ValueError('value is not one of the unit\'s choices')
-            order = self.order(unit['component'], unit['item_id'])
+            order = self.order(unit['unit_id'])
             if choice in ('judge1', 'judge2'):
                 picked = order[int(choice[-1]) - 1]
             else:  # a value chosen from the list: the judge who gave it, when exactly one did
