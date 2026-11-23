@@ -82,6 +82,12 @@ Each result becomes a *passage*: up to 5,000 characters of text plus its source,
 it, and a content hash. The drug's NCIt definition is stored as a passage too, so the model can cite it like
 anything else.
 
+Anonymous web search can answer with pages unrelated to the query; from some networks, most of its results are. A
+general-web passage whose title and text never name its drug or class (by its name or an alias, ignoring case and
+punctuation) is left out of synthesis and of the catalog. Checkpoints keep every passage, so the rule also applies
+to a resumed build's saved research. `--web-search-backend` names the DDGS engines to ask (default `auto`, which
+tries them all); name the ones that answer from your network.
+
 A second pass searches the drug paired with a disease. The diseases come from the `conditionsModule.conditions` of
 the trials the drug appears in (their MeSH condition terms when a trial lists none). Generic conditions such as
 "Solid Tumors" are dropped, and spellings of one disease ("Mesothelioma", "Pleural Mesothelioma") count once. Up to

@@ -70,6 +70,7 @@ from .drug_research import (
     research_class,
     research_drug,
     resolve_host_rates,
+    subject_web_evidence,
     utc_now,
 )
 
@@ -4444,8 +4445,12 @@ async def build_good_option_catalog(
     ):
         # An NCIt class's definition joins its corpus as a citable passage, as a
         # drug's does, so class synthesis can read and cite it.
+        # Web passages that never name the class are left out (see the drugs'
+        # below); a checkpoint keeps them, so a resumed build filters them too.
+        class_name, class_aliases = class_subjects[class_id]
         class_evidence_by_id[class_id] = _merge_evidence(
-            class_definitions.get(class_id, ()), class_items
+            class_definitions.get(class_id, ()),
+            subject_web_evidence(class_items, (class_name, *class_aliases)),
         )
         attempts.extend(class_attempts)
 
@@ -4457,6 +4462,15 @@ async def build_good_option_catalog(
         synthesizer=synthesizer,
         progress_callback=progress_callback,
     )
+
+    # Anonymous web search can answer with pages unrelated to the query. A web
+    # passage that never names its drug is not evidence about it, so synthesis
+    # and the catalog leave it out. Classification, which ran before this, read
+    # the drug's mechanism passages, and its checkpoints are unchanged.
+    for drug in identities.values():
+        evidence_by_drug[drug.drug_id] = subject_web_evidence(
+            evidence_by_drug[drug.drug_id], (drug.preferred_name, *drug.aliases)
+        )
 
     synthesis_inputs = [
         (drug, evidence_by_drug[drug.drug_id])

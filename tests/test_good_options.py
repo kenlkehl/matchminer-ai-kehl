@@ -3548,6 +3548,24 @@ def test_default_host_rates_pace_ctgov_dailymed_and_eutils_by_ncbi_key(
             resolve_host_rates(bad)
 
 
+def test_web_passages_that_never_name_their_subject_are_dropped():
+    def passage(source_type, title, text):
+        return EvidencePassage(
+            evidence_id=title, drug_id="d", facet="mechanism_targets", source="s",
+            source_type=source_type, title=title, passage=text, url="", source_locator="",
+        )
+
+    evidence = [
+        passage("general_web", "Anti-PD-1 agents", "How PD1 inhibitors work in melanoma."),
+        passage("general_web", "Ashley furniture", "Mattress store near me."),
+        passage("general_web", "Atlas of art", "ICI and the gallery's catalog (ICIS)."),
+        passage("literature_abstract", "Unrelated title", "Abstract without the name."),
+    ]
+    kept = research_module.subject_web_evidence(evidence, ("PD-1 Inhibitor", "ICI"))
+    assert [item.title for item in kept] == ["Anti-PD-1 agents", "Atlas of art", "Unrelated title"]
+    assert not research_module.names_subject("ICIS only", ("ICI",))
+
+
 def test_web_search_backend_reaches_ddgs_and_keeps_the_fingerprint(monkeypatch):
     calls = []
 

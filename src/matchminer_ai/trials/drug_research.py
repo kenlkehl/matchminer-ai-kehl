@@ -616,6 +616,50 @@ async def _fetch_document_text(
     return _html_text(response.text, max_chars=settings.max_passage_chars)
 
 
+def names_subject(text: str, names: Iterable[str]) -> bool:
+    """Whether ``text`` names a subject by one of ``names``.
+
+    Case, punctuation and spacing are ignored, and a name of five or more
+    characters may continue into a longer word ("inhibitor" in "inhibitors").
+    Shorter names must stand as whole words, and names under three characters
+    are not looked for.
+    """
+
+    spaced = " " + re.sub(r"[^0-9a-z]+", " ", text.casefold()).strip() + " "
+    compact = spaced.replace(" ", "")
+    for name in names:
+        words = re.sub(r"[^0-9a-z]+", " ", str(name).casefold()).strip()
+        if len(words) < 3:
+            continue
+        if len(words) < 5:
+            if f" {words} " in spaced:
+                return True
+        elif f" {words}" in spaced or (
+            len(joined := words.replace(" ", "")) >= 6 and joined in compact
+        ):
+            return True
+    return False
+
+
+def subject_web_evidence(
+    evidence: Iterable[EvidencePassage], names: Iterable[str]
+) -> list[EvidencePassage]:
+    """Drop general-web passages that never name their subject.
+
+    Anonymous web search can answer with pages unrelated to the query: from
+    some networks most of its results are. A page that never names the drug or
+    class is not evidence about it. Passages from other sources are kept.
+    """
+
+    names = tuple(names)
+    return [
+        item
+        for item in evidence
+        if item.source_type != GeneralWebEvidenceSource.source_type
+        or names_subject(f"{item.title} {item.passage}", names)
+    ]
+
+
 class GeneralWebEvidenceSource:
     """Search and fetch substantive passages from a pluggable web provider."""
 
@@ -1882,6 +1926,7 @@ __all__ = [
     "clean_text",
     "default_host_rates",
     "default_sources",
+    "names_subject",
     "ncbi_api_key",
     "paced_client",
     "research_class",
@@ -1893,4 +1938,5 @@ __all__ = [
     "subject_for_class",
     "subject_for_drug",
     "subject_for_indication",
+    "subject_web_evidence",
 ]
