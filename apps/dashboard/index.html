@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../../evaluation/">
+        <link rel="prev" href="../dashboard-overview/">
       
       
         <link rel="next" href="../../reference/configuration/">
@@ -900,6 +900,8 @@
       
         
       
+        
+      
     
     
     
@@ -944,6 +946,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -2286,9 +2316,10 @@ and is never written to disk or logged; an ad-hoc criteria line's compiled query
 Patient summaries and structured records go to the selected model connection, so use one authorized for the mode's
 data.</p>
 <h2 id="how-this-works">How this works<a class="headerlink" href="#how-this-works" title="Permanent link">&para;</a></h2>
-<p>The How this works tab shows a curated set of the documentation's pages: how matching works at run time, training
-(TrialSpace, the decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and
-criteria screening. The extraction data model page is generated from the schema's declarations (item types, fields,
+<p>The How this works tab shows a curated set of the documentation's pages. It opens on an
+<a href="../dashboard-overview/">overview of the app</a>, then how matching works at run time, training (TrialSpace, the
+decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and criteria
+screening. The extraction data model page is generated from the schema's declarations (item types, fields,
 vocabularies, versions), so it matches the code. From a source checkout the pages are read from <code>docs/</code>; the frontend
 build copies them into the package (<code>static/docs/</code>) for an installed one. Only the pages listed in
 <code>docs_pages.json</code> are served.</p>
