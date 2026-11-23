@@ -242,6 +242,25 @@ def test_training_ids_join_on_pseudo_mrn_and_sample_is_reproducible(tmp_path):
     assert len(c.summaries) == 2 and set(c.notes.patient_id) == set(c.summaries.patient_id)
 
 
+def test_synthetic_sample_draws_from_the_split_unless_training_patients_are_included(tmp_path):
+    ids = [f"p{i}" for i in range(6)]
+    # Keyed like the v23 run's tables: the patient's own patient_id beside pseudo_mrn.
+    pd.DataFrame({"patient_id": ids, "pseudo_mrn": range(6), "patient_summary": [f"Fabricated {i}" for i in ids],
+                  "split": ["test", "test", "train", "train", "train", "validation"]}
+                 ).to_parquet(tmp_path / "summaries.parquet")
+    pd.DataFrame({"patient_id": ids, "pseudo_mrn": range(6), "synthetic_note": [f"Note {i}" for i in ids],
+                  "date": ["2026-01-01"] * 6, "event_type": ["Visit"] * 6}).to_parquet(tmp_path / "notes.parquet")
+    settings = Settings(device="cpu", population_summaries=tmp_path / "summaries.parquet",
+                        population_notes=tmp_path / "notes.parquet", population_split="test",
+                        population_key="patient_id")
+    default = load_population_sample(settings, 2, 23, lambda _: None)
+    assert set(default.summaries.patient_id) == {"p0", "p1"}
+    with pytest.raises(InputError, match="Only 2 patients in the test split.*Include training patients"):
+        load_population_sample(settings, 3, 23, lambda _: None)
+    every = load_population_sample(settings, 6, 23, lambda _: None, include_training=True)
+    assert set(every.summaries.patient_id) == set(ids)
+
+
 def fabricated_database(path):
     """A tiny fabricated copy of the real-time MatchMiner-AI schema; no real records."""
     import duckdb

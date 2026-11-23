@@ -39,7 +39,9 @@ TrialSpace model and says so on Data and models if they differ.
 - **Guideline concordance reporting:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default, or the LLM's reasonableness answer), and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
-  workup item or a patient, and export the cohort and its results.
+  workup item or a patient, and export the cohort and its results. In synthetic mode the sample comes from
+  `synthetic.population_split` (the run's test split, which the decision model never trained on); **Include training
+  patients** samples every split, with the decision model's scores for training patients optimistic.
 - **Patient-centric search:** one patient for three views. The patient is a corpus patient, an entered summary, or clinical
   notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are summarized.
   - *Trials:* the ranked trial cohorts with the decision model's or the LLM's scores, and the GoodOption check. A

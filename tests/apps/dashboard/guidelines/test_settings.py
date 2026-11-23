@@ -62,7 +62,8 @@ def test_the_apps_mode_sets_the_guideline_side(make_client, mode):
         assert client.get("/api/patient/synthetic-notes").status_code == 400
     # Real patient databases and population caches exist in real mode only.
     defaults = client.get("/api/population").json()["defaults"]
-    assert set(defaults) == {"size", "seed", "extraction_records", *(("database", "cache") if mode == "real" else ())}
+    assert set(defaults) == {"size", "seed", "extraction_records",
+                             *(("database", "cache") if mode == "real" else ("split",))}
     for path in ("/api/population/databases", "/api/population/database", "/api/population/cache"):
         assert (client.get(path).status_code == 404) is (mode == "synthetic"), path
     if mode == "synthetic":

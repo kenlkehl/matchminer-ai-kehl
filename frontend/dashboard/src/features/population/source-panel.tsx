@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { Mode } from "@/lib/api";
 
 import { BrowseDialog, type BrowseKind } from "./browse-dialog";
@@ -16,6 +18,7 @@ export function SourcePanel({ pop, mode }: { pop: PopulationController; mode: Mo
   const defaults = pop.defaults;
   const [size, setSize] = useRemembered<string | null>("population.size", null);
   const [seed, setSeed] = useRemembered<string | null>("population.seed", null);
+  const [includeTraining, setIncludeTraining] = useRemembered("population.includeTraining", false);
   const sizeValue = size ?? (defaults ? String(defaults.size) : "");
   const seedValue = seed ?? (defaults ? String(defaults.seed) : "");
   const real = mode === "real";
@@ -65,10 +68,29 @@ export function SourcePanel({ pop, mode }: { pop: PopulationController; mode: Mo
             className="flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              void pop.start("/api/population/sample", sampleBody());
+              void pop.start("/api/population/sample", {
+                ...sampleBody(),
+                include_training: includeTraining,
+              });
             }}
           >
             {sampleFields}
+            {defaults?.split ? (
+              <Label className="items-start gap-1.5 text-xs font-normal text-gray-700">
+                <Checkbox
+                  className="mt-px size-3.5"
+                  checked={includeTraining}
+                  onCheckedChange={(v) => {
+                    setIncludeTraining(v);
+                  }}
+                />
+                <span>
+                  Include training patients. Otherwise patients come from the run&apos;s{" "}
+                  {defaults.split} split, which the decision model never trained on; its scores for
+                  training patients are optimistic.
+                </span>
+              </Label>
+            ) : null}
             <Button type="submit" variant="outline" className="w-full">
               Load synthetic population
             </Button>

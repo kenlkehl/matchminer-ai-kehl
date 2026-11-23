@@ -67,7 +67,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `real.duckdb_roots` | the data root | Folders real mode may browse for DuckDB files |
 | `real.extraction_records`, `synthetic.extraction_records` | beside the population database; `<data root>/no_phi/guideline_fetcher_extractions/synthetic` | Extraction records: the Patient tab's Structured data, extraction-based workup checks, and criteria screening |
 | `synthetic.population_summaries`, `synthetic.population_notes` | `<data root>/no_phi/patient_summaries.parquet`, `<data root>/no_phi/all_synthetic_notes.parquet` | Synthetic mode's population (Population management samples it) |
-| `synthetic.population_split` | none (every patient) | The split the synthetic sample is drawn from, when the summaries have a `split` column |
+| `synthetic.population_split` | none (every patient) | The split the synthetic sample is drawn from, when the summaries have a `split` column; a sample with **Include training patients** draws from every split |
 | `synthetic.population_key` | `pseudo_mrn` | The synthetic tables' patient key; `patient_id` when it is the patient's own ID (the patient corpus's), not a generation-prompt ID |
 | `real.benchmark_roots`, `synthetic.benchmark_roots` | none | Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under `phi` |
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |

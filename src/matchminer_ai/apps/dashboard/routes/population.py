@@ -44,6 +44,12 @@ class SampleRequest(BaseModel):
     seed: int = Field(default=23, ge=0, le=2**32 - 1, strict=True)
 
 
+class SyntheticSampleRequest(SampleRequest):
+    """Synthetic mode: ``include_training`` samples every split, not only the configured (test) split."""
+
+    include_training: bool = Field(default=False, strict=True)
+
+
 class DatabaseSampleRequest(SampleRequest):
     """PHI mode: sample from an operator-selected DuckDB database."""
 
@@ -105,6 +111,7 @@ def router(g: GuidelineState) -> APIRouter:
                 "size": settings.population_sample_size,
                 "seed": settings.population_seed,
                 "extraction_records": str(settings.extraction_records),
+                **({} if settings.phi else {"split": settings.population_split}),
                 **({"database": str(settings.population_duckdb),
                     "cache": str(settings.population_cache)} if settings.phi else {}),
             },
@@ -168,7 +175,7 @@ def router(g: GuidelineState) -> APIRouter:
             ) from None
 
     # PHI mode samples a DuckDB database; the non-PHI app, its synthetic Parquets.
-    sample_request = DatabaseSampleRequest if settings.phi else SampleRequest
+    sample_request = DatabaseSampleRequest if settings.phi else SyntheticSampleRequest
 
     @api.post("/api/population/sample", status_code=202)
     def sample(body: sample_request, request: Request):
@@ -181,7 +188,8 @@ def router(g: GuidelineState) -> APIRouter:
 
         def run(progress):
             cohort = load_population_sample(
-                settings, body.size, body.seed, progress, database=database
+                settings, body.size, body.seed, progress, database=database,
+                include_training=getattr(body, "include_training", False),
             )
             return sessions.save(owner, cohort, embeddings=worker.embed(cohort, progress))
 

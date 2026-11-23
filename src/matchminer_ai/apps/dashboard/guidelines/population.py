@@ -64,12 +64,13 @@ def adapt_tables(summaries, notes, key="pseudo_mrn"):
     return summaries, notes
 
 
-def synthetic_sample(settings, size, seed):
+def synthetic_sample(settings, size, seed, *, include_training=False):
     """Synthetic mode's seeded sample: ``(sample, note_ids, dataset, note_key, note_map, eligible_count)``.
 
     Patients with a nonblank summary and notes, from ``settings.population_split`` when the summaries have a
-    ``split`` column; the same size and seed always give the same patients (the extraction store's are the
-    default sample's; preprocess_extractions ``--population-sample``)."""
+    ``split`` column, or from every split with ``include_training`` (the decision model trained on the other
+    splits' patients, so its scores for them are optimistic). The same size, seed and choice always give the same
+    patients (the extraction store's are the default sample's; preprocess_extractions ``--population-sample``)."""
     import pyarrow.dataset as ds
     import pyarrow.parquet as pq
 
@@ -80,10 +81,11 @@ def synthetic_sample(settings, size, seed):
               "general_exclusion_criteria_evidence", "split"]
     summaries = pd.read_parquet(settings.population_summaries,
                                 columns=list(dict.fromkeys(c for c in wanted if c in names)))
-    if settings.population_split:
+    split = None if include_training else settings.population_split
+    if split:
         if "split" not in summaries:
             raise InputError("The synthetic summaries have no split column.")
-        summaries = summaries.loc[summaries.split.eq(settings.population_split)]
+        summaries = summaries.loc[summaries.split.eq(split)]
     summaries = summaries.drop(columns=["split"], errors="ignore")
     dataset = ds.dataset(settings.population_notes, format="parquet")
     note_key, note_map = synthetic_note_columns(dataset.schema.names, settings.population_key)
@@ -95,20 +97,25 @@ def synthetic_sample(settings, size, seed):
     if eligible[summary_key].duplicated().any():
         raise InputError("Population summaries must contain one row per patient.")
     if size > len(eligible):
-        raise InputError(f"Only {len(eligible)} patients have both summaries and notes.")
+        if split:
+            raise InputError(f"Only {len(eligible):,} patients in the {split} split have both summaries and notes. "
+                             "Include training patients to sample more.")
+        raise InputError(f"Only {len(eligible):,} patients have both summaries and notes.")
     sample = eligible.sample(n=size, random_state=seed).reset_index(drop=True)
     keys = set(sample[summary_key].astype(str))
     typed_ids = [key for key in note_ids if str(key) in keys]
     return sample, typed_ids, dataset, note_key, note_map, len(eligible)
 
 
-def load_synthetic_sample(settings, size, seed, progress):
-    """Synthetic mode: a seeded sample of the configured synthetic summary and note Parquets."""
+def load_synthetic_sample(settings, size, seed, progress, include_training=False):
+    """Synthetic mode: a seeded sample of the configured synthetic summary and note Parquets (``include_training``:
+    from every split, see :func:`synthetic_sample`)."""
     from matchminer_ai.population import create_patient_cohort
     import pyarrow.dataset as ds
 
     progress("Reading synthetic summaries and matching note identifiers")
-    sample, typed_ids, dataset, note_key, note_map, eligible_count = synthetic_sample(settings, size, seed)
+    sample, typed_ids, dataset, note_key, note_map, eligible_count = synthetic_sample(
+        settings, size, seed, include_training=include_training)
     columns = [c for c in note_map if c in dataset.schema.names]
     check_cancelled()
     progress(f"Loading original notes for {size} sampled patients")
@@ -138,7 +145,8 @@ def load_synthetic_sample(settings, size, seed, progress):
         "sample_size": size,
         "random_seed": seed,
         "eligible_population_count": eligible_count,
-        "split": settings.population_split,
+        "split": None if include_training else settings.population_split,
+        "includes_training_patients": bool(include_training and settings.population_split),
         "summary_file": Path(settings.population_summaries).name,
         "notes_file": Path(settings.population_notes).name,
         "source_files": [
@@ -347,13 +355,13 @@ def _interruptible(con, query, progress, message):
                 ) from None
 
 
-def load_population_sample(settings, size, seed, progress, database=None):
+def load_population_sample(settings, size, seed, progress, database=None, include_training=False):
     """The mode's sample: DuckDB in PHI mode, else the synthetic Parquets."""
     if settings.phi:
         return load_duckdb_sample(settings, size, seed, progress, database)
     if database is not None:
         raise InputError("DuckDB populations need real mode (mmai-dashboard --mode real).")
-    return load_synthetic_sample(settings, size, seed, progress)
+    return load_synthetic_sample(settings, size, seed, progress, include_training=include_training)
 
 
 def load_duckdb_sample(settings, size, seed, progress, database=None):

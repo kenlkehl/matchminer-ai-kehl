@@ -137,6 +137,8 @@ export interface PopulationDefaults {
   size: number;
   seed: number;
   extraction_records: string;
+  /** Synthetic mode: the split samples come from unless training patients are included (null: every patient). */
+  split?: string | null;
   /** Real mode only. */
   database?: string;
   cache?: string;
