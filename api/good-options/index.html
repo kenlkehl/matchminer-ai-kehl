@@ -4276,7 +4276,10 @@ runs. The two keys themselves stay in it, as they always were.</p>
 <span class="normal">4737</span>
 <span class="normal">4738</span>
 <span class="normal">4739</span>
-<span class="normal">4740</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">build_good_option_catalog</span><span class="p">(</span>
+<span class="normal">4740</span>
+<span class="normal">4741</span>
+<span class="normal">4742</span>
+<span class="normal">4743</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">build_good_option_catalog</span><span class="p">(</span>
     <span class="n">nct_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="n">output_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -4993,7 +4996,10 @@ runs. The two keys themselves stay in it, as they always were.</p>
                 <span class="p">)</span>
             <span class="n">class_research_completed</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="k">if</span> <span class="n">progress_callback</span><span class="p">:</span>
-                <span class="n">suffix</span> <span class="o">=</span> <span class="s2">" (checkpoint)"</span> <span class="k">if</span> <span class="n">resumed</span> <span class="k">else</span> <span class="s2">""</span>
+                <span class="n">suffix</span> <span class="o">=</span> <span class="s2">" (checkpoint)"</span> <span class="k">if</span> <span class="n">resumed</span> <span class="k">else</span> <span class="p">(</span>
+                    <span class="s2">" (incomplete: sources failed on connection errors; a resumed build retries it)"</span>
+                    <span class="k">if</span> <span class="n">class_status</span> <span class="o">==</span> <span class="s2">"incomplete"</span> <span class="k">else</span> <span class="s2">""</span>
+                <span class="p">)</span>
                 <span class="n">progress_callback</span><span class="p">(</span>
                     <span class="s2">"class_research"</span><span class="p">,</span>
                     <span class="n">class_research_completed</span><span class="p">,</span>
@@ -5332,10 +5338,7 @@ runs. The two keys themselves stay in it, as they always were.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4908</span>
-<span class="normal">4909</span>
-<span class="normal">4910</span>
-<span class="normal">4911</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4911</span>
 <span class="normal">4912</span>
 <span class="normal">4913</span>
 <span class="normal">4914</span>
@@ -5543,7 +5546,10 @@ runs. The two keys themselves stay in it, as they always were.</p>
 <span class="normal">5116</span>
 <span class="normal">5117</span>
 <span class="normal">5118</span>
-<span class="normal">5119</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_good_option_catalog</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="normal">5119</span>
+<span class="normal">5120</span>
+<span class="normal">5121</span>
+<span class="normal">5122</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">validate_good_option_catalog</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Validate file hashes, identities, roles, and terminal research states."""</span>
 
     <span class="n">root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
@@ -5782,10 +5788,7 @@ validation cost once. Treat a cached catalog as read-only.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/drug_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">5251</span>
-<span class="normal">5252</span>
-<span class="normal">5253</span>
-<span class="normal">5254</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">5254</span>
 <span class="normal">5255</span>
 <span class="normal">5256</span>
 <span class="normal">5257</span>
@@ -5803,7 +5806,10 @@ validation cost once. Treat a cached catalog as read-only.</p>
 <span class="normal">5269</span>
 <span class="normal">5270</span>
 <span class="normal">5271</span>
-<span class="normal">5272</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_good_option_catalog</span><span class="p">(</span>
+<span class="normal">5272</span>
+<span class="normal">5273</span>
+<span class="normal">5274</span>
+<span class="normal">5275</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_good_option_catalog</span><span class="p">(</span>
     <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GoodOptionCatalog</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Load a Parquet bundle and optionally verify its full manifest contract.</span>

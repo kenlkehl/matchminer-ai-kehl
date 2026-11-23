@@ -2800,6 +2800,10 @@ processes (default 16), and each patient starts as soon as its chunks are ready.
 (<code>batch_size * batches_in_flight</code>) waiting, so requests begin within minutes rather than after every patient has been
 tokenized. The chunks are the same as a single process makes, so the number of workers does not change the results or
 the checkpoints.</p>
+<p>With a server registry, the requests in flight follow the servers' ceilings added up, when that is more than the
+window, at both levels: patients and notes are added as answers return, keeping a window waiting beyond those in
+flight. <code>check_extraction_settings(config)</code> checks both sections' settings without notes; <code>preprocess_extractions</code> runs
+it before it reads the notes, so a bad value fails at once rather than after a large store's notes have loaded.</p>
 <h2 id="checkpoints">Checkpoints<a class="headerlink" href="#checkpoints" title="Permanent link">&para;</a></h2>
 <p>With <code>checkpoint_dir</code>, the document stage appends each finished note to
 <code>document_records.jsonl</code> and the patient stage saves each patient after every
@@ -3563,34 +3567,7 @@ row per item.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/documents.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">206</span>
-<span class="normal">207</span>
-<span class="normal">208</span>
-<span class="normal">209</span>
-<span class="normal">210</span>
-<span class="normal">211</span>
-<span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span>
-<span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span>
-<span class="normal">219</span>
-<span class="normal">220</span>
-<span class="normal">221</span>
-<span class="normal">222</span>
-<span class="normal">223</span>
-<span class="normal">224</span>
-<span class="normal">225</span>
-<span class="normal">226</span>
-<span class="normal">227</span>
-<span class="normal">228</span>
-<span class="normal">229</span>
-<span class="normal">230</span>
-<span class="normal">231</span>
-<span class="normal">232</span>
-<span class="normal">233</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">233</span>
 <span class="normal">234</span>
 <span class="normal">235</span>
 <span class="normal">236</span>
@@ -3856,7 +3833,16 @@ row per item.</p>
 <span class="normal">496</span>
 <span class="normal">497</span>
 <span class="normal">498</span>
-<span class="normal">499</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_document_records</span><span class="p">(</span>
+<span class="normal">499</span>
+<span class="normal">500</span>
+<span class="normal">501</span>
+<span class="normal">502</span>
+<span class="normal">503</span>
+<span class="normal">504</span>
+<span class="normal">505</span>
+<span class="normal">506</span>
+<span class="normal">507</span>
+<span class="normal">508</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_document_records</span><span class="p">(</span>
     <span class="n">notes</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MMAIConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3915,30 +3901,11 @@ row per item.</p>
     <span class="n">resolved</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="n">load_default_preset</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">MMAIConfig</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"config must be an MMAIConfig instance or None."</span><span class="p">)</span>
-    <span class="n">frame</span><span class="p">,</span> <span class="n">counts</span> <span class="o">=</span> <span class="n">normalize_notes</span><span class="p">(</span><span class="n">notes</span><span class="p">)</span>
-    <span class="n">extensions</span> <span class="o">=</span> <span class="n">resolve_extensions</span><span class="p">((</span><span class="nb">getattr</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">SECTION</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"extensions"</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span>
-    <span class="n">extra_types</span> <span class="o">=</span> <span class="n">extension_item_types</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
-    <span class="n">item_types</span> <span class="o">=</span> <span class="n">item_types_for</span><span class="p">(</span><span class="s2">"document"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">)</span>
     <span class="n">linking</span> <span class="o">=</span> <span class="n">patient_records</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="p">(</span><span class="n">extensions</span><span class="p">,</span> <span class="n">item_types</span><span class="p">,</span> <span class="n">schema</span><span class="p">,</span> <span class="n">settings</span><span class="p">,</span> <span class="n">template</span><span class="p">,</span> <span class="n">guide</span><span class="p">,</span> <span class="n">guidance</span><span class="p">,</span> <span class="n">head</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">ncit_resource</span><span class="p">,</span>
+     <span class="n">contract</span><span class="p">)</span> <span class="o">=</span> <span class="n">_resolve_settings</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">linking</span><span class="p">)</span>
+    <span class="n">frame</span><span class="p">,</span> <span class="n">counts</span> <span class="o">=</span> <span class="n">normalize_notes</span><span class="p">(</span><span class="n">notes</span><span class="p">)</span>
     <span class="n">cancers</span> <span class="o">=</span> <span class="n">known_cancers</span><span class="p">(</span><span class="n">patient_records</span><span class="p">)</span> <span class="k">if</span> <span class="n">linking</span> <span class="k">else</span> <span class="p">{}</span>
-    <span class="n">schema</span> <span class="o">=</span> <span class="n">document_response_schema</span><span class="p">(</span><span class="n">extra_types</span><span class="p">,</span> <span class="n">linking</span><span class="o">=</span><span class="n">linking</span><span class="p">)</span>
-    <span class="n">settings</span> <span class="o">=</span> <span class="n">section_settings</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">SECTION</span><span class="p">,</span> <span class="s2">"clinical_document_record"</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
-    <span class="n">template</span> <span class="o">=</span> <span class="n">load_prompt_text</span><span class="p">(</span><span class="n">PROMPT_FILE</span><span class="p">)</span>
-    <span class="n">guide</span> <span class="o">=</span> <span class="n">render_field_guide</span><span class="p">(</span><span class="s2">"document"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">,</span> <span class="n">linking</span><span class="o">=</span><span class="n">linking</span><span class="p">)</span>
-    <span class="n">guidance</span> <span class="o">=</span> <span class="n">extension_guidance</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
-    <span class="c1"># The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).</span>
-    <span class="n">head</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="si">{linking}</span><span class="s2">"</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="p">{</span>
-        <span class="s2">"field_guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span> <span class="s2">"extension_guidance"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">guidance</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="k">if</span> <span class="n">guidance</span> <span class="k">else</span> <span class="s2">""</span><span class="p">})</span>
-    <span class="n">limit</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"max_document_characters"</span><span class="p">,</span> <span class="mi">200000</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">limit</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">limit</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.max_document_characters must be a positive integer"</span><span class="p">)</span>
-    <span class="n">ncit_resource</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-        <span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="n">resolved</span><span class="o">.</span><span class="n">good_option_catalog</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="s2">"Thesaurus_26.07d.FLAT.zip"</span><span class="p">)</span>
-    <span class="p">)</span>
-    <span class="n">contract</span> <span class="o">=</span> <span class="n">digest</span><span class="p">({</span>
-        <span class="s2">"schema_version"</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">"template"</span><span class="p">:</span> <span class="n">template</span><span class="p">,</span> <span class="s2">"guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span>
-        <span class="s2">"guidance"</span><span class="p">:</span> <span class="n">guidance</span><span class="p">,</span> <span class="s2">"schema"</span><span class="p">:</span> <span class="n">schema</span><span class="p">,</span> <span class="s2">"ncit"</span><span class="p">:</span> <span class="n">settings</span><span class="o">.</span><span class="n">ncit_agent_codes</span><span class="p">,</span>
-    <span class="p">})</span>
     <span class="n">debug</span> <span class="o">=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">debug_mode</span>
 
     <span class="n">notes_list</span> <span class="o">=</span> <span class="p">[</span>
@@ -4022,17 +3989,18 @@ row per item.</p>
             <span class="n">model_metadata_cache_dir</span><span class="o">=</span><span class="n">resolved</span><span class="o">.</span><span class="n">model_metadata_cache_dir</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="c1"># Prompts are built as requests are sent, so a large run never holds</span>
-        <span class="c1"># every rendered prompt at once.</span>
+        <span class="c1"># every rendered prompt at once. A window of notes waits beyond those in</span>
+        <span class="c1"># flight: the queue sends more than its window when the endpoints take</span>
+        <span class="c1"># more, so a fixed number of notes outstanding would hold a run below them.</span>
         <span class="n">waiting</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">pending</span><span class="p">)</span>
+        <span class="n">window</span> <span class="o">=</span> <span class="n">chunk_size</span> <span class="o">*</span> <span class="n">chunks_in_flight</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">feed</span><span class="p">():</span>
-            <span class="n">note</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">waiting</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">note</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">queue</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">window</span> <span class="ow">and</span> <span class="p">(</span><span class="n">note</span> <span class="o">:=</span> <span class="nb">next</span><span class="p">(</span><span class="n">waiting</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">original</span> <span class="o">=</span> <span class="n">messages</span><span class="p">(</span><span class="n">note</span><span class="p">)</span>
                 <span class="n">queue</span><span class="o">.</span><span class="n">add</span><span class="p">((</span><span class="n">note</span><span class="p">[</span><span class="s2">"note_id"</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="n">original</span><span class="p">),</span> <span class="n">original</span><span class="p">,</span> <span class="s2">"main"</span><span class="p">)</span>
 
-        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">chunk_size</span> <span class="o">*</span> <span class="n">chunks_in_flight</span><span class="p">):</span>
-            <span class="n">feed</span><span class="p">()</span>
+        <span class="n">feed</span><span class="p">()</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">record</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">answer</span><span class="p">,</span> <span class="n">reasoning</span><span class="p">,</span> <span class="n">finish_reason</span><span class="p">,</span> <span class="n">provenance</span><span class="p">):</span>
             <span class="n">note_id</span><span class="p">,</span> <span class="n">attempt</span><span class="p">,</span> <span class="n">original</span> <span class="o">=</span> <span class="n">item</span>
@@ -4314,62 +4282,7 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/extraction/patient_records.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">266</span>
-<span class="normal">267</span>
-<span class="normal">268</span>
-<span class="normal">269</span>
-<span class="normal">270</span>
-<span class="normal">271</span>
-<span class="normal">272</span>
-<span class="normal">273</span>
-<span class="normal">274</span>
-<span class="normal">275</span>
-<span class="normal">276</span>
-<span class="normal">277</span>
-<span class="normal">278</span>
-<span class="normal">279</span>
-<span class="normal">280</span>
-<span class="normal">281</span>
-<span class="normal">282</span>
-<span class="normal">283</span>
-<span class="normal">284</span>
-<span class="normal">285</span>
-<span class="normal">286</span>
-<span class="normal">287</span>
-<span class="normal">288</span>
-<span class="normal">289</span>
-<span class="normal">290</span>
-<span class="normal">291</span>
-<span class="normal">292</span>
-<span class="normal">293</span>
-<span class="normal">294</span>
-<span class="normal">295</span>
-<span class="normal">296</span>
-<span class="normal">297</span>
-<span class="normal">298</span>
-<span class="normal">299</span>
-<span class="normal">300</span>
-<span class="normal">301</span>
-<span class="normal">302</span>
-<span class="normal">303</span>
-<span class="normal">304</span>
-<span class="normal">305</span>
-<span class="normal">306</span>
-<span class="normal">307</span>
-<span class="normal">308</span>
-<span class="normal">309</span>
-<span class="normal">310</span>
-<span class="normal">311</span>
-<span class="normal">312</span>
-<span class="normal">313</span>
-<span class="normal">314</span>
-<span class="normal">315</span>
-<span class="normal">316</span>
-<span class="normal">317</span>
-<span class="normal">318</span>
-<span class="normal">319</span>
-<span class="normal">320</span>
-<span class="normal">321</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">321</span>
 <span class="normal">322</span>
 <span class="normal">323</span>
 <span class="normal">324</span>
@@ -4716,7 +4629,22 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
 <span class="normal">665</span>
 <span class="normal">666</span>
 <span class="normal">667</span>
-<span class="normal">668</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_patient_records</span><span class="p">(</span>
+<span class="normal">668</span>
+<span class="normal">669</span>
+<span class="normal">670</span>
+<span class="normal">671</span>
+<span class="normal">672</span>
+<span class="normal">673</span>
+<span class="normal">674</span>
+<span class="normal">675</span>
+<span class="normal">676</span>
+<span class="normal">677</span>
+<span class="normal">678</span>
+<span class="normal">679</span>
+<span class="normal">680</span>
+<span class="normal">681</span>
+<span class="normal">682</span>
+<span class="normal">683</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_patient_records</span><span class="p">(</span>
     <span class="n">notes</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MMAIConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -4769,51 +4697,11 @@ dropped, or <code>failed</code>), <code>error</code>, <code>note_count</code>, <
     <span class="n">resolved</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="n">load_default_preset</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">MMAIConfig</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">"config must be an MMAIConfig instance or None."</span><span class="p">)</span>
+    <span class="p">(</span>
+        <span class="n">extensions</span><span class="p">,</span> <span class="n">item_types</span><span class="p">,</span> <span class="n">schema</span><span class="p">,</span> <span class="n">settings</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">chunk_tokens</span><span class="p">,</span> <span class="n">overlap</span><span class="p">,</span> <span class="n">prompt_tokens</span><span class="p">,</span> <span class="n">budget</span><span class="p">,</span>
+        <span class="n">fragment_size</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">max_tokens</span><span class="p">,</span> <span class="n">tokenizer_name</span><span class="p">,</span> <span class="n">template</span><span class="p">,</span> <span class="n">guide</span><span class="p">,</span> <span class="n">guidance</span><span class="p">,</span> <span class="n">head</span><span class="p">,</span> <span class="n">ncit_resource</span><span class="p">,</span> <span class="n">contract</span>
+    <span class="p">)</span> <span class="o">=</span> <span class="n">_resolve_settings</span><span class="p">(</span><span class="n">resolved</span><span class="p">)</span>
     <span class="n">frame</span><span class="p">,</span> <span class="n">counts</span> <span class="o">=</span> <span class="n">normalize_notes</span><span class="p">(</span><span class="n">notes</span><span class="p">)</span>
-    <span class="n">extensions</span> <span class="o">=</span> <span class="n">resolve_extensions</span><span class="p">((</span><span class="nb">getattr</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">SECTION</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"extensions"</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span>
-    <span class="n">extra_types</span> <span class="o">=</span> <span class="n">extension_item_types</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
-    <span class="n">item_types</span> <span class="o">=</span> <span class="n">item_types_for</span><span class="p">(</span><span class="s2">"patient"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">)</span>
-    <span class="n">schema</span> <span class="o">=</span> <span class="n">patient_response_schema</span><span class="p">(</span><span class="n">extra_types</span><span class="p">)</span>
-    <span class="n">settings</span> <span class="o">=</span> <span class="n">section_settings</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">SECTION</span><span class="p">,</span> <span class="s2">"clinical_patient_record_update"</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
-    <span class="n">values</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">values</span>
-    <span class="n">chunk_tokens</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"chunk_tokens"</span><span class="p">,</span> <span class="mi">40000</span><span class="p">)</span>
-    <span class="n">overlap</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"chunk_overlap_tokens"</span><span class="p">,</span> <span class="mi">500</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">chunk_tokens</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">chunk_tokens</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.chunk_tokens must be an integer of at least 256"</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">overlap</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">overlap</span> <span class="o">&lt;</span> <span class="n">chunk_tokens</span> <span class="o">//</span> <span class="mi">2</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.chunk_overlap_tokens must be from 0 to half of chunk_tokens"</span><span class="p">)</span>
-    <span class="c1"># A prompt budget (prompt_tokens, in the model's tokens; prompt_token_ratio of them per chunk-tokenizer token):</span>
-    <span class="c1"># each request then takes only the next note fragments that fit beside the record so far, so a growing record</span>
-    <span class="c1"># does not push prompts past it (Claude Haiku 5.5 costs five times as much above 100,000 prompt tokens).</span>
-    <span class="n">prompt_tokens</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prompt_tokens"</span><span class="p">)</span>
-    <span class="n">ratio</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prompt_token_ratio"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
-    <span class="n">fragment_tokens</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"fragment_tokens"</span><span class="p">,</span> <span class="mi">8000</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">prompt_tokens</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">prompt_tokens</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">prompt_tokens</span> <span class="o">&lt;</span> <span class="mi">1024</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.prompt_tokens must be null or an integer of at least 1024"</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ratio</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ratio</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mf">0.1</span> <span class="o">&lt;=</span> <span class="n">ratio</span> <span class="o">&lt;=</span> <span class="mi">10</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.prompt_token_ratio must be a number from 0.1 to 10"</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">fragment_tokens</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">int</span> <span class="ow">or</span> <span class="n">fragment_tokens</span> <span class="o">&lt;=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">overlap</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SECTION</span><span class="si">}</span><span class="s2">.fragment_tokens must be an integer above twice chunk_overlap_tokens"</span><span class="p">)</span>
-    <span class="n">budget</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">prompt_tokens</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="n">prompt_tokens</span> <span class="o">/</span> <span class="n">ratio</span><span class="p">)</span>
-    <span class="n">fragment_size</span> <span class="o">=</span> <span class="n">chunk_tokens</span> <span class="o">-</span> <span class="mi">64</span> <span class="k">if</span> <span class="n">budget</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">min</span><span class="p">(</span><span class="n">chunk_tokens</span> <span class="o">-</span> <span class="mi">64</span><span class="p">,</span> <span class="n">fragment_tokens</span><span class="p">)</span>
-    <span class="n">context</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"context_tokens"</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">context</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"local"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"engine"</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"max_model_len"</span><span class="p">)</span>
-    <span class="n">max_tokens</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">settings</span><span class="o">.</span><span class="n">runtime</span><span class="p">[</span><span class="s2">"sampling_params"</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"max_tokens"</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
-    <span class="n">tokenizer_name</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tokenizer_name"</span><span class="p">,</span> <span class="n">settings</span><span class="o">.</span><span class="n">runtime</span><span class="p">[</span><span class="s2">"model_name"</span><span class="p">])</span>
-    <span class="n">template</span> <span class="o">=</span> <span class="n">load_prompt_text</span><span class="p">(</span><span class="n">PROMPT_FILE</span><span class="p">)</span>
-    <span class="n">guide</span> <span class="o">=</span> <span class="n">render_field_guide</span><span class="p">(</span><span class="s2">"patient"</span><span class="p">,</span> <span class="n">extra_types</span><span class="p">)</span>
-    <span class="n">guidance</span> <span class="o">=</span> <span class="n">extension_guidance</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
-    <span class="c1"># The prompt's fixed start, the same for every request (cached on Claude; prompt_messages).</span>
-    <span class="n">head</span> <span class="o">=</span> <span class="n">fill</span><span class="p">(</span><span class="n">template</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="si">{record}</span><span class="s2">"</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="p">{</span>
-        <span class="s2">"field_guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span> <span class="s2">"extension_guidance"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">guidance</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span> <span class="k">if</span> <span class="n">guidance</span> <span class="k">else</span> <span class="s2">""</span><span class="p">})</span>
-    <span class="n">ncit_resource</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-        <span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="n">resolved</span><span class="o">.</span><span class="n">good_option_catalog</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ncit_resource"</span><span class="p">,</span> <span class="s2">"Thesaurus_26.07d.FLAT.zip"</span><span class="p">)</span>
-    <span class="p">)</span>
-    <span class="n">contract</span> <span class="o">=</span> <span class="n">digest</span><span class="p">({</span>
-        <span class="s2">"schema_version"</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">"template"</span><span class="p">:</span> <span class="n">template</span><span class="p">,</span> <span class="s2">"guide"</span><span class="p">:</span> <span class="n">guide</span><span class="p">,</span>
-        <span class="s2">"guidance"</span><span class="p">:</span> <span class="n">guidance</span><span class="p">,</span> <span class="s2">"schema"</span><span class="p">:</span> <span class="n">schema</span><span class="p">,</span>
-    <span class="p">})</span>
     <span class="n">debug</span> <span class="o">=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">debug_mode</span>
     <span class="n">folder</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">checkpoint_dir</span><span class="p">)</span> <span class="o">/</span> <span class="n">CHECKPOINT_SUBDIR</span> <span class="k">if</span> <span class="n">checkpoint_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
 

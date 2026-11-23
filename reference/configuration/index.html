@@ -3037,7 +3037,10 @@ with <code>section="trial"</code> (the default). See <a href="../../api/trials/"
 </tbody>
 </table>
 <p>A remote backend keeps <code>chunk_size * chunks_in_flight</code> requests in flight, sending each as another returns, so one
-slow answer holds up only itself. A local backend gets batches of <code>chunk_size</code> requests of one step,
+slow answer holds up only itself. When the endpoints' ceilings add up to more (a server registry's
+<code>upstream_concurrency</code> values, re-read as servers come and go), it keeps that many in flight instead, and the
+endpoint pool holds each server to its own limit. This applies to every stage that queues requests this way,
+including structured extraction. A local backend gets batches of <code>chunk_size</code> requests of one step,
 <code>chunks_in_flight</code> at once. The default prompts are <code>trial.cohorts.screen.user.txt</code>, <code>trial.cohorts.list.user.txt</code>
 and <code>trial.cohorts.criteria.user.txt</code>, shared with full protocols.</p>
 <h2 id="patient"><code>patient</code><a class="headerlink" href="#patient" title="Permanent link">&para;</a></h2>
