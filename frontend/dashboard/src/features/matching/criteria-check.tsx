@@ -150,11 +150,11 @@ export function CriteriaCheck({
     <span className="text-sm text-gray-700">
       {scorer === "llm" ? <strong>Decision model: </strong> : null}
       {fails.length === 0 ? (
-        <>No line is clearly failed ({result.lines.length} checked).</>
+        <>No criterion is clearly failed ({result.lines.length} checked).</>
       ) : (
         <>
           <strong className="text-red-700">
-            {fails.length} {fails.length === 1 ? "line" : "lines"} clearly failed
+            {fails.length} {fails.length === 1 ? "criterion" : "criteria"} clearly failed
           </strong>{" "}
           of {result.lines.length} checked.
         </>
@@ -301,10 +301,10 @@ function LLMSummary({
       <strong>LLM:</strong>{" "}
       {c.clearly_fail ? (
         <strong className="text-red-700">
-          {c.clearly_fail} {c.clearly_fail === 1 ? "line" : "lines"} clearly failed
+          {c.clearly_fail} {c.clearly_fail === 1 ? "criterion" : "criteria"} clearly failed
         </strong>
       ) : (
-        "no line clearly failed"
+        "no criterion clearly failed"
       )}{" "}
       of {c.lines}
       {c.unanswered ? ` (${String(c.unanswered)} without a valid answer)` : ""}
@@ -352,10 +352,10 @@ function RecordsSummary({
       {c.clearly_failed_lines.length ? (
         <strong className="text-red-700">
           {c.clearly_failed_lines.length} of {c.checked} checkable{" "}
-          {c.checked === 1 ? "line" : "lines"} clearly fail
+          {c.checked === 1 ? "criterion" : "criteria"} clearly fail
         </strong>
       ) : (
-        <>no line clearly fails ({c.checked} checkable)</>
+        <>no criterion clearly fails ({c.checked} checkable)</>
       )}
       {notCheckable ? ` · ${String(notCheckable)} not checkable from records` : ""}
       {decisions && compared.length ? (

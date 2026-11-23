@@ -23,9 +23,9 @@ protocol and the ClinicalTrials.gov listing. Trials not open to enrollment are h
 checked.
 
 **Find patients** ranks the patients nearest a cohort's key criteria and scores each candidate. For a candidate you
-can also check each criteria line, and run the GoodOption check on the trial's drugs. **Screen with structured data**
-checks the cohort's criteria lines against the clinical facts extracted from every candidate's notes. A line fails
-only when the records contradict it; a fact that is simply not documented never fails a line.
+can also check each criterion, and run the GoodOption check on the trial's drugs. **Screen with structured data**
+checks the cohort's criteria against the clinical facts extracted from every candidate's notes. A criterion fails
+only when the records contradict it; a fact that is simply not documented never fails a criterion.
 
 **Trial management** opens a sidebar beside the groups. It lists the trials the page shows (narrow them with the
 search and filters, or the sidebar's own filter), with each trial's slots and what has been changed. Open a trial to
@@ -37,8 +37,8 @@ work on its cohorts:
 - **Subcohorts:** when a sponsor takes only patients with requirements beyond the protocol's, define a subcohort. It
   starts with its cohort's criteria; add the sponsor's requirements to them. A diagram shows where each cohort and
   subcohort comes from.
-- **Criteria:** edit, add or remove any cohort's criteria lines. New and changed lines are labeled inclusion or
-  exclusion and key or common automatically, or by you. When you open a trial, the lines of its original cohorts
+- **Criteria:** edit, add or remove any cohort's criteria. New and changed criteria are labeled inclusion or
+  exclusion and key or common automatically, or by you. When you open a trial, the criteria of its original cohorts
   are labeled automatically too. **Revert to the AI-extracted criteria** undoes the edits. When a cohort with
   subcohorts changes, you choose whether the subcohorts take the new criteria. If the trial is extracted again and
   its criteria change, edited cohorts are flagged for review.
@@ -60,7 +60,7 @@ or text) that the app summarizes. Then:
 - **Trials:** the trial cohorts that fit the patient, ranked and scored, with filters by phase and disease center.
   **Only cohorts with open slots** searches only the cohorts and subcohorts with slots available on Trial
   management, each on its own criteria.
-  Each trial's criteria can be checked line by line, and the GoodOption check weighs the trial's drugs for this
+  Each trial's criteria can be checked one by one, and the GoodOption check weighs the trial's drugs for this
   patient using the published evidence gathered for each drug and drug class.
 - **Guidelines:** the guideline populations (NCCN and NCI PDQ) that fit the patient, with their recommended workup
   and treatment options and the sources they come from. A workup review checks which recommended steps the notes
@@ -107,4 +107,4 @@ labeling edited criteria).
 
 Wherever the app scores a patient and a trial cohort, **Scores from** switches between the decision model, a small
 model that answers in a fraction of a second, and an LLM, which shows its reasoning. Both answer the same questions,
-such as whether the pair is a reasonable consideration and whether the patient clearly fails a criteria line.
+such as whether the pair is a reasonable consideration and whether the patient clearly fails a criterion.
