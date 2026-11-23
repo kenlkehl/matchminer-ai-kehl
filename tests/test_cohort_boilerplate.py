@@ -148,3 +148,15 @@ def test_saved_classifications_are_reused_only_for_unchanged_cohorts(tmp_path, c
     changed, metadata = remove_boilerplate_criteria(frame, config=config, output_dir=tmp_path, return_metadata=True)
     assert len(cohort_backend.calls) == 2 and len(cohort_backend.calls[1][0]) == 2 and metadata["skipped_completed"] == 1
     assert changed[KEY_COLUMN].tolist() == ["Trial one adults.", "Trial one children over 12."]
+
+
+def test_known_items_are_kept_and_only_the_others_are_asked(config, cohort_backend):
+    """An edited cohort's unchanged lines keep their tags; only its new lines get a request."""
+    frame = pd.DataFrame(rows("T1", ["Inclusion criteria:\nTrial one adults.\nNew line: ECOG 0-2.\nConsent."]))
+    cohort_backend.script["Trial one adults"] = {"deboilerplate": {"New line: ECOG 0-2.": [{"boilerplate": True}]}}
+    known = [{1: {"criterion_type": "inclusion", "boilerplate": False}, 3: {"criterion_type": "inclusion", "boilerplate": True}}]
+    result, metadata = remove_boilerplate_criteria(frame, config=config, known_items=known, return_metadata=True)
+    assert len(cohort_backend.calls) == 1 and len(cohort_backend.calls[0][0]) == 1 and metadata["items_reused"] == 2
+    assert "[2] New line: ECOG 0-2." in prompt_text(cohort_backend.calls[0][0][0])  # the whole cohort is the context
+    assert [(i["number"], i["boilerplate"]) for i in load_criteria_items(result[ITEMS_COLUMN].iloc[0])] == [
+        (1, False), (2, True), (3, True)]
