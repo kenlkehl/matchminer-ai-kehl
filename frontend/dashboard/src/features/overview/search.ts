@@ -52,11 +52,12 @@ export function validateOverviewSearch(search: Record<string, unknown>): Overvie
 }
 
 export type ColumnKey =
-  "irbPi" | "cohort" | "eligibility" | "drugMechanism" | "contacts" | "patients";
+  "irbPi" | "cohort" | "slots" | "eligibility" | "drugMechanism" | "contacts" | "patients";
 
 export const COLUMNS: { key: ColumnKey; label: string; width: number; default: boolean }[] = [
   { key: "irbPi", label: "IRB# / PI", width: 1.05, default: true },
   { key: "cohort", label: "Cohort", width: 1.15, default: true },
+  { key: "slots", label: "Slots", width: 0.7, default: true },
   { key: "eligibility", label: "Key Eligibility Criteria", width: 2.5, default: true },
   { key: "drugMechanism", label: "Drug / Mechanism", width: 1.1, default: true },
   { key: "contacts", label: "Contacts", width: 1, default: true },

@@ -279,18 +279,6 @@ function CenterOverview({
           {open.length < allIds.length ? <ChevronsUpDownIcon /> : <ChevronsDownUpIcon />}
           {open.length < allIds.length ? "Expand all" : "Collapse all"}
         </Button>
-        <Button
-          variant={managing ? "secondary" : "outline"}
-          className="font-normal"
-          aria-pressed={managing}
-          onClick={() => {
-            setSidebar(!managing);
-            if (managing) overview.manageTrial(undefined);
-          }}
-        >
-          <PanelRightOpenIcon />
-          Trial management
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" className="font-normal" />}>
             <Columns3Icon />
@@ -313,6 +301,18 @@ function CenterOverview({
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        <Button
+          variant={managing ? "secondary" : "outline"}
+          className="font-normal"
+          aria-pressed={managing}
+          onClick={() => {
+            setSidebar(!managing);
+            if (managing) overview.manageTrial(undefined);
+          }}
+        >
+          <PanelRightOpenIcon />
+          Trial management
+        </Button>
       </div>
       {!view ? (
         query.isError ? (
@@ -338,7 +338,7 @@ function CenterOverview({
                   {(pin.error ?? renameGroup.error ?? deleteGroup.error)?.message}
                 </p>
               ) : null}
-              {managing ? <NewGroup centerId={center.id} /> : null}
+              <NewGroup centerId={center.id} />
               <Accordion
                 multiple
                 value={open}

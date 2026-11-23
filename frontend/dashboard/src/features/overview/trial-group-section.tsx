@@ -9,7 +9,7 @@ import {
   Trash2Icon,
   UsersIcon,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,6 @@ import {
   VERSION_LABELS,
 } from "@/lib/api";
 import { isoWhen, typeLabels } from "@/lib/format";
-import { slotText } from "@/lib/management";
 
 import {
   CatalogLink,
@@ -232,6 +231,7 @@ function CohortRowView({
     >
       {columns.irbPi ? <IrbPiCell row={row} onDetails={onDetails} /> : null}
       {columns.cohort ? <CohortCell row={row} labels={labels} /> : null}
+      {columns.slots ? <SlotsCell row={row} /> : null}
       {columns.eligibility ? <EligibilityCell row={row} onCriteria={onCriteria} /> : null}
       {columns.drugMechanism ? <DrugMechanismCell row={row} onEvidence={onEvidence} /> : null}
       {columns.contacts ? <ContactsCell row={row} /> : null}
@@ -339,7 +339,6 @@ function CohortCell({ row, labels }: { row: CohortRow; labels: Record<string, st
           ) : null}
         </div>
       ) : null}
-      <SlotLine row={row} />
       {row.group_reason ? (
         <div className="mt-auto flex justify-end pt-2 print:hidden">
           <Tooltip>
@@ -363,16 +362,37 @@ function CohortCell({ row, labels }: { row: CohortRow; labels: Record<string, st
   );
 }
 
+const SLOT_PARTS = [
+  ["available", "Available"],
+  ["consented", "Consented"],
+  ["enrolled", "Enrolled"],
+] as const;
+
 /** The cohort's slots (Trial management), as entered: its own, never added up with its parent's or subcohorts'. */
-function SlotLine({ row }: { row: CohortRow }) {
-  if (!row.slots) return null;
+function SlotsCell({ row }: { row: CohortRow }) {
+  const slots = row.slots;
   return (
-    <div
-      className="mt-1 rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-900"
-      title={row.slots.updated_at ? `Updated ${isoWhen(row.slots.updated_at)}` : undefined}
-    >
-      <strong>Slots:</strong> {slotText(row.slots)}
-    </div>
+    <Cell>
+      {slots ? (
+        <div>
+          <dl className="grid grid-cols-[auto_auto] justify-start gap-x-2 text-sm">
+            {SLOT_PARTS.map(([key, label]) => (
+              <Fragment key={key}>
+                <dt className="text-gray-600">{label}</dt>
+                <dd className="text-right font-semibold tabular-nums">{slots[key] ?? "–"}</dd>
+              </Fragment>
+            ))}
+          </dl>
+          {slots.updated_at ? (
+            <div className="mt-1 text-[11px] text-gray-500">
+              Updated {isoWhen(slots.updated_at)}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <span className="text-xs text-gray-400">Not entered</span>
+      )}
+    </Cell>
   );
 }
 

@@ -150,8 +150,9 @@ is kept for a cohort the trial no longer has is listed until deleted.
 the sidebar is open, onto a group in the groups section puts it there instead of where the grouping rules
 (`grouping.yaml`) place it; while a cohort is dragged every group is outlined and the one under it highlighted. The
 card's **back to its rule group** (or **remove from the group**) undoes it. Original cohorts and subcohorts are in a
-group only when put in one. While the sidebar is open, **New group** above the groups adds a group of the center's
-own (listed first, and shown while empty so cohorts can be dropped on it); its header renames or deletes it.
+group only when put in one. **New group** above the groups adds a group of the center's own (listed first, and shown
+while empty so cohorts can be dropped on it); its header renames or deletes it. The groups' **Slots** column (on by
+default; **Columns** hides it) shows each cohort's slots available, consented and enrolled as entered in the sidebar.
 
 **The file.** `dashboard.<mode>.trial_management` (`--trial-management`), by default
 `dashboard_trial_management/trial_management.json` under the mode's folder of the data root (real: `phi/real_time/`;

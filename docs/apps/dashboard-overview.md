@@ -43,7 +43,8 @@ work on its cohorts:
   subcohorts changes, you choose whether the subcohorts take the new criteria. If the trial is extracted again and
   its criteria change, edited cohorts are flagged for review.
 - **Groups:** drag a cohort from the sidebar onto a group on the left to show it there. **New group** adds a group
-  of your own to drop cohorts onto.
+  of your own to drop cohorts onto. The groups' **Slots** column shows each cohort's slots available, consented and
+  enrolled.
 
 Find patients, scoring, the criteria checks and screening all use a cohort's current criteria, and subcohorts can be
 searched like any cohort. Changes are saved as you make them and shared with everyone using the dashboard; **Export**
