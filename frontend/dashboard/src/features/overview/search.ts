@@ -20,8 +20,9 @@ export interface OverviewSearch {
   cohort?: string;
   /** The GoodOption catalog evidence dialog open: `drug:<id>` or `class:<id>` (over trial details, if open). */
   evidence?: string;
-  /** The trial opened in the Trial management sidebar. */
+  /** The trial opened in the Trial management sidebar, and the cohort to show in it (Manage trial). */
   manageTrial?: string;
+  manageCohort?: string;
 }
 
 function strings(value: unknown): string[] | undefined {
@@ -48,6 +49,7 @@ export function validateOverviewSearch(search: Record<string, unknown>): Overvie
     cohort: text(search.cohort),
     evidence: text(search.evidence),
     manageTrial: text(search.manageTrial),
+    manageCohort: text(search.manageCohort),
   };
 }
 
