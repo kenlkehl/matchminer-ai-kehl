@@ -270,13 +270,26 @@ class GeneralWebProvider(Protocol):
 
 
 class DDGSWebProvider:
-    """Built-in anonymous general-web provider."""
+    """Built-in anonymous general-web provider.
+
+    ``backend`` names the ddgs engines to ask, comma-separated. Which engines
+    answer depends on the network: from some, only one does. ``"auto"`` asks
+    every engine, two at a time, and a pair's failure can lose the other
+    engine's results, so naming the engines that answer makes searches faster
+    and fewer of them fail. The backend chooses engines, not what is searched,
+    so it is not part of a catalog's checkpoint fingerprint.
+    """
 
     name = "ddgs"
 
+    def __init__(self, backend: str = "auto") -> None:
+        self.backend = backend
+
     def search(self, query: str, *, max_results: int) -> Sequence[Mapping[str, Any]]:
         with DDGS() as client:
-            return list(client.text(query, max_results=max_results) or [])
+            return list(
+                client.text(query, max_results=max_results, backend=self.backend) or []
+            )
 
 
 class HostRateLimiter:

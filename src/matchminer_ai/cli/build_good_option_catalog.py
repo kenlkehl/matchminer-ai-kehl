@@ -36,6 +36,7 @@ from matchminer_ai.trials.drug_catalog import (
 from matchminer_ai.trials.drug_research import (
     DEFAULT_HOST_REQUESTS_PER_SECOND,
     NCBI_API_KEY_REQUESTS_PER_SECOND,
+    DDGSWebProvider,
 )
 
 _NCT_PATTERN = re.compile(r"NCT\d{8}")
@@ -149,6 +150,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="General-web searches in flight across all subjects.",
     )
     parser.add_argument(
+        "--web-search-backend",
+        default="auto",
+        help=(
+            "ddgs engines for general-web searches, comma-separated (such as "
+            "'yahoo'). Name the engines that answer from this network: 'auto' "
+            "asks all of them, two at a time, so blocked engines slow searches "
+            "and can lose results. Not part of the checkpoint fingerprint."
+        ),
+    )
+    parser.add_argument(
         "--host-requests-per-second",
         type=host_rate,
         action="append",
@@ -254,6 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             reset_checkpoint=args.reset_checkpoints,
             overwrite=args.overwrite,
             progress_callback=progress,
+            web_provider=DDGSWebProvider(backend=args.web_search_backend),
             subject_concurrency=args.subject_concurrency,
             web_search_concurrency=args.web_search_concurrency,
             host_requests_per_second=host_rates,

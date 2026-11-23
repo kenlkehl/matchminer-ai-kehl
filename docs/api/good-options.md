@@ -259,14 +259,15 @@ prints the request rates it uses and whether an NCBI key is set, never the key.
 | `--research-concurrency` | 6 | Concurrent requests within one subject (`ResearchSettings.max_concurrency`). |
 | `--subject-concurrency` | 8 | Drugs, then classes, researched at once. |
 | `--web-search-concurrency` | 12 | General-web searches in flight. |
+| `--web-search-backend` | `auto` | ddgs engines to ask, comma-separated. Name the ones that answer from your network: `auto` tries them all, two at a time, so blocked engines slow searches and can lose results. |
 | `--host-requests-per-second HOST=RATE` | | Per-host request rate; repeatable; `0` leaves a host unpaced. |
 | `--ncbi-api-key-file` | | File holding an NCBI API key. |
 | `--research-request-timeout` | 30 s | Per research request (`ResearchSettings.request_timeout`). |
 | `--reset-checkpoints` | off | Discard a recognized checkpoint directory. |
 | `--overwrite` | off | Replace an existing catalog. |
 
-`--llm-batch-size`, `--subject-concurrency`, `--web-search-concurrency`, `--host-requests-per-second`, and
-`--ncbi-api-key-file` are not part of the checkpoint fingerprint.
+`--llm-batch-size`, `--subject-concurrency`, `--web-search-concurrency`, `--web-search-backend`,
+`--host-requests-per-second`, and `--ncbi-api-key-file` are not part of the checkpoint fingerprint.
 
 ## Score patient-trial pairs
 

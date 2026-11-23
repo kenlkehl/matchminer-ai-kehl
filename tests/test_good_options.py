@@ -3548,6 +3548,33 @@ def test_default_host_rates_pace_ctgov_dailymed_and_eutils_by_ncbi_key(
             resolve_host_rates(bad)
 
 
+def test_web_search_backend_reaches_ddgs_and_keeps_the_fingerprint(monkeypatch):
+    calls = []
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def text(self, query, **kwargs):
+            calls.append(kwargs)
+            return [{"href": "https://example.test/a"}]
+
+    monkeypatch.setattr(research_module, "DDGS", FakeDDGS)
+    provider = research_module.DDGSWebProvider(backend="yahoo")
+    assert provider.search("pembrolizumab", max_results=3)
+    assert calls == [{"max_results": 3, "backend": "yahoo"}]
+
+    def identity(sources):
+        return [(s.name, catalog_module._callable_identity(s, default="")) for s in sources]
+
+    assert identity(research_module.default_sources(provider)) == identity(
+        research_module.default_sources()
+    )
+
+
 def test_paced_client_spaces_one_host_across_concurrent_subjects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
