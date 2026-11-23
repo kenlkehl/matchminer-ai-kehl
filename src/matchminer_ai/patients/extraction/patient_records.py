@@ -66,6 +66,8 @@ SECTION = "patient_extraction"
 PARALLEL_PREPARE_MIN = 64
 PROMPT_FILE = "patient.extraction.patient.txt"
 CHECKPOINT_SUBDIR = "patient_records"
+#: Threads reading saved patient checkpoints when a run resumes.
+CHECKPOINT_READ_THREADS = 32
 PATIENT_COLUMNS = [
     "patient_id",
     "extraction_status",
@@ -263,6 +265,27 @@ def _fragment_stream(patients, pids, tokenizer, size, overlap, workers):
         yield from pool.map(_worker_fragments, tasks, chunksize=8)
 
 
+def _saved_checkpoints(paths: dict[str, Path]):
+    """(patient id, saved checkpoint or None) for each of ``paths``, in order. The folder is listed once and the
+    files are read in a thread pool: read one at a time on a network filesystem, tens of thousands of checkpoints
+    held a resumed run's first request back by about half an hour."""
+    if not paths:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    folder = next(iter(paths.values())).parent
+    present = {entry.name for entry in os.scandir(folder)} if folder.is_dir() else set()
+
+    def load(path):
+        return read_json(path) if path.name in present else None
+
+    pool = ThreadPoolExecutor(CHECKPOINT_READ_THREADS)
+    try:
+        yield from zip(paths, pool.map(load, paths.values()))
+    finally:
+        pool.shutdown(cancel_futures=True)
+
+
 def _resolve_settings(resolved: MMAIConfig) -> tuple:
     """The section's settings, checked, with the prompt parts and contract: everything that needs no notes."""
     extensions = resolve_extensions((getattr(resolved, SECTION, None) or {}).get("extensions") or [])
@@ -393,17 +416,18 @@ def extract_patient_records(
     }
     states: dict[str, dict[str, Any]] = {}
     reused = 0
-    for pid in patients:
+    paths = {pid: folder / f"{digest(pid)[:32]}.json" for pid in patients} if folder is not None else {}
+    checkpoints = _saved_checkpoints(paths) if paths else ((pid, None) for pid in patients)
+    for pid, candidate in checkpoints:
         saved = None
-        path = folder / f"{digest(pid)[:32]}.json" if folder is not None else None
-        if path is not None and path.exists():
-            candidate = read_json(path)
-            if (
-                candidate.get("patient_id") == pid
-                and candidate.get("contract_sha256") == contract
-                and candidate.get("input_sha256") == inputs[pid]
-            ):
-                saved = candidate
+        path = paths.get(pid)
+        if (
+            candidate is not None
+            and candidate.get("patient_id") == pid
+            and candidate.get("contract_sha256") == contract
+            and candidate.get("input_sha256") == inputs[pid]
+        ):
+            saved = candidate
         if saved is not None:
             reused += saved["status"] in {"complete", "partial"}
             states[pid] = {
