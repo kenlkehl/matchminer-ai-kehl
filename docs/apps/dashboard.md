@@ -49,8 +49,10 @@ TrialSpace model and says so on Data and models if they differ.
   - *Trials:* the ranked trial cohorts with the decision model's or the LLM's scores, and the GoodOption check. A
     trial's criteria check runs on the decision model or the LLM (the toggle), or on the patient's structured records
     (**Check with structured data**). **Only cohorts with open slots** (off by default) searches only the cohorts with
-    slots available on Trial management: the cohort's own, one of its original cohorts', or a subcohort's of either.
-    Each result shows its open slots.
+    slots available on Trial management, each matched and scored on its own criteria: a subcohort or an original
+    cohort with slots is searched as itself, not as its merged cohort, so a subcohort limited to, say, KRAS G12C
+    ranks for patients who fit it. A trial appears once per such cohort, and each result shows its own slots. With
+    the option off, the results are the dashboards' merged cohorts, one per trial.
   - *Guidelines:* guideline spaces for the patient's summary (TrialSpace's candidates ranked by the decision model
     or the LLM), their workup and treatment menus with sources, a workup review, and a Markdown report.
   - *Structured data:* the clinical facts extracted from the notes, patient level or note by note, each with its

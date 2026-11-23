@@ -589,6 +589,8 @@ export interface TrialsForPatientResult {
   search_ms: number;
   /** The search took only cohorts with open slots. */
   open_slots_only?: boolean;
+  /** Cohorts with open slots left out because their TrialSpace vectors are still being made. */
+  unembedded?: number;
   results: CohortHit[];
 }
 

@@ -333,13 +333,23 @@ def test_patient_search_can_take_only_cohorts_with_open_slots(client, managed):
     none = client.post("/api/match/trials-for-patient",
                        json={"patient_id": "patient_a", "k": 10, "open_slots_only": True}).json()
     assert none["results"] == [] and none["open_slots_only"] is True
-    # Slots on a subcohort of an original cohort open its merged cohort; zero available does not.
+    # A subcohort with slots is searched as itself, on its own criteria; zero available does not count.
     sub = client.post("/api/management/subcohorts", json={"parent_id": ORIGINAL_A2, "name": "Sponsor: ex-US"}).json()
     client.put(f"/api/management/units/{sub['id']}/slots", json={"available": 3})
     other = next(r["cohort"]["cohort_id"] for r in found["results"] if r["cohort"]["cohort_id"] != MERGED)
     client.put(f"/api/management/units/{other}/slots", json={"available": 0, "enrolled": 4})
+    assert wait_embedded(managed, managed.cohort(sub["id"])["key"]) is not None
     only = client.post("/api/match/trials-for-patient",
                        json={"patient_id": "patient_a", "k": 10, "open_slots_only": True}).json()
-    assert [r["cohort"]["cohort_id"] for r in only["results"]] == [MERGED]
+    assert [r["cohort"]["cohort_id"] for r in only["results"]] == [sub["id"]]
+    assert only["results"][0]["cohort"]["unit"]["kind"] == "subcohort"
     assert only["results"][0]["open_slots"] == [{"id": sub["id"], "kind": "subcohort", "name": "Sponsor: ex-US",
                                                  "available": 3}]
+    # Slots on the merged cohort too: each is its own result, both of the one trial.
+    client.put(f"/api/management/units/{MERGED}/slots", json={"available": 2})
+    both = client.post("/api/match/trials-for-patient",
+                       json={"patient_id": "patient_a", "k": 10, "open_slots_only": True}).json()
+    assert sorted(r["cohort"]["cohort_id"] for r in both["results"]) == sorted([MERGED, sub["id"]])
+    # With the option off, results stay the dashboard's merged cohorts, one per trial.
+    again = client.post("/api/match/trials-for-patient", json={"patient_id": "patient_a", "k": 10}).json()
+    assert sub["id"] not in {r["cohort"]["cohort_id"] for r in again["results"]}

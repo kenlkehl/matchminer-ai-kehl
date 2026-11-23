@@ -566,10 +566,12 @@ class TrialManager:
         return None
 
     def managed_texts(self) -> list[str]:
-        """The key criteria of every edited cohort and subcohort (embedded with TrialSpace)."""
+        """The key criteria of every edited cohort and subcohort, and of every cohort with slots available (searched
+        as itself by Patient-centric's open-slots search): embedded with TrialSpace."""
         out = []
         for unit_id, unit in self.units().items():
-            if unit.get("items") is not None:
+            available = (unit.get("slots") or {}).get("available")
+            if unit.get("items") is not None or unit["kind"] == "subcohort" or (available is not None and available > 0):
                 cohort = self.effective(unit_id)
                 if cohort is not None:
                     out.append(cohort["key"])

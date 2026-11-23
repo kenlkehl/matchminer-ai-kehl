@@ -163,6 +163,7 @@ def router(state: DashState) -> APIRouter:
     @api.put("/api/management/units/{unit_id}/slots")
     def slots(unit_id: str, body: Slots):
         m.set_slots(unit_id, body.model_dump(exclude={"revision"}), body.revision)
+        state.embed_cohorts()  # a cohort with slots is searched on its own criteria (open-slots search)
         return {"ok": True}
 
     @api.put("/api/management/units/{unit_id}/criteria")

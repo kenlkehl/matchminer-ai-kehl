@@ -36,8 +36,9 @@ class TrialsForPatient(BaseModel):
     k: int | None = None
     scope: str = "dashboard"  # "dashboard": the cohorts the dashboards show; "all": both versions of every trial
     per_trial: bool = True
-    # Only cohorts with slots available, entered on Trial management for the cohort, its original cohorts or a
-    # subcohort of either (user, 2026-11-23; off by default).
+    # Only the cohorts with slots available on Trial management, each matched on its own criteria: a subcohort or an
+    # original cohort with slots is searched as itself, not as its merged cohort, and a trial can appear once per
+    # such cohort (user, 2026-11-23: "break the merge"; off by default, when the dashboard's cohorts are searched).
     open_slots_only: bool = False
 
 
@@ -165,8 +166,9 @@ def router(state: DashState) -> APIRouter:
             store = state.store
             scope = [c["id"] for c in store["cohorts"].values() if request.scope == "all" or c["primary"]]
             open_slots = state.management.open_slots()
+            own = {u["id"]: u for units in open_slots.values() for u in units}
             if request.open_slots_only:
-                scope = [c for c in scope if c in open_slots]
+                scope = [unit_id for unit_id in own if state.management.effective(unit_id) is not None]
                 if not scope:
                     return {"direction": "trials_for_patient",
                             "patient": {**state.patient_summary(entity["id"]), "key": entity["key"],
@@ -174,21 +176,25 @@ def router(state: DashState) -> APIRouter:
                             "k": 0, "searched": 0, "of": 0, "round": state.round.number, "search_ms": 0.0,
                             "open_slots_only": True, "results": []}
             ids, matrix = state.cohort_matrix(scope)
+            unembedded = len(scope) - len(ids)
+            if unembedded and request.open_slots_only:
+                state.embed_cohorts()  # cohorts given slots before their criteria had a vector
             if not ids:
                 raise HTTPException(409, "The trial cohorts' TrialSpace vectors are still being made; try again shortly.")
             scores = (matrix @ np.asarray(state.patient_vector(entity), dtype=np.float32)).astype(np.float64)
         k = max(1, min(int(request.k or state.settings.default_k), state.settings.max_k))
+        per_trial = request.per_trial and not request.open_slots_only
         order, seen = [], set()
         for i in stable_top_k(scores, len(ids)):
-            trial_id = store["cohorts"][ids[i]]["trial_id"]
-            if request.per_trial and trial_id in seen:
+            trial_id = (store["cohorts"].get(ids[i]) or state.cohort(ids[i]))["trial_id"]
+            if per_trial and trial_id in seen:
                 continue
             seen.add(trial_id)
             order.append(i)
             if len(order) == k:
                 break
         rows = [{"rank": rank, "cohort": cohort_row(state, state.cohort(ids[i])), "cosine": round(float(scores[i]), 5),
-                 "open_slots": open_slots.get(ids[i], [])}
+                 "open_slots": [own[ids[i]]] if request.open_slots_only else open_slots.get(ids[i], [])}
                 for rank, i in enumerate(order, 1)]
         pairs = [state.pair(entity["id"], r["cohort"]["cohort_id"]) for r in rows]
         for row, cached in zip(rows, state.decisions.cached_scores(pairs)):
@@ -197,7 +203,8 @@ def router(state: DashState) -> APIRouter:
                                                                 "boilerplate": entity["boilerplate"]},
                 "k": k, "searched": len(ids), "of": len(scope), "round": state.round.number,
                 "search_ms": round((time.monotonic() - started) * 1000, 1),
-                "open_slots_only": request.open_slots_only, "results": rows}
+                "open_slots_only": request.open_slots_only,
+                "unembedded": unembedded if request.open_slots_only else 0, "results": rows}
 
     def search_pairs(direction: str, query_id: str, target_ids: list[str], limit: int):
         if direction not in DIRECTIONS:

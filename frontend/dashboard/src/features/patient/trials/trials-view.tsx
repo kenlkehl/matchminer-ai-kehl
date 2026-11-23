@@ -144,7 +144,7 @@ function SearchBar() {
       </div>
       <Label
         className="gap-1.5 text-sm font-normal text-gray-700"
-        title="Search only the cohorts with slots available, entered on Clinical trial management's Trial management for the cohort, one of its original cohorts or a subcohort"
+        title="Search only the cohorts with slots available on Clinical trial management's Trial management, each on its own criteria: a subcohort or original cohort with slots is matched as itself"
       >
         <Checkbox
           checked={openSlotsOnly}
@@ -282,6 +282,13 @@ function Results({ result, active }: { result: TrialsForPatientResult; active: b
           {stale ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               The patient above has changed since this search. Find trials again to search with it.
+            </p>
+          ) : null}
+          {result.unembedded ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              {result.unembedded} {result.unembedded === 1 ? "cohort" : "cohorts"} with open slots
+              {result.unembedded === 1 ? " is" : " are"} still being prepared for search; find
+              trials again shortly to include {result.unembedded === 1 ? "it" : "them"}.
             </p>
           ) : null}
           <p className="text-sm text-gray-600 italic">{AI_DISCLAIMER}</p>
@@ -510,7 +517,13 @@ function TrialCard({
           </dl>
         </div>
         <div className="border-l-2 border-gray-200 pl-3 text-sm">
-          <p className="text-xs font-medium text-gray-500">Most relevant trial cohort</p>
+          <p className="text-xs font-medium text-gray-500">
+            {row.cohort.unit?.kind === "subcohort"
+              ? `Subcohort${row.cohort.unit.parent_name ? ` of ${row.cohort.unit.parent_name}` : ""}`
+              : row.cohort.unit?.kind === "original"
+                ? `Original cohort${row.cohort.unit.parent_name ? ` of ${row.cohort.unit.parent_name}` : ""}`
+                : "Most relevant trial cohort"}
+          </p>
           <p className="font-medium text-gray-900">{row.cohort.name}</p>
           <ul className="mt-0.5 flex flex-col gap-0.5 text-gray-700">
             {row.cohort.key_inclusion.slice(0, 3).map((line, i) => (
