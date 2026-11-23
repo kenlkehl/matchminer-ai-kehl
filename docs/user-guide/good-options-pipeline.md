@@ -72,6 +72,12 @@ NCBI API key raises E-utilities to 7 a second; give it as a file with `--ncbi-ap
 requests, so a checkpointed build resumes after either changes. See
 [`good_option_catalog`](../reference/configuration.md#good_option_catalog).
 
+The paced hosts and the other sources' API hosts (Europe PMC, cancer.gov, CIViC) each have a connection pool of
+their own, so pages downloaded from web search results cannot hold up their requests, and a request waits up to
+10 minutes for a free connection. A class whose sources (other than the general web) lose at least half their
+requests to connection errors or server errors is researched again after a pause, up to three times. If that
+keeps happening, it is saved as incomplete: its evidence is used, and a resumed build researches it again.
+
 Each result becomes a *passage*: up to 5,000 characters of text plus its source, URL, license, the query that found
 it, and a content hash. The drug's NCIt definition is stored as a passage too, so the model can cite it like
 anything else.

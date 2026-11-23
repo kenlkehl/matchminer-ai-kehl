@@ -4423,7 +4423,10 @@ async def build_good_option_catalog(
                 )
             class_research_completed += 1
             if progress_callback:
-                suffix = " (checkpoint)" if resumed else ""
+                suffix = " (checkpoint)" if resumed else (
+                    " (incomplete: sources failed on connection errors; a resumed build retries it)"
+                    if class_status == "incomplete" else ""
+                )
                 progress_callback(
                     "class_research",
                     class_research_completed,

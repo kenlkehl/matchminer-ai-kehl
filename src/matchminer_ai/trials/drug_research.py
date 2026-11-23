@@ -15,7 +15,7 @@ import random
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -324,28 +324,60 @@ class HostRateLimiter:
         default transport does. Each call returns new transports, for one client.
         """
 
-        proxies = urllib.request.getproxies_environment()
-        proxy = proxies.get("https") or proxies.get("all") or None
-        return {
-            f"all://{host}": httpx.AsyncHTTPTransport(
-                proxy=None
-                if proxy is None or urllib.request.proxy_bypass_environment(host)
-                else proxy
-            )
-            for host in self._intervals
-        }
+        return host_transports(self._intervals)
+
+
+def host_transports(hosts: Iterable[str]) -> dict[str, httpx.AsyncBaseTransport]:
+    """A connection pool of its own for each host, keyed for ``mounts`` (proxies as httpx's default)."""
+
+    proxies = urllib.request.getproxies_environment()
+    proxy = proxies.get("https") or proxies.get("all") or None
+    return {
+        f"all://{host}": httpx.AsyncHTTPTransport(
+            proxy=None
+            if proxy is None or urllib.request.proxy_bypass_environment(host)
+            else proxy
+        )
+        for host in hosts
+    }
+
+
+#: Research sources' API hosts that get a connection pool of their own, as the
+#: paced hosts do. Pages from web search results download in the client's shared
+#: pool, and slow ones there held every connection, so on 2026-11-22 Europe PMC
+#: and NCI requests timed out waiting for one: three of four class sources
+#: failed for hours while both hosts answered normally.
+SOURCE_HOSTS: tuple[str, ...] = (
+    "www.ebi.ac.uk",
+    "webapis.cancer.gov",
+    "www.cancer.gov",
+    "civicdb.org",
+)
+
+#: Seconds a request waits for a free connection before it fails. Waiting is
+#: local queueing, not a slow server, so it gets longer than a request's timeout.
+CONNECTION_WAIT_SECONDS = 600.0
 
 
 def paced_client(
     limiter: HostRateLimiter, *, timeout: httpx.Timeout
 ) -> httpx.AsyncClient:
-    """An async client whose requests to the limiter's hosts are paced on the wire."""
+    """An async client whose requests to the limiter's hosts are paced on the wire.
+
+    The paced hosts and :data:`SOURCE_HOSTS` each have a connection pool of
+    their own; everything else (pages from web search results) shares one.
+    """
 
     return httpx.AsyncClient(
-        timeout=timeout,
+        timeout=httpx.Timeout(
+            connect=timeout.connect,
+            read=timeout.read,
+            write=timeout.write,
+            pool=max(CONNECTION_WAIT_SECONDS, timeout.pool or 0.0),
+        ),
         follow_redirects=True,
         event_hooks={"request": [limiter]},
-        mounts=limiter.transports(),
+        mounts={**host_transports(SOURCE_HOSTS), **limiter.transports()},
     )
 
 
@@ -1482,6 +1514,11 @@ async def research_class(
     them and asking costs a request per class for no evidence. Configured in
     anyway, each of their requests is sent once per call, as in
     :func:`research_drug`.
+
+    When a source other than the general web loses at least half its requests to
+    connection errors, the class is researched again after a pause, up to
+    :data:`CLASS_RESEARCH_PASSES` times. If that still happens, its status is
+    ``"incomplete"``: its evidence is used, but a resumed build researches it again.
     """
 
     resolved_settings = settings or ResearchSettings()
@@ -1498,7 +1535,8 @@ async def research_class(
             headers={"Accept": "application/json, text/html, application/xml"},
         )
     reuse = _reuse_responses()
-    try:
+
+    async def corpus() -> tuple[list[EvidencePassage], list[ResearchAttempt], list[str]]:
         evidence, attempts, failures = await research_subject(
             subject_for_class(class_id, class_name, aliases),
             sources=resolved_sources,
@@ -1564,11 +1602,27 @@ async def research_class(
             for items, subject_attempts, _failures in results:
                 evidence.extend(items)
                 attempts.extend(subject_attempts)
+        return evidence, attempts, failures
 
-        status = "complete" if evidence else _axis_status(attempts)
+    try:
+        every_attempt: list[ResearchAttempt] = []
+        for research_pass in range(1, CLASS_RESEARCH_PASSES + 1):
+            evidence, attempts, failures = await corpus()
+            every_attempt.extend(attempts)
+            starved = _starved_sources(attempts)
+            if not starved:
+                break
+            if research_pass < CLASS_RESEARCH_PASSES:
+                await sleep(CLASS_RESEARCH_PAUSE_SECONDS * research_pass)
+        if starved:
+            status = "incomplete"
+            failures = [*failures, *(f"{source}: most requests failed on connection errors"
+                                     for source in starved)]
+        else:
+            status = "complete" if evidence else _axis_status(attempts)
         return (
             _deduplicate(evidence),
-            attempts,
+            every_attempt,
             status,
             list(dict.fromkeys(failures)),
         )
@@ -1654,6 +1708,49 @@ async def research_indications(
             if not queues[key]:
                 del queues[key]
     return selected, attempts
+
+
+#: Times a class is researched when its sources fail on connection errors, and
+#: the pause before the next pass (multiplied by the pass number).
+CLASS_RESEARCH_PASSES = 3
+CLASS_RESEARCH_PAUSE_SECONDS = 120.0
+
+_CONNECTION_ERRORS = frozenset({
+    "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout", "PoolTimeout",
+    "ReadError", "WriteError", "RemoteProtocolError", "NetworkError", "TimeoutException",
+    "ProxyError",
+})
+
+
+def _connection_failure(attempt: ResearchAttempt) -> bool:
+    """A failure of the connection or the server (5xx, 429), not an answer about the query."""
+
+    if attempt.error_type in _CONNECTION_ERRORS:
+        return True
+    message = attempt.error_message or ""
+    return attempt.error_type == "HTTPStatusError" and (
+        message.startswith("Server error") or "'429" in message
+    )
+
+
+def _starved_sources(attempts: Sequence[ResearchAttempt]) -> list[str]:
+    """Sources that lost at least half their requests to connection errors.
+
+    A request's last attempt is its outcome. The general web is left out: its
+    anonymous search fails often on its own, and a class has other sources.
+    """
+
+    outcomes: dict[tuple[str, str, str, str], ResearchAttempt] = {}
+    for attempt in attempts:
+        outcomes[(attempt.source, attempt.query_scope, attempt.facet, attempt.query)] = attempt
+    counts: dict[str, list[int]] = {}
+    for (source, *_rest), attempt in outcomes.items():
+        if source.startswith("web:"):
+            continue
+        count = counts.setdefault(source, [0, 0])
+        count[0] += 1
+        count[1] += attempt.status == "failed" and _connection_failure(attempt)
+    return sorted(source for source, (total, lost) in counts.items() if 2 * lost >= total)
 
 
 def _axis_status(attempts: Sequence[ResearchAttempt]) -> str:

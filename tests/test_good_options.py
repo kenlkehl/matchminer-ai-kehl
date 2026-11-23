@@ -3576,6 +3576,8 @@ def test_paced_client_spaces_one_host_across_concurrent_subjects(
         limiter = HostRateLimiter({"eutils.ncbi.nlm.nih.gov": 1 / interval})
         async with paced_client(limiter, timeout=httpx.Timeout(5.0)) as client:
             await client.get("https://example.test/page")
+            await client.get("https://www.ebi.ac.uk/europepmc/webservices/rest/search")
+            assert client.timeout.pool >= 600 and client.timeout.read == 5.0
             results = await asyncio.gather(
                 *(
                     research_drug(
@@ -3592,8 +3594,42 @@ def test_paced_client_spaces_one_host_across_concurrent_subjects(
     assert len(arrivals) == 30  # 3 subjects x 5 facets x (esearch + efetch)
     gaps = [later - earlier for earlier, later in zip(arrivals, arrivals[1:])]
     assert min(gaps) >= 0.9 * interval
-    # Paced requests use a connection pool of their own, not the shared one.
+    # Paced requests and the sources' API hosts use connection pools of their own, not the shared one,
+    # where slow pages from web search results held every connection (2026-11-22).
     assert transports["eutils.ncbi.nlm.nih.gov"].isdisjoint(transports["example.test"])
+    assert transports["www.ebi.ac.uk"].isdisjoint(transports["example.test"])
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+def test_class_research_tries_again_when_its_sources_cannot_be_reached(recovers: bool) -> None:
+    """A class researched while its sources were unreachable is not saved as complete."""
+
+    from matchminer_ai.trials.drug_research import CLASS_RESEARCH_PAUSE_SECONDS, research_class
+
+    state = {"down": True}
+    pauses: list[float] = []
+
+    class Unreachable(_EvidenceSource):
+        name = "europe_pmc"
+
+        async def fetch(self, drug, **kwargs):
+            if state["down"]:
+                raise httpx.ConnectError("unreachable")
+            return await super().fetch(drug, **kwargs)
+
+    async def pause(seconds: float) -> None:
+        pauses.append(seconds)
+        state["down"] = not recovers
+
+    evidence, attempts, status, failures = asyncio.run(research_class(
+        "NCIT:C0", "Fabricated Class", sources=[Unreachable()],
+        settings=ResearchSettings(max_attempts=1), sleep=pause))
+    if recovers:
+        assert status == "complete" and evidence and pauses == [CLASS_RESEARCH_PAUSE_SECONDS]
+    else:
+        assert status == "incomplete" and not evidence and len(pauses) == 2
+        assert any("europe_pmc" in failure for failure in failures)
+    assert sum(attempt.status == "failed" for attempt in attempts) == 3 * (1 if recovers else 3)
 
 
 def test_ncbi_api_key_rides_in_eutils_bodies_and_never_in_saved_text(
