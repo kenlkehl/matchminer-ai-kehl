@@ -651,15 +651,15 @@ class Toolbox:
             lines = [{"number": n, "text": line["text"].strip(), "criterion_type": line["type"], "boilerplate": False}
                      for n, line in enumerate(a["lines"], 1) if line["text"].strip()]
             if not lines:
-                raise ToolError("give criteria lines or a cohort_id")
+                raise ToolError("give criteria or a cohort_id")
             if len(lines) > limits.max_screen_lines:
-                raise ToolError(f"screen at most {limits.max_screen_lines} lines at a time")
+                raise ToolError(f"screen at most {limits.max_screen_lines} criteria at a time")
             context = "\n".join(f"{'Inclusion' if line['criterion_type'] == 'inclusion' else 'Exclusion'}: {line['text']}"
                                 for line in lines)
             compiled, _ = compile_criteria_queries(
                 lines, cohort_context=context, config=writer, cache=self.memory_cache, return_metadata=True,
                 progress_callback=lambda done, total: progress(f"Compiling criteria queries · {done}/{total} ready"))
-            subject = f"{len(lines)} criteria lines"
+            subject = f"{len(lines)} {'criterion' if len(lines) == 1 else 'criteria'}"
         ids = list(dict.fromkeys(str(p).strip() for p in a["patient_ids"] if str(p).strip()))[:1000] \
             or sorted(g.records.patient_ids())
         progress(f"Reading stored records of {len(ids)} patients")
@@ -703,7 +703,7 @@ class Toolbox:
         }
         unchecked = [line["number"] for line in lines_out if not line["checkable"]]
         return (f"Screened structured records: {subject} on {len(held)} patients → {len(meeting)} documented to meet"
-                + (f"; lines not checkable: {', '.join(map(str, unchecked))}" if unchecked else ""), result, links)
+                + (f"; criteria not checkable: {', '.join(map(str, unchecked))}" if unchecked else ""), result, links)
 
     # ------------------------------------------------------------------ the decision model and guidelines
 

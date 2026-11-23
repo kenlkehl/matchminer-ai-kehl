@@ -384,11 +384,11 @@ function useOpenTrial(trialId: string) {
           result.classifying
             ? {
                 tone: "info",
-                text: `Labeling the lines of ${which} that its cohort's labels do not cover…`,
+                text: `Labeling the criteria of ${which} that its cohort's labels do not cover…`,
               }
             : {
                 tone: "warn",
-                text: `The lines of ${which} that its cohort's labels do not cover could not be labeled: ${
+                text: `The criteria of ${which} that its cohort's labels do not cover could not be labeled: ${
                   result.skipped ?? "no working connection"
                 } Choose a connection for Criteria classification on Data and models, then use Classify.`,
               },
@@ -398,7 +398,7 @@ function useOpenTrial(trialId: string) {
       .catch((e: unknown) => {
         setNotice({
           tone: "warn",
-          text: `The original cohorts' lines could not be labeled: ${e instanceof Error ? e.message : String(e)}`,
+          text: `The original cohorts' criteria could not be labeled: ${e instanceof Error ? e.message : String(e)}`,
         });
       });
   }, [trialId, client]);
@@ -441,9 +441,9 @@ function TrialManager({ trialId, cohortId }: { trialId: string; cohortId: string
   const onSaved = (result: ChangeResult) => {
     setNotice(
       result.skipped
-        ? `Saved. New and changed lines are unclassified until classified: ${result.skipped}`
+        ? `Saved. New and changed criteria are unclassified until classified: ${result.skipped}`
         : result.classifying
-          ? "Saved. Classifying the new and changed lines…"
+          ? "Saved. Classifying the new and changed criteria…"
           : "Saved.",
     );
   };
@@ -1036,7 +1036,8 @@ function UnitCard({
             setShowLines((v) => !v);
           }}
         >
-          {showLines ? "Hide" : "Show"} its {unit.line_count} lines ({unit.key_count} key)
+          {showLines ? "Hide" : "Show"} its {unit.line_count}{" "}
+          {unit.line_count === 1 ? "criterion" : "criteria"} ({unit.key_count} key)
         </button>
         {unit.edited && unit.ai_lines ? (
           <button
@@ -1051,7 +1052,7 @@ function UnitCard({
         ) : null}
         {unit.classifying ? (
           <span className="flex items-center gap-1 text-gray-600">
-            <Spinner className="size-3" /> classifying lines…
+            <Spinner className="size-3" /> classifying criteria…
           </span>
         ) : unit.unclassified ? (
           <span className="flex items-center gap-1 text-amber-800">

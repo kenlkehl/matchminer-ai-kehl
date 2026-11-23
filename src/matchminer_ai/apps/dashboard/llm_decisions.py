@@ -405,7 +405,7 @@ class LLMDecisions:
         from matchminer_ai.matching import check_eligibility_criteria_with_llm
 
         if not pair.items:
-            raise InputError("this cohort has no tagged criteria lines (per-criterion checks need them)")
+            raise InputError("this cohort has no tagged criteria (per-criterion checks need them)")
         progress = progress or (lambda *args: None)
         key = self.key("criteria", pair, connection)
         config = self.config(connection)
@@ -417,7 +417,8 @@ class LLMDecisions:
                                "cohort_criteria_items": json.dumps(pair.items, ensure_ascii=False)}])
         out, metadata = check_eligibility_criteria_with_llm(
             frame, config=config, return_metadata=True,
-            progress=lambda done, total: progress(done, total, f"{done} of {total} lines answered"))
+            progress=lambda done, total: progress(
+                done, total, f"{done} of {total} {'criterion' if total == 1 else 'criteria'} answered"))
         details = metadata["model_metadata"]["check_eligibility_criteria_with_llm"]
         lines = [{"number": int(r["criterion_number"]), "type": r["criterion_type"], "boilerplate": bool(r["boilerplate"]),
                   "text": r["criterion_text"], "answer": r["llm_criterion_answer"],

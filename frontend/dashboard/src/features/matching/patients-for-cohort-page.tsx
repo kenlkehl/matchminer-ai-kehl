@@ -218,7 +218,7 @@ export function PatientsForCohortPage() {
                 checked={hideFailing}
                 onCheckedChange={setHideFailing}
               />
-              Hide patients failing a line by records
+              Hide patients failing a criterion by records
             </Label>
           ) : null}
         </div>
@@ -627,7 +627,8 @@ function ScreenSummary({ result }: { result: ScreenResult }) {
   const failing = patients.filter((p) => p.counts.clearly_failed_lines.length).length;
   return (
     <span className="text-sm text-gray-700">
-      <strong>Records:</strong> {failing} of {patients.length} candidates with records fail a line
+      <strong>Records:</strong> {failing} of {patients.length} candidates with records fail a
+      criterion
       {result.without_records.length
         ? ` · ${String(result.without_records.length)} without records`
         : ""}
@@ -657,11 +658,11 @@ function RecordsPill({ result, patientId }: { result: ScreenResult; patientId: s
       title={failed.map((f) => `${String(f.number)}. ${f.bottom_line}`).join("\n")}
       className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-800 ring-1 ring-red-200"
     >
-      Records: {failed.length} {failed.length === 1 ? "line fails" : "lines fail"}
+      Records: {failed.length} {failed.length === 1 ? "criterion fails" : "criteria fail"}
     </span>
   ) : (
     <span className="rounded bg-green-50 px-1.5 py-0.5 text-[11px] text-green-800 ring-1 ring-green-200">
-      Records: no line fails ({found.counts.checked} checkable)
+      Records: no criterion fails ({found.counts.checked} checkable)
     </span>
   );
 }
@@ -686,7 +687,7 @@ function LineFailures({ result }: { result: ScreenResult }) {
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-gray-600">No line is failed by any candidate's records.</p>
+        <p className="text-sm text-gray-600">No criterion is failed by any candidate's records.</p>
       )}
       <p className="text-xs text-gray-500">{result.notice}</p>
     </section>

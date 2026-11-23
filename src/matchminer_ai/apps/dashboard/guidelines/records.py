@@ -375,7 +375,7 @@ def extraction_estimate(frame, levels, config) -> dict:
 def cohort_lines(cohort: dict) -> list[dict]:
     lines = [dict(line) for line in cohort.get("items") or []]
     if not any(line.get("criterion_type") in ("inclusion", "exclusion") for line in lines):
-        raise InputError("This cohort has no criteria lines typed inclusion or exclusion.")
+        raise InputError("This cohort has no criteria typed inclusion or exclusion.")
     return lines
 
 
@@ -398,7 +398,7 @@ def compile_cohort_criteria(cohort, engine, *, settings, config, store, progress
         compiled, metadata = compile_criteria_sql(
             lines, database=database, config=config, cohort_context=cohort.get("key") or "",
             cache=criteria_sql_cache(settings), return_metadata=True,
-            progress_callback=lambda done, total: progress(f"SQL agent · {done}/{total} criteria lines ready"))
+            progress_callback=lambda done, total: progress(f"SQL agent · {done}/{total} criteria ready"))
     summary = {k: metadata.get(k) for k in ("model", "compiled_by", "requests", "cached", "compiled", "distinct",
                                             "failed", "unchecked_lines")}
     summary["engine"] = engine
@@ -412,7 +412,8 @@ def run_criteria(records, compiled, engine, patient_ids, config, progress=lambda
         check_criteria_with_sql,
     )
 
-    progress(f"Checking {len(compiled)} criteria lines on {len(patient_ids)} patients' records")
+    n = len(compiled)
+    progress(f"Checking {n} {'criterion' if n == 1 else 'criteria'} on {len(patient_ids)} patients' records")
     if engine == "sql":
         return check_criteria_with_sql(records, compiled, patient_ids=patient_ids, config=config)
     return check_criteria_with_extractions(records, compiled, patient_ids=patient_ids)

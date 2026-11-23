@@ -95,14 +95,14 @@ def normalize_items(raw, *, manual_ok: bool = True) -> list[dict]:
     starts its section, and a line without a heading takes the last one above it. Labels are kept only when complete
     (``labeled_by`` names who gave them); otherwise the line is unclassified."""
     if not isinstance(raw, list):
-        raise InputError("criteria lines must be a list")
+        raise InputError("criteria must be a list")
     out, heading = [], ""
     for entry in raw:
         if not isinstance(entry, dict):
-            raise InputError("each criteria line must be an object")
+            raise InputError("each criterion must be an object")
         given = str(entry.get("heading") or "")
         if given and given not in HEADINGS:
-            raise InputError(f"a line's heading must be one of {', '.join(HEADINGS)}")
+            raise InputError(f"a criterion's heading must be one of {', '.join(HEADINGS)}")
         if given:
             heading = given
         kind, boilerplate = entry.get("criterion_type"), entry.get("boilerplate")
@@ -118,12 +118,12 @@ def normalize_items(raw, *, manual_ok: bool = True) -> list[dict]:
                 heading = f"{found.group(1).capitalize()} criteria:"
                 continue
             if len(line) > MAX_LINE:
-                raise InputError(f"a criteria line is longer than {MAX_LINE} characters")
+                raise InputError(f"a criterion is longer than {MAX_LINE} characters")
             out.append({"heading": heading, "text": line.rstrip(),
                         "criterion_type": kind if labeled else None, "boilerplate": bool(boilerplate) if labeled else False,
                         "labeled_by": by if labeled else None})
     if len(out) > MAX_LINES:
-        raise InputError(f"a cohort may have at most {MAX_LINES} criteria lines")
+        raise InputError(f"a cohort may have at most {MAX_LINES} criteria")
     return out
 
 
@@ -207,7 +207,8 @@ def changed_lines(before: list[dict], after: list[dict]) -> str:
     """A short, text-free summary of an edit for the log."""
     old, new = {line_key(i) for i in before}, {line_key(i) for i in after}
     added, removed = len(new - old), len(old - new)
-    return f"{added} lines added or changed, {removed} removed ({len(after)} lines)"
+    return (f"{added} {'criterion' if added == 1 else 'criteria'} added or changed, {removed} removed "
+            f"({len(after)} {'criterion' if len(after) == 1 else 'criteria'})")
 
 
 def check_slots(values: dict) -> dict:
@@ -809,7 +810,7 @@ class TrialManager:
         the units whose lines changed (the unit, and its subcohorts when the change was applied to them)."""
         items = normalize_items(raw_items)
         if not items:
-            raise InputError("A cohort needs at least one criteria line.")
+            raise InputError("A cohort needs at least one criterion.")
         self._require_cohort(unit_id)
         found = self.lines(unit_id)
         current, _ = found

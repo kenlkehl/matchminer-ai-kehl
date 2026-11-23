@@ -176,7 +176,9 @@ export function LineageDiagram({
           const notes = [
             unit.edited ? "criteria edited" : null,
             unit.stale ? "its base changed since the edit" : null,
-            unit.unclassified ? `${String(unit.unclassified)} lines unclassified` : null,
+            unit.unclassified
+              ? `${String(unit.unclassified)} ${unit.unclassified === 1 ? "criterion" : "criteria"} unclassified`
+              : null,
           ].filter(Boolean);
           const marks = [unit.edited ? "✎" : "", unit.stale ? "⚠" : ""].join("");
           return (

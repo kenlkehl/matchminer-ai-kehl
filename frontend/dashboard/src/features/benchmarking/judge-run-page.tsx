@@ -52,7 +52,7 @@ const COMPONENTS = ["extraction", "summary", "decision"];
 export const KIND_LABELS: Record<string, string> = {
   screen: "Cancer-treatment screen",
   cohort_set: "Cohort set (names and merges)",
-  fidelity: "Line copied faithfully",
+  fidelity: "Criterion copied faithfully",
   boilerplate_tag: "Key/boilerplate tag",
   type_tag: "Inclusion/exclusion tag",
   missing: "Missing criteria",
@@ -65,7 +65,7 @@ export const KIND_LABELS: Record<string, string> = {
   treatment_history: "Treatment history",
   biomarker: "Biomarker",
   boilerplate: "Boilerplate (potentially eligible)",
-  criterion: "Criterion line (does not clearly fail)",
+  criterion: "Criterion (does not clearly fail)",
 };
 
 export function kindLabel(kind: string): string {

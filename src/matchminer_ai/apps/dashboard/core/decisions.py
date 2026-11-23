@@ -223,13 +223,15 @@ class DecisionService:
         from matchminer_ai.matching import check_eligibility_criteria
 
         if not pair.items:
-            raise ValueError("this cohort has no tagged criteria lines (per-criterion checks need them)")
+            raise ValueError("this cohort has no tagged criteria (per-criterion checks need them)")
         key = self.criteria_key(pair)
         cached = self.cache.get_many([key]).get(key)
         if cached:
             return {**cached, "cached": True}
         if progress:
-            progress(0, 1, "loading the decision model" if self.loaded_at is None else f"{len(pair.items)} lines")
+            n = len(pair.items)
+            progress(0, 1, "loading the decision model" if self.loaded_at is None
+                     else f"{n} {'criterion' if n == 1 else 'criteria'}")
         with self.lock:
             self._prepare()
             frame = pd.DataFrame([{"patient_id": pair.patient_id, "cohort_trial_id": pair.cohort_id,

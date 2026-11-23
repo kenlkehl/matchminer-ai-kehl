@@ -229,7 +229,7 @@ def router(state: DashState) -> APIRouter:
     def criteria(request: PairRequest):
         pair = state.pair(request.patient_id, request.cohort_id)
         if not pair.items:
-            raise ValueError("this cohort has no tagged criteria lines")
+            raise ValueError("this cohort has no tagged criteria")
         job = state.jobs.submit("criteria", f"{request.patient_id} x {request.cohort_id}",
                                 lambda progress: state.decisions.criteria(pair, progress), device=state.decisions.device)
         return {"job": job.describe(with_result=False)}
@@ -287,7 +287,7 @@ def router(state: DashState) -> APIRouter:
         decisions = state.llm_decisions
         pair = state.pair(body.patient_id, state.cohort(body.cohort_id)["id"])
         if not pair.items:
-            raise InputError("this cohort has no tagged criteria lines (per-criterion checks need them)")
+            raise InputError("this cohort has no tagged criteria (per-criterion checks need them)")
         cached = None if body.rerun else decisions.criteria_cached(session, pair, chosen)
         estimate = decisions.estimate(session, [pair], ("criteria",), chosen, fresh=body.rerun)
         if cached or body.lookup:

@@ -127,11 +127,11 @@ export function CriteriaEditor({
             {kindLabel(unit)} criteria: {unit.name}
           </DialogTitle>
           <DialogDescription className="text-gray-600">
-            Edit, add or remove lines. Unchanged lines keep their labels; when you save, changed and
-            new lines are labeled inclusion or exclusion and key or common by the Criteria
-            classification model (Data and models), the cohort pipeline's own step. You can also set
-            a line's labels yourself. Find patients, scoring, criteria checks and structured-data
-            screening use these criteria once saved.
+            Edit, add or remove criteria. Unchanged criteria keep their labels; when you save,
+            changed and new criteria are labeled inclusion or exclusion and key or common by the
+            Criteria classification model (Data and models), the cohort pipeline's own step. You can
+            also set a criterion's labels yourself. Find patients, scoring, criteria checks and
+            structured-data screening use these criteria once saved.
           </DialogDescription>
         </DialogHeader>
         <div className={cn("grid gap-4", unit.previous_lines && "lg:grid-cols-[2fr_1fr]")}>
@@ -167,7 +167,7 @@ export function CriteriaEditor({
                     }}
                   >
                     <PlusIcon />
-                    Add {heading.startsWith("Incl") ? "inclusion" : "exclusion"} line
+                    Add {heading.startsWith("Incl") ? "inclusion" : "exclusion"} criterion
                   </Button>
                 ))
               ) : (
@@ -179,7 +179,7 @@ export function CriteriaEditor({
                   }}
                 >
                   <PlusIcon />
-                  Add line
+                  Add criterion
                 </Button>
               )}
             </li>
@@ -253,7 +253,7 @@ export function CriteriaEditor({
         <DialogFooter className="items-center">
           <span className="mr-auto text-xs text-gray-500">
             {pending
-              ? `${String(pending)} ${pending === 1 ? "line" : "lines"} to classify when saved`
+              ? `${String(pending)} ${pending === 1 ? "criterion" : "criteria"} to classify when saved`
               : ""}
           </span>
           <Button variant="outline" onClick={onClose}>
@@ -296,7 +296,7 @@ function LineEditor({
   return (
     <div className="flex items-start gap-2">
       <Textarea
-        aria-label="Criteria line"
+        aria-label="Criterion"
         value={line.text}
         rows={1}
         className={cn("min-h-0 flex-1 py-1", line.boilerplate && "text-gray-500")}
@@ -335,12 +335,17 @@ function LineEditor({
           <Button
             size="icon-xs"
             variant="ghost"
-            aria-label="Insert a line below"
+            aria-label="Insert a criterion below"
             onClick={onInsert}
           >
             <PlusIcon />
           </Button>
-          <Button size="icon-xs" variant="ghost" aria-label="Remove the line" onClick={onRemove}>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Remove the criterion"
+            onClick={onRemove}
+          >
             <Trash2Icon />
           </Button>
         </div>

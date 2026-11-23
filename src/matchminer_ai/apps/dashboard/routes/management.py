@@ -104,9 +104,10 @@ def router(state: DashState) -> APIRouter:
 
         inputs = m.classification_input(unit_ids)
         count = sum(1 for c in inputs for i in c["items"] if not i["criterion_type"])
+        noun = "criterion" if count == 1 else "criteria"
 
         def run(progress):
-            progress(0, count, f"Classifying {count} criteria lines with {connection.label}")
+            progress(0, count, f"Classifying {count} {noun} with {connection.label}")
             try:
                 config = criteria_labels.configure(connection, state.settings.cache_dir / "llm_model_metadata")
                 results = criteria_labels.classify(inputs, config)
@@ -119,14 +120,16 @@ def router(state: DashState) -> APIRouter:
             failed = count - min(labeled, count)
             for unit_id in unit_ids:
                 if failed:
-                    m.errors[unit_id] = f"{failed} lines could not be classified; label them by hand or try again."
+                    m.errors[unit_id] = (
+                        f"{failed} criterion could not be classified; label it by hand or try again." if failed == 1
+                        else f"{failed} criteria could not be classified; label them by hand or try again.")
                 else:
                     m.errors.pop(unit_id, None)
             state.embed_cohorts()
             progress(count, count, "classified")
             return {"classified": count - failed, "unclassified": failed}
 
-        job = state.llm.jobs.submit("criteria_labels", f"criteria classification: {count} lines", run,
+        job = state.llm.jobs.submit("criteria_labels", f"criteria classification: {count} {noun}", run,
                                     owner=session_owner(request), device="endpoint")
         for unit_id in unit_ids:
             m.classifying[unit_id] = job
@@ -195,7 +198,7 @@ def router(state: DashState) -> APIRouter:
     @api.post("/api/management/units/{unit_id}/classify")
     def classify_unit(unit_id: str, request: Request):
         if not m.unlabeled([unit_id]):
-            raise InputError("This cohort has no unclassified lines.")
+            raise InputError("This cohort has no unclassified criteria.")
         return after(request, [unit_id])
 
     @api.delete("/api/management/units/{unit_id}")

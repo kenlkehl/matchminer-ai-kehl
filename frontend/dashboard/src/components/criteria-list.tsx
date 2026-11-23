@@ -153,7 +153,7 @@ function LLMReason({ line, differ }: { line: LLMCriterionLine; differ: boolean }
       {raw ? (
         <JsonDialog
           view={{
-            title: `LLM answer, line ${String(line.number)}`,
+            title: `LLM answer, criterion ${String(line.number)}`,
             name: `llm-criterion-${String(line.number)}.json`,
             value: line,
             description: "The LLM's parsed answer, its raw output (output) and its reasoning.",
