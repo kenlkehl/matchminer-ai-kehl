@@ -13,12 +13,21 @@ def router(state: DashState) -> APIRouter:
 
     @api.get("/api/centers/{center_id}")
     def center(center_id: str):
+        """The center's groups (its users' own first, then the rules'), with the cohorts pinned to them by users
+        (merged, original or subcohorts) and every row's slots."""
         found = next((c for c in state.store["centers"] if c["id"] == center_id), None)
         if found is None:
             raise NotFound(center_id)
-        cohorts = state.store["cohorts"]
-        groups = [{"id": g["id"], "name": g["name"], "trial_count": len(g["trial_ids"]),
-                   "rows": [cohort_row(state, cohorts[cid]) for cid in g["cohort_ids"]]} for g in found["groups"]]
+        groups = []
+        for g in state.management.center_groups(center_id):
+            rows = []
+            for cid in g["unit_ids"]:
+                row = cohort_row(state, state.cohort(cid))
+                if cid in g["pinned"]:
+                    row.update(group=g["name"], group_reason=None, pinned=True)
+                rows.append(row)
+            groups.append({"id": g["id"], "name": g["name"], "custom": g["custom"],
+                           "trial_count": len({r["trial"]["id"] for r in rows}), "rows": rows})
         pending = [trial_summary(state.store["trials"][t]) | {
             "versions": {v: {k: x[k] for k in ("state", "excluded_reason")}
                          for v, x in state.store["trials"][t]["versions"].items()}}
@@ -33,7 +42,7 @@ def router(state: DashState) -> APIRouter:
         versions = {}
         for version, info in t["versions"].items():
             versions[version] = {**{k: v for k, v in info.items() if k != "cohort_ids"},
-                                 "cohorts": [cohort_detail(state, state.store["cohorts"][c]) for c in info["cohort_ids"]]}
+                                 "cohorts": [cohort_detail(state, state.cohort(c)) for c in info["cohort_ids"]]}
         return {**{k: v for k, v in t.items() if k not in ("versions", "cohort_ids")}, "drugs": t.get("drugs") or [],
                 "versions": versions}
 

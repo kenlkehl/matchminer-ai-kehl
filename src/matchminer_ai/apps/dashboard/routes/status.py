@@ -26,6 +26,8 @@ def router(state: DashState) -> APIRouter:
                 "round": state.round.number if state.round else None, "site": pipeline.branding(settings.real),
                 "vectors": state.cohort_vectors.describe(), "patients": len(state.corpus.patients),
                 "sign_in": bool(settings.require_token),
+                # The trial management file's revision: a page refetches its center when another user changes it.
+                "management_revision": state.management.revision,
                 # The GoodOption catalog's state (None: a store built before the drugs), so a page can say why a
                 # trial shows no drugs.
                 "good_options": ({k: s["good_options"].get(k) for k in ("state", "message")}

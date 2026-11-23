@@ -119,11 +119,15 @@ def status_note(state) -> str:
         built = time.strftime("%Y-%m-%d", time.localtime(state.store.get("built_at") or time.time()))
         return ("Each trial's status is the institution's own accrual status (OnCore) from the OA trial-table "
                 f"snapshot the store was built from (store built {built}); 'Open to accrual' (open: true) means open "
-                "at this institution. Recruitment at other sites, and cohort- or slot-level availability, are not "
-                "in the data.")
+                "at this institution. Recruitment at other sites is not in the data. " + SLOTS_NOTE)
     return ("Each trial's status is its ClinicalTrials.gov overall status from the synthetic run's export (trials first "
-            "posted 2020 onward); open: true means Recruiting or Not yet recruiting. It is not site-specific, may be out "
-            "of date, and cohort-level availability is not in the data.")
+            "posted 2020 onward); open: true means Recruiting or Not yet recruiting. It is not site-specific and may be "
+            "out of date. " + SLOTS_NOTE)
+
+
+SLOTS_NOTE = ("Cohort-level slots are only those staff entered on Clinical trial management: trial_details shows them "
+              "as a cohort's slots (available, consented, enrolled, and when they were updated); a cohort without "
+              "them has none entered, which says nothing about its availability.")
 
 
 class Toolbox:
@@ -437,11 +441,11 @@ class Toolbox:
         with s.round_lock:
             store = s.store
             scope = [c["id"] for c in store["cohorts"].values() if c["primary"]]
-            ids, matrix = s.cohort_vectors.matrix(store, scope)
+            ids, matrix = s.cohort_matrix(scope)
             if not ids:
                 raise ToolError("the trial cohorts' TrialSpace vectors are still being made; try again shortly")
             scores = (matrix @ vector).astype(np.float64)
-        cohorts = [store["cohorts"][cid] for cid in ids]
+        cohorts = [s.cohort(cid) for cid in ids]
         allowed = self._cohort_mask(cohorts, a["cancer_type"], a["open_only"])
         scores = np.where(allowed, scores, -np.inf)
         k = self._k(a["k"])
@@ -461,9 +465,9 @@ class Toolbox:
             links[cohort["id"]] = self._cohort_link(cohort)
             links[trial["id"]] = self._trial_link(trial)
         if a["rerank"] and rows:
-            pairs = [PairText("assistant-query", r["cohort_id"], description, "", store["cohorts"][r["cohort_id"]]["key"],
-                              store["cohorts"][r["cohort_id"]]["boilerplate"], store["cohorts"][r["cohort_id"]]["items"])
-                     for r in rows[: self.limits.max_score_pairs]]
+            current = {r["cohort_id"]: s.cohort(r["cohort_id"]) for r in rows[: self.limits.max_score_pairs]}
+            pairs = [PairText("assistant-query", cid, description, "", c["key"], c["boilerplate"], c["items"])
+                     for cid, c in current.items()]
             for row, scored in zip(rows, self._scores(pairs, ("match",), progress, "match questions")):
                 row["match"] = scored["match"]
             rows.sort(key=self._rank)
@@ -483,8 +487,8 @@ class Toolbox:
             if ident in store["trials"]:
                 trial = store["trials"][ident]
                 cohort_ids = trial["cohort_ids"][: limits.max_detail_cohorts]
-            elif ident in store["cohorts"]:
-                cohort = store["cohorts"][ident]
+            elif self.state.management.effective(ident) is not None:  # a cohort, an original or a subcohort
+                cohort = self.state.cohort(ident)
                 trial = store["trials"][cohort["trial_id"]]
                 cohort_ids = [ident]
             else:
@@ -503,7 +507,7 @@ class Toolbox:
                                    "classes": (d.get("mechanism_types") or [])[:3]} for d in trial["drugs"][:8]]
             cohorts = []
             for cid in cohort_ids:
-                cohort = store["cohorts"][cid]
+                cohort = self.state.cohort(cid)  # its current criteria
                 items = cohort.get("items") or []
 
                 def lines(kind, boilerplate, items=items):
@@ -518,6 +522,11 @@ class Toolbox:
                 if a["show_common_criteria"]:
                     view["common_inclusion"] = lines("inclusion", True)
                     view["common_exclusion"] = lines("exclusion", True)
+                managed = cohort.get("management") or {}
+                if managed.get("slots"):  # entered by staff on Clinical trial management
+                    view["slots"] = managed["slots"]
+                if managed.get("kind") == "subcohort":
+                    view["subcohort_of"] = managed.get("parent")
                 cohorts.append(view)
                 links[cid] = self._cohort_link(cohort)
             entry["cohorts"] = cohorts
@@ -555,9 +564,9 @@ class Toolbox:
         if a["cohort_id"].strip():
             cohort = s.cohort(a["cohort_id"].strip())
             with s.round_lock:
-                vector = s.cohort_vectors.vector(s.store, cohort["id"])
+                vector = s.cohort_vectors.vector(cohort["key"])
             if vector is None:
-                s.embed_cohorts()
+                s.embed_cohorts([cohort["key"]])
                 raise ToolError("this cohort's TrialSpace vector is still being made; try again shortly")
         elif criteria:
             progress("Embedding the criteria with TrialSpace")

@@ -44,6 +44,10 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T = null>(path: string) => request<T>(path, { method: "DELETE" }),
   /** A multipart upload: each entry a file (or a text field). */
   upload: <T>(path: string, fields: Record<string, Blob | string>) => {
@@ -167,6 +171,37 @@ export interface CohortRow {
   line_count: number;
   completed_at: string | null;
   stale: boolean;
+  /** What the row is in Clinical trial management (absent from an older server). */
+  unit?: CohortUnit;
+  /** Its enrollment slots, as entered on Manage a trial; null: none entered. */
+  slots?: Slots | null;
+  /** A user put it into this group (overriding the group rules). */
+  pinned?: boolean;
+}
+
+/** A cohort's kind: a dashboard cohort (merged from extracted cohorts with the same criteria), one of the
+ * extracted cohorts it stands for, or a subcohort a user defined under either. */
+export type UnitKind = "merged" | "original" | "subcohort";
+
+export interface CohortUnit {
+  kind: UnitKind;
+  /** A subcohort's parent; an original cohort's merged cohort. */
+  parent: string | null;
+  parent_name: string | null;
+  /** Its criteria differ from the AI-extracted ones. */
+  edited: boolean;
+  /** The AI extraction (or a subcohort's parent) changed after its criteria were edited. */
+  base_changed: boolean;
+  /** Lines without inclusion/exclusion and key/common labels. */
+  unclassified: number;
+}
+
+/** A unit's own slot counts (never added up with its parent's or children's). */
+export interface Slots {
+  available: number | null;
+  consented: number | null;
+  enrolled: number | null;
+  updated_at: string | null;
 }
 
 export interface CriteriaItem {
@@ -240,6 +275,8 @@ export interface Meta {
   patients: number;
   /** Absent from an older server. */
   site?: SiteBranding;
+  /** The trial management file's revision (slots, edits, subcohorts, groups); a change refetches the center. */
+  management_revision?: number;
   /** The GoodOption catalog's state; null: a store built before the drugs; absent: an older server. */
   good_options?: { state: "ready" | "missing" | "error"; message: string | null } | null;
 }
@@ -247,6 +284,8 @@ export interface Meta {
 export interface OverviewGroup {
   id: string;
   name: string;
+  /** A group the center's users made (Manage a trial), not one of the grouping rules'. */
+  custom?: boolean;
   trial_count: number;
   rows: CohortRow[];
 }

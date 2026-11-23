@@ -7,3 +7,7 @@ class InputError(ValueError):
 
 class BusyError(ValueError):
     """A job is already running for this browser session (HTTP 409)."""
+
+
+class ConflictError(ValueError):
+    """The request was based on data someone else has changed since (HTTP 409); its message is shown."""

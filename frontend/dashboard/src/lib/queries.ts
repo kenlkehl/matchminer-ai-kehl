@@ -23,10 +23,15 @@ export const metaOptions = () =>
     refetchInterval: 30_000,
   });
 
-export const centerOptions = (centerId: string, builtAt: number | undefined) =>
+export const centerOptions = (
+  centerId: string,
+  builtAt: number | undefined,
+  managementRevision?: number,
+) =>
   queryOptions({
-    // Keyed by the store's build time, so a rebuilt store refetches the dashboard.
-    queryKey: ["center", centerId, builtAt],
+    // Keyed by the store's build time and the trial management file's revision, so a rebuilt store or another
+    // user's slots, edits and groups refetch the dashboard.
+    queryKey: ["center", centerId, builtAt, managementRevision],
     queryFn: () => api.get<CenterView>(`/api/centers/${encodeURIComponent(centerId)}`),
     staleTime: Infinity,
     placeholderData: (previous) => previous,

@@ -205,7 +205,7 @@ See [Evaluations](docs/evaluation/index.md).
 ## Apps
 
 - **Dashboard** (`mmai-dashboard --mode real|synthetic`): one app. **Clinical trial management** shows a site's trial
-  cohorts and finds patients for a cohort; **Guideline concordance reporting** checks a patient population's guideline
+  cohorts, tracks their enrollment slots, edited criteria and subcohorts, and finds patients for a cohort; **Guideline concordance reporting** checks a patient population's guideline
   concordance; **Patient-centric search** finds trials and guideline considerations for one patient; **Assistant**
   answers questions about the trials and patients in a chat, asking what ambiguous clinical concepts mean;
   **Benchmarking** shows evaluation runs and adjudicates LLM-judge disagreements; **How this works** shows how the
