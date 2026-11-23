@@ -28,7 +28,7 @@ from typing import Any
 import pandas as pd
 
 from matchminer_ai._metadata import package_metadata
-from matchminer_ai._storage import atomic_json, digest, read_json
+from matchminer_ai._storage import atomic_text, digest, read_json
 from matchminer_ai.config import MMAIConfig, config_snapshot, load_default_preset
 from matchminer_ai.llm.backends import get_llm_backend
 from matchminer_ai.llm.prompts import load_prompt_text
@@ -66,8 +66,8 @@ SECTION = "patient_extraction"
 PARALLEL_PREPARE_MIN = 64
 PROMPT_FILE = "patient.extraction.patient.txt"
 CHECKPOINT_SUBDIR = "patient_records"
-#: Threads reading saved patient checkpoints when a run resumes.
-CHECKPOINT_READ_THREADS = 32
+#: Threads reading saved patient checkpoints when a run resumes, and writing them as it goes.
+CHECKPOINT_THREADS = 32
 PATIENT_COLUMNS = [
     "patient_id",
     "extraction_status",
@@ -279,11 +279,55 @@ def _saved_checkpoints(paths: dict[str, Path]):
     def load(path):
         return read_json(path) if path.name in present else None
 
-    pool = ThreadPoolExecutor(CHECKPOINT_READ_THREADS)
+    pool = ThreadPoolExecutor(CHECKPOINT_THREADS)
     try:
         yield from zip(paths, pool.map(load, paths.values()))
     finally:
         pool.shutdown(cancel_futures=True)
+
+
+class _CheckpointWriter:
+    """Saves patient checkpoints in a thread pool, so the loop that records answers and starts the next requests
+    never waits on the filesystem: saved one at a time there, on a network mount, the saves fell far behind the
+    answers and the servers emptied. A patient's latest snapshot wins, and one patient's saves never run at once,
+    so an older snapshot cannot replace a newer one. A failed save is raised by the next :meth:`put` or by
+    :meth:`close`, which waits for every save."""
+
+    def __init__(self, threads: int):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._pool = ThreadPoolExecutor(threads, thread_name_prefix="mmai-patient-checkpoints")
+        self._lock = threading.Lock()
+        self._latest: dict[Path, str] = {}
+        self._busy: set[Path] = set()
+        self._error: BaseException | None = None
+
+    def put(self, path: Path, text: str) -> None:
+        if self._error is not None:
+            raise self._error
+        with self._lock:
+            self._latest[path] = text
+            if path in self._busy:
+                return
+            self._busy.add(path)
+        self._pool.submit(self._drain, path)
+
+    def _drain(self, path: Path) -> None:
+        while True:
+            with self._lock:
+                text = self._latest.pop(path, None)
+                if text is None or self._error is not None:
+                    self._busy.discard(path)
+                    return
+            try:
+                atomic_text(path, text)
+            except BaseException as exc:
+                self._error = self._error or exc
+
+    def close(self) -> None:
+        self._pool.shutdown(wait=True)
+        if self._error is not None:
+            raise self._error
 
 
 def _resolve_settings(resolved: MMAIConfig) -> tuple:
@@ -472,18 +516,21 @@ def extract_patient_records(
     def chunk_of(pid, index):
         return chunks[pid][index] if budget is None else current[pid]
 
+    writer = _CheckpointWriter(CHECKPOINT_THREADS) if folder is not None else None
+
     def save(pid):
         s = states[pid]
         if s["path"] is None:
             return
-        atomic_json(s["path"], {
+        # Serialized here, so the snapshot is the state as it is now; only the write waits in the pool.
+        writer.put(s["path"], json.dumps({
             "patient_id": pid, "schema_version": SCHEMA_VERSION, "contract_sha256": contract,
             "input_sha256": inputs[pid], "chunk_count": s["chunk_count"],
             "next_chunk": s["next_chunk"], "failed_chunks": s["failed_chunks"],
             "dropped": s["dropped"], "status": s["status"], "error": s["error"],
             "attempts": s["attempts"], "state": s["state"].to_json(),
             "next_fragment": s["next_fragment"], "over_budget": s["over_budget"],
-        })
+        }, ensure_ascii=False, indent=2) + "\n")
 
     def messages(pid):
         s = states[pid]
@@ -646,6 +693,8 @@ def extract_patient_records(
         producer.join()
         if failure:
             raise failure[0]
+    if writer is not None:
+        writer.close()
 
     rows = []
     for pid, s in states.items():

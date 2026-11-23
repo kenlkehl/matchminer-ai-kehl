@@ -465,6 +465,19 @@ def test_extract_patient_records_merges_chunk_updates(config, monkeypatch, tmp_p
     assert len(backend.calls) == calls and again.record[0] == row.record
 
 
+def test_checkpoint_writer_keeps_each_patients_latest_snapshot(tmp_path):
+    from matchminer_ai.patients.extraction.patient_records import _CheckpointWriter
+
+    writer = _CheckpointWriter(4)
+    paths = [tmp_path / f"p{i}.json" for i in range(3)]
+    for n in range(200):
+        for path in paths:
+            writer.put(path, json.dumps({"n": n}))
+    writer.close()
+    assert [json.loads(path.read_text())["n"] for path in paths] == [199] * 3
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["p0.json", "p1.json", "p2.json"]
+
+
 # Preset
 
 
