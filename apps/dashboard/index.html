@@ -2221,7 +2221,11 @@ TrialSpace model and says so on Data and models if they differ.</p>
   notes (pasted, uploaded as PDF/CSV/TXT, or a synthetic example) that are summarized.</li>
 <li><em>Trials:</em> the ranked trial cohorts with the decision model's or the LLM's scores, and the GoodOption check. A
     trial's criteria check runs on the decision model or the LLM (the toggle), or on the patient's structured records
-    (<strong>Check with structured data</strong>).</li>
+    (<strong>Check with structured data</strong>). <strong>Only cohorts with open slots</strong> (off by default) searches only the cohorts with
+    slots available on Trial management, each matched and scored on its own criteria: a subcohort or an original
+    cohort with slots is searched as itself, not as its merged cohort, so a subcohort limited to, say, KRAS G12C
+    ranks for patients who fit it. A trial appears once per such cohort, and each result shows its own slots. With
+    the option off, the results are the dashboards' merged cohorts, one per trial.</li>
 <li><em>Guidelines:</em> guideline spaces for the patient's summary (TrialSpace's candidates ranked by the decision model
     or the LLM), their workup and treatment menus with sources, a workup review, and a Markdown report.</li>
 <li><em>Structured data:</em> the clinical facts extracted from the notes, patient level or note by note, each with its
@@ -2262,7 +2266,9 @@ each row shows the trial's protocol and NCT numbers, its title, and what is kept
 added without counting a cohort twice; see Slots), subcohorts, edits and edits to review. The list reads only the
 trial management file. A trial opens in place to its cohorts, each a card with its slots, criteria, group and actions,
 under a diagram of where the cohorts come from (<strong>Enlarge</strong> shows it full size). The criteria editor and the
-criteria comparisons open in dialogs. Everything is saved as it is changed, to one file per mode shared by everyone
+criteria comparisons open in dialogs. <strong>Manage trial</strong>, under a group row's <strong>Trial details</strong>, opens the sidebar on that
+row's trial with its cohort (merged, original or subcohort) highlighted and in view; the page's address keeps both
+(<code>manageTrial</code>, <code>manageCohort</code>), so a reload or a shared link opens the same place. Everything is saved as it is changed, to one file per mode shared by everyone
 using that dashboard (<code>matchminer_ai.apps.dashboard.trial_management</code>).</p>
 <p><strong>Units.</strong> A trial's cohorts are shown at three levels, each with its own slots:</p>
 <ul>
@@ -2315,8 +2321,9 @@ is kept for a cohort the trial no longer has is listed until deleted.</p>
 the sidebar is open, onto a group in the groups section puts it there instead of where the grouping rules
 (<code>grouping.yaml</code>) place it; while a cohort is dragged every group is outlined and the one under it highlighted. The
 card's <strong>back to its rule group</strong> (or <strong>remove from the group</strong>) undoes it. Original cohorts and subcohorts are in a
-group only when put in one. While the sidebar is open, <strong>New group</strong> above the groups adds a group of the center's
-own (listed first, and shown while empty so cohorts can be dropped on it); its header renames or deletes it.</p>
+group only when put in one. <strong>New group</strong> above the groups adds a group of the center's own (listed first, and shown
+while empty so cohorts can be dropped on it); its header renames or deletes it. The groups' <strong>Slots</strong> column (on by
+default; <strong>Columns</strong> hides it) shows each cohort's slots available, consented and enrolled as entered in the sidebar.</p>
 <p><strong>The file.</strong> <code>dashboard.&lt;mode&gt;.trial_management</code> (<code>--trial-management</code>), by default
 <code>dashboard_trial_management/trial_management.json</code> under the mode's folder of the data root (real: <code>phi/real_time/</code>;
 synthetic: <code>no_phi/</code>), outside the store folder, which can be deleted to rebuild the store. It is versioned JSON
@@ -2326,6 +2333,19 @@ version of a unit than the file holds is refused, so one user's edit does not si
 downloads the file; <strong>Import</strong> replaces it after confirming (a file from the other mode is refused, and the replaced
 file is kept beside it as <code>trial_management.before-import.json</code>). Synthetic mode's file is never in a <code>phi</code> folder,
 and real mode's never in a <code>no_phi</code> one. In synthetic mode, anyone who can reach the dashboard can change it.</p>
+<p><strong>Clearing.</strong> Two actions remove what users entered; each confirmation lists what goes, with counts, and offers
+<strong>Export first</strong>. Before either writes, the file is kept beside itself, owner-only, as
+<code>trial_management.before-clear-&lt;UTC time&gt;.json</code> or <code>trial_management.before-reset-&lt;trial&gt;-&lt;UTC time&gt;.json</code>, so
+importing that copy undoes it; the newest 20 such copies are kept. Both are recorded in the log with their counts.</p>
+<ul>
+<li><strong>Clear all</strong> (the sidebar's header) removes everything in the mode's file: slots, criteria edits, subcohorts,
+  group placements and the centers' own groups, in every center. The button enables only once <strong>clear</strong> is typed.
+  Cached classifier labels of extracted criteria are not user entries and stay.</li>
+<li><strong>Reset this trial</strong> (an opened trial) removes that trial's slots, criteria edits (its cohorts go back to the AI
+  extraction), subcohorts, entries kept for cohorts it no longer shows, and its cohorts' group placements. The
+  centers' own groups stay, even when left empty. It is refused if anything kept for the trial changed since the
+  trial was opened, so one user's reset does not remove another's newer change.</li>
+</ul>
 <h2 id="assistant">Assistant<a class="headerlink" href="#assistant" title="Permanent link">&para;</a></h2>
 <p>The Assistant tab answers questions about the mode's own data ("what trials are open for EGFR-mutant lung cancer?",
 "find patients with metastatic colorectal cancer") in a chat. It is an agent loop inside the app
