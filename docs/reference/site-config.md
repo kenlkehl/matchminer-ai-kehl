@@ -73,6 +73,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
 | `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
 | `grouping` | the bundled example rules | Trial-group rules per center |
+| `real.trial_management`, `synthetic.trial_management` | `<data root>/phi/real_time/dashboard/trial_management.json`, `<data root>/no_phi/dashboard_synthetic/trial_management.json` | The file of each mode's slots, edited criteria, subcohorts and group placements (Clinical trial management's Manage a trial), shared by the mode's users; synthetic mode's never under `phi` |
 | `embedding_python` | the server's own Python | Python that runs the query encoder |
 | `embedding_caches` | the standard Hugging Face cache | Caches searched for the encoder's weights |
 | `trial_table.name` | `trials` | The trial table in the DuckDB copy |
@@ -125,6 +126,7 @@ dashboard:
     population_duckdb: /srv/mmai/data/phi/population.duckdb
     duckdb_roots: [/srv/mmai/data]
     benchmark_roots: [/srv/mmai/data/phi]
+    trial_management: /srv/mmai/data/phi/real_time/dashboard/trial_management.json
   synthetic:
     store_dir: /srv/mmai/data/no_phi/dashboard_synthetic
     benchmark_roots: [/srv/mmai/data/no_phi/benchmarks]

@@ -580,6 +580,18 @@ function CohortPanel({
             </div>
             <div>
               <p className="font-semibold text-gray-900">{cohort.name}</p>
+              {cohort.unit?.kind === "subcohort" ? (
+                <p className="text-xs text-teal-800">
+                  Subcohort of {cohort.unit.parent_name ?? "a cohort"}
+                </p>
+              ) : cohort.unit?.kind === "original" ? (
+                <p className="text-xs text-gray-600">
+                  Original cohort, part of {cohort.unit.parent_name ?? "a merged cohort"}
+                </p>
+              ) : null}
+              {cohort.unit?.edited ? (
+                <p className="text-xs text-blue-800">Criteria edited on Manage a trial</p>
+              ) : null}
               <p className="text-sm text-gray-600">{cohort.trial.short_title}</p>
               <p className="text-xs text-gray-500">
                 {[cohort.trial.phase, cohort.trial.nct_id, cohort.trial.site_pi]

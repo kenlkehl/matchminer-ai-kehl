@@ -23,9 +23,10 @@ from fastapi.staticfiles import StaticFiles
 from matchminer_ai.apps.common import security
 
 from .core.encoder import EncoderUnavailable
-from .core.errors import BusyError, InputError
+from .core.errors import BusyError, ConflictError, InputError
 from .evidence import CatalogUnavailable, UnknownEntry
-from .routes import assistant, benchmarking, docs, guidelines, patients, population, records, status, trials
+from .routes import (assistant, benchmarking, docs, guidelines, management, patients, population, records, status,
+                     trials)
 from .state import DashState, NotFound
 
 STATIC = Path(__file__).with_name("static")
@@ -137,6 +138,10 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
     async def busy(_, exc):
         return error(409, str(exc))
 
+    @app.exception_handler(ConflictError)
+    async def conflict(_, exc):
+        return error(409, str(exc))
+
     @app.exception_handler(ValueError)
     async def bad_value(_, exc):
         return error(400, str(exc))
@@ -145,7 +150,7 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
     async def http_error(_, exc):
         return error(exc.status_code, str(exc.detail))
 
-    for module in (status, trials, patients, records, assistant):
+    for module in (status, trials, management, patients, records, assistant):
         app.include_router(module.router(state))
     for module in (guidelines, population):
         app.include_router(module.router(state.guidelines))

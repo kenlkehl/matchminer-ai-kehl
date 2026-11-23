@@ -69,21 +69,23 @@ class CohortVectors:
             Path(temporary).unlink(missing_ok=True)
             raise
 
-    def missing(self, store: dict) -> list[tuple[str, str]]:
-        """(text key, text) of every store cohort without a vector, dashboard cohorts first."""
+    def missing(self, store: dict, extra=()) -> list[tuple[str, str]]:
+        """(text key, text) of every store cohort without a vector, dashboard cohorts first, then of the ``extra``
+        texts (edited cohorts and subcohorts, ``trial_management``)."""
         todo, seen = [], set()
-        for cohort in sorted(store["cohorts"].values(), key=lambda c: not c["primary"]):
-            key = cohort_text_key(cohort["key"])
+        texts = [c["key"] for c in sorted(store["cohorts"].values(), key=lambda c: not c["primary"])]
+        for text in [*texts, *extra]:
+            key = cohort_text_key(text)
             if key not in self.vectors and key not in seen:
                 seen.add(key)
-                todo.append((key, cohort["key"]))
+                todo.append((key, text))
         return todo
 
-    def embed(self, store: dict, encoder, progress=None) -> dict:
+    def embed(self, store: dict, encoder, progress=None, extra=()) -> dict:
         """Embed every cohort that has no vector yet; saved every few batches so a restart keeps the work."""
         from matchminer_ai.embedding.trialspace_contract import COHORT_PROMPT
 
-        todo = self.missing(store)
+        todo = self.missing(store, extra)
         if progress:
             progress(0, len(todo), "starting the TrialSpace encoder" if todo else "all cohorts embedded")
         self.state = "embedding" if todo else "ready"
@@ -106,15 +108,17 @@ class CohortVectors:
         self.state, self.error = "ready", None
         return {"embedded": len(todo), "total": len(self.vectors)}
 
-    def matrix(self, store: dict, cohort_ids: list[str]) -> tuple[list[str], np.ndarray]:
-        """The embedded cohorts among ``cohort_ids`` (in order) and their vectors as one matrix."""
-        signature = (store["built_at"], len(self.vectors), tuple(cohort_ids))
+    def matrix(self, store: dict, cohort_ids: list[str], key_of=None, revision=None) -> tuple[list[str], np.ndarray]:
+        """The embedded cohorts among ``cohort_ids`` (in order) and their vectors as one matrix; ``key_of`` gives a
+        cohort's current key criteria (default: the store's), ``revision`` what they depend on."""
+        signature = (store["built_at"], len(self.vectors), revision, tuple(cohort_ids))
+        key_of = key_of or (lambda cid: store["cohorts"][cid]["key"])
         with self.lock:
             if self._matrix and self._matrix[0] == signature:
                 return self._matrix[1], self._matrix[2]
             ids, rows = [], []
             for cid in cohort_ids:
-                vector = self.vectors.get(cohort_text_key(store["cohorts"][cid]["key"]))
+                vector = self.vectors.get(cohort_text_key(key_of(cid)))
                 if vector is not None:
                     ids.append(cid)
                     rows.append(vector)
@@ -122,8 +126,9 @@ class CohortVectors:
             self._matrix = (signature, ids, matrix)
             return ids, matrix
 
-    def vector(self, store: dict, cohort_id: str) -> np.ndarray | None:
-        return self.vectors.get(cohort_text_key(store["cohorts"][cohort_id]["key"]))
+    def vector(self, text: str) -> np.ndarray | None:
+        """The vector of a cohort's key criteria (its current ones: ``DashState.cohort``), if embedded."""
+        return self.vectors.get(cohort_text_key(text))
 
     def describe(self, store: dict | None = None) -> dict:
         out = {"state": self.state, "error": self.error, "vectors": len(self.vectors), "file": self.path.name if self.key else None}

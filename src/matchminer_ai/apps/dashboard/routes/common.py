@@ -31,16 +31,30 @@ def lines(items: list[dict], kind: str, boilerplate: bool | None = False) -> lis
 
 
 def cohort_row(state: DashState, cohort: dict) -> dict:
-    """A dashboard row: the cohort with its trial's summary fields."""
+    """A dashboard row: the cohort (``state.cohort``: its current criteria) with its trial's summary fields and its
+    management state: what kind of unit it is (merged, original, subcohort), its parent, whether its criteria were
+    edited or their base changed, and its slots."""
     trial = state.store["trials"][cohort["trial_id"]]
     items = cohort["items"]
     version = trial["versions"][cohort["version"]]
+    managed = cohort.get("management") or {}
     return {"cohort_id": cohort["id"], "trial": trial_summary(trial), "name": cohort["name"], "number": cohort["number"],
             "version": cohort["version"], "merged_from": cohort["merged_from"], "group": cohort.get("group"),
             "group_reason": cohort.get("group_reason"), "cancer_types": cohort["cancer_types"],
             "key_inclusion": lines(items, "inclusion"), "key_exclusion": lines(items, "exclusion"),
             "common_count": sum(1 for i in items if i.get("boilerplate")), "line_count": len(items),
-            "completed_at": version["completed_at"], "stale": version["state"] == "stale"}
+            "completed_at": version["completed_at"], "stale": version["state"] == "stale",
+            "unit": {"kind": managed.get("kind") or "merged", "parent": managed.get("parent"),
+                     "parent_name": parent_name(state, managed.get("parent")), "edited": bool(managed.get("edited")),
+                     "base_changed": bool(managed.get("stale")), "unclassified": managed.get("unclassified") or 0},
+            "slots": managed.get("slots")}
+
+
+def parent_name(state: DashState, parent: str | None) -> str | None:
+    if not parent:
+        return None
+    cohort = state.management.effective(parent)
+    return cohort["name"] if cohort else None
 
 
 def cohort_detail(state: DashState, cohort: dict) -> dict:

@@ -77,6 +77,12 @@ class DashState:
             write_store(self.store, settings.store_path)
         log(f"  {self.store['counts']['trials']} trials, {self.store['counts']['dashboard_cohorts']} dashboard cohorts "
             f"in {len(self.store['centers'])} {'disease centers' if settings.real else 'cancer-type groups'}")
+        # Slots, edited criteria, subcohorts and group pins: the overlay every cohort lookup goes through.
+        from .trial_management import TrialManager
+
+        self.management = TrialManager(self, settings.trial_management)
+        if self.management.file.error:
+            log(f"  trial management: {self.management.file.error}")
         # ---- the synthetic run's corpus and the round
         log(f"Loading the synthetic corpus from {settings.path('corpus')} ...")
         self.training_corpus = Corpus(settings.path("corpus"), settings.path("patient_metadata"), self.cache,
@@ -232,16 +238,24 @@ class DashState:
             except Exception as exc:
                 self.log(f"TrialSpace round check failed: {type(exc).__name__}: {exc}")
 
-    def embed_cohorts(self):
-        """Embed the store's cohorts that have no vector for the round's encoder (a background job)."""
+    def embed_cohorts(self, extra=()):
+        """Embed the cohorts that have no vector for the round's encoder (a background job): the store's, every
+        edited cohort and subcohort (their current key criteria), and ``extra`` texts."""
         if not self.round or not self.encoder.available:
             return None
-        if not self.cohort_vectors.missing(self.store):
+        texts = [*self.management.managed_texts(), *extra]
+        if not self.cohort_vectors.missing(self.store, texts):
             self.cohort_vectors.state = "ready"
             return None
         return self.background.submit("embed", "trial cohorts (TrialSpace)",
-                                      lambda progress: self.cohort_vectors.embed(self.store, self.encoder, progress),
+                                      lambda progress: self.cohort_vectors.embed(self.store, self.encoder, progress,
+                                                                                 texts),
                                       device=self.settings.embedding_device)
+
+    def cohort_matrix(self, cohort_ids: list[str]):
+        """(ids, vectors) of the embedded cohorts among ``cohort_ids``, by their current key criteria."""
+        return self.cohort_vectors.matrix(self.store, cohort_ids, key_of=lambda cid: self.cohort(cid)["key"],
+                                          revision=self.management.revision)
 
     def refresh_round(self) -> bool:
         """Switch to a higher TrialSpace round once it validates; the trial cohorts are then re-embedded."""
@@ -280,7 +294,9 @@ class DashState:
         return trial
 
     def cohort(self, cohort_id: str) -> dict:
-        cohort = self.store["cohorts"].get(cohort_id)
+        """A cohort with its current criteria: a store cohort, an original cohort or a subcohort, with the users'
+        edits applied (``trial_management``). Every matching path reads cohorts here."""
+        cohort = self.management.effective(cohort_id)
         if cohort is None:
             raise NotFound(cohort_id)
         return cohort
@@ -399,4 +415,5 @@ class DashState:
                 "notes": self.notes.describe(), "benchmarks": self.benchmarks.describe(),
                 "jobs": self.registry.recent(10),
                 "startup_seconds": self.startup_seconds, "score_cache": self.decisions.cache.count(),
-                "llm": {"connection": self.llm.connection.describe(), "cached": self.llm.cache.count()}}
+                "llm": {"connection": self.llm.connection.describe(), "cached": self.llm.cache.count()},
+                "trial_management": self.management.describe()}

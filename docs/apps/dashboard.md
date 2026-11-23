@@ -35,7 +35,8 @@ TrialSpace model and says so on Data and models if they differ.
   [Structured-Record Criteria Screening](../api/structured-criteria.md)), and the search can be limited to patients
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
-  the Patient-centric Trials view.
+  the Patient-centric Trials view. **Manage a trial** opens a pane for one trial's enrollment slots, edited criteria,
+  subcohorts and groups (see [Trial management](#trial-management) below); each group row shows its slots.
 - **Guideline concordance reporting:** load a population, choose a guideline space, fetch its matching patients (TrialSpace and the
   decision model's reasonableness, 0.75 by default, or the LLM's reasonableness answer), and check guideline concordance across the
   cohort (full-note review, compiled extraction queries, or the SQL agent over extraction records). Drill into a
@@ -73,10 +74,80 @@ TrialSpace model and says so on Data and models if they differ.
 - **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and
   the **model connections**, one per LLM task for this browser session: patient summarization,
   guideline concordance checks, query writing (workup and criteria queries, the SQL agent), the two backup reviews, the
-  GoodOption check, the LLM decision checks and the chat assistant. Three connectors: an OpenAI-compatible server
+  GoodOption check, the LLM decision checks, the chat assistant and criteria classification (edited cohort criteria).
+  Three connectors: an OpenAI-compatible server
   (**Detect served model** reads its `/v1/models`), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8
   Flash or Gemma 4 26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's
   Claude endpoints).
+
+## Trial management
+
+**Manage a trial** (Clinical trial management) tracks enrollment slots and the criteria the center actually enrolls
+by, for one trial at a time: choose a trial of the center by protocol number, NCT number or title. Everything is
+saved as it is changed, to one file per mode shared by everyone using that dashboard
+(`matchminer_ai.apps.dashboard.trial_management`).
+
+**Units.** A trial's cohorts are shown at three levels, each with its own slots:
+
+- *merged cohorts*: the dashboard cohorts, each standing for the extracted cohorts the merge step found to have
+  the same criteria;
+- *original cohorts*: those extracted cohorts, shown under a merged cohort that stands for two or more
+  (`original_cohorts`: real mode reads the extraction's `extraction.json` or the listing run's `run_metadata.json`
+  with `merge.json`; synthetic mode the run's unmerged and merged cohort tables). Their lines take the merged
+  cohort's labels where the line is the same (under the same heading, apart from its list number); the other lines
+  are classified on request (**Classify**) and the labels cached;
+- *subcohorts*: defined by a user under a merged or an original cohort, for a sponsor's requirements beyond the
+  protocol's. A subcohort starts with its parent's current criteria, which are then edited.
+
+A diagram shows where each comes from (original cohorts merged into a cohort, subcohorts defined from one).
+
+**Slots.** Available, consented and enrolled counts per unit, entered by hand, with when they were last changed. A
+unit's slots are its own: a parent's and its children's are never added up, and the pane says when a family has
+slots at more than one level. The group rows show each cohort's slots.
+
+**Criteria.** Any unit's lines can be edited, added or removed. Lines keep the cohort pipeline's layout (one line
+each, under "Inclusion criteria:" or "Exclusion criteria:"). An unchanged line keeps its labels; a changed or new
+line is labeled inclusion or exclusion and key or common by the pipeline's own classification step
+(`remove_boilerplate_criteria`, its prompt and one request per line with the whole cohort as context, the unchanged
+lines passed as known), as a job of the browser session on its **Criteria classification** connection (Data and
+models; Claude Haiku 5.5 through the gateway at medium effort when the site names it, else the app's default). A
+line's labels can also be set by hand. Without a working connection the criteria are saved with those lines
+unclassified: they count as key criteria and are skipped by per-criterion checks, as in the package. **Revert to the
+AI-extracted criteria** restores a merged or original cohort's current AI version. Edits are an overlay; the
+extracted criteria are never changed.
+
+**Subcohorts follow their parent on request.** When a cohort with subcohorts is edited or reverted, the pane asks
+whether the new criteria replace the subcohorts'. Yes: each subcohort's criteria are reset to them, and its previous
+criteria are shown while its own requirements are re-entered. No: each keeps its own.
+
+**What reads the current criteria.** Every cohort lookup goes through the overlay (`DashState.cohort`): Find
+patients (TrialSpace retrieval from the cohort's current key criteria, embedded with the round's encoder when saved),
+the decision model's match, common-exclusion and per-criterion questions, the LLM decision checks, structured-data
+screening (its queries are cached by line, so an edited line is compiled anew), trial details, and the Assistant's
+tools except `search_trials`, whose text search reads the AI-extracted criteria. Original cohorts and subcohorts can
+be searched with Find
+patients; they are not added to the Patient-centric Trials results, whose index holds the dashboard cohorts (with
+their edited criteria).
+
+**Re-extraction.** Real mode re-reads its trial data as extraction runs finish, so a cohort's AI version can change
+under an edit. Each edit is stored with the AI version it was based on (its name and lines); when that changes, the
+edit stays in effect and is flagged (**Base changed**, with a comparison) until the user keeps it or reverts. A
+subcohort whose parent's criteria changed is flagged the same way (keep its criteria, or reset to the parent's). What
+is kept for a cohort the trial no longer has is listed until deleted.
+
+**Groups.** Dragging a cohort (merged, original or subcohort) from the pane, or a row of the groups below while the
+pane is open, onto a group puts it there instead of where the grouping rules (`grouping.yaml`) place it; **Back to
+the rules' group** undoes it. Original cohorts and subcohorts are in a group only when put in one. A center's users
+can also add, rename and delete groups of their own, listed first.
+
+**The file.** `dashboard.<mode>.trial_management` (`--trial-management`), by default `dashboard/trial_management.json`
+under the mode's folder of the data root (real: `phi/real_time/`; synthetic: `no_phi/`). It is versioned JSON
+(`mmai-dash-trial-management-v1`), written atomically and owner-only (0600 in a 0700 folder) under a lock, re-read
+when another process wrote it, with a log of what changed and when (never criteria text). A change based on an older
+version of a unit than the file holds is refused, so one user's edit does not silently replace another's. **Export**
+downloads the file; **Import** replaces it after confirming (a file from the other mode is refused, and the replaced
+file is kept beside it as `trial_management.before-import.json`). Synthetic mode's file is never in a `phi` folder,
+and real mode's never in a `no_phi` one. In synthetic mode, anyone who can reach the dashboard can change it.
 
 ## Assistant
 
@@ -116,7 +187,8 @@ download. "Not documented" parts are grey: absence in the records is not a negat
 **Trial status.** In real mode a trial's status is the institution's own accrual status (OnCore) from the OA trial
 table the store was built from; in synthetic mode it is the ClinicalTrials.gov overall status of the run's export
 (open: recruiting or not yet recruiting), not site-specific. Neither says which cohorts have open slots, and the
-assistant says what the status means rather than implying more.
+assistant says what the status means rather than implying more. Slots entered on [Trial management](#trial-management)
+appear in `trial_details` as a cohort's `slots`; a cohort without them has none entered.
 
 **Clarification.** The assistant asks before searching when a clinical concept has materially different readings:
 metastatic (stage IV at diagnosis, recurrent metastatic disease, or either), first-line and line counting
@@ -185,6 +257,7 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `--store-dir` (`dashboard.<mode>.store_dir`) | both | `phi/real_time/dashboard`, `no_phi/dashboard_synthetic` | The trial store, cohort vectors and caches (owner only) |
 | `--good-options-catalog` (`dashboard.<mode>.good_options_catalog`) | both | real: `phi/real_time/good_options_catalog/catalog`; synthetic: none | Trials' drugs and mechanism classes; missing: no drugs |
 | `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
+| `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard/trial_management.json`, `no_phi/dashboard_synthetic/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)) |
 | `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
 | `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
 | `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |

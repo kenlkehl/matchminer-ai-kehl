@@ -89,6 +89,8 @@ class DashSettings(Settings):
     # Trials' drugs (public trial and drug information only, built from NCT IDs and drug names, read in place);
     # a missing catalog: no drugs.
     good_options_catalog: Path | None = None
+    # Slots, edited criteria, subcohorts and group pins (trial_management): one file shared by the mode's users.
+    trial_management: Path | None = None
     # The default model connection of every LLM task (each browser session can change it per task on Data and Models):
     # Claude Haiku 5.5 through the Databricks gateway when the site config names it (user, 2026-11-21), else the
     # Vertex profile Gemini 4 Hydrogen; with llm_backend "openai", an OpenAI-compatible server (llm_endpoint, default
@@ -132,6 +134,10 @@ class DashSettings(Settings):
         if self.good_options_catalog is None:
             self.good_options_catalog = site_default(self.mode, "good_options_catalog",
                                                      "good_options_catalog/catalog" if real else None)
+        if self.trial_management is None:
+            self.trial_management = site_default(self.mode, "trial_management", "dashboard/trial_management.json"
+                                                  if real else "dashboard_synthetic/trial_management.json")
+        self.trial_management = Path(self.trial_management).expanduser()
         self.trial_data = Path(self.trial_data).expanduser() if self.trial_data else None
         self.oa_db = Path(self.oa_db).expanduser() if self.oa_db else None
         self.store_dir = Path(self.store_dir).expanduser()
@@ -140,7 +146,7 @@ class DashSettings(Settings):
         if self.cache_dir is None:
             self.cache_dir = self.store_dir / "cache"
         super().__post_init__()
-        for name in ("store_dir", "cache_dir"):
+        for name in ("store_dir", "cache_dir", "trial_management"):
             error = mode_side_error(self.mode, getattr(self, name))
             if error:
                 raise ValueError(f"{error} Choose another --{name.replace('_', '-')}.")
@@ -214,6 +220,10 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--grouping", type=Path, help="trial-group rules (default: the site config's dashboard.grouping, else the bundled rules)")
     parser.add_argument("--good-options-catalog", type=Path, help="GoodOption catalog directory with the trials' drugs "
                         "(default: dashboard.good_options_catalog; missing: no drugs)")
+    parser.add_argument("--trial-management", type=Path, help="the trial management file: slots, edited criteria, "
+                        "subcohorts and group pins (default: dashboard.<mode>.trial_management, else "
+                        "dashboard/trial_management.json (real) or dashboard_synthetic/trial_management.json "
+                        "(synthetic) under the mode's folder of the data root)")
     parser.add_argument("--rebuild-poll-seconds", type=float, help="how often to look for new extraction results (default 30)")
     parser.add_argument("--llm-backend", help="the default model connection: claude_databricks (default when the site "
                         "config names the Databricks gateway and a Haiku endpoint), a Vertex profile (gemini4_vertex, the "
@@ -256,6 +266,7 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     if args.data_root:
         os.environ[DATA_ROOT_ENV] = args.data_root
     names = {"trial_data": Path, "oa_db": Path, "store_dir": Path, "grouping": Path, "good_options_catalog": Path,
+             "trial_management": Path,
              "rebuild_poll_seconds": float, "llm_backend": str, "llm_endpoint": str, "llm_model": str,
              "llm_tokenizer": str,
              "synthetic_run": Path, "cache_dir": Path, "host": str, "port": int, "decision_model": str,

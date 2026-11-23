@@ -51,6 +51,19 @@ interface Status {
     error: string | null;
   }[];
   score_cache: number;
+  /** Clinical trial management's file (absent from an older server). */
+  trial_management?: {
+    path: string;
+    error: string | null;
+    updated_at: string | null;
+    counts: {
+      subcohorts: number;
+      edited: number;
+      with_slots: number;
+      groups: number;
+      pins: number;
+    };
+  };
 }
 
 interface GoodOptions {
@@ -194,6 +207,23 @@ export function StatusPage() {
           </Row>
           <GoodOptionsRow path={s.sources.good_options} info={s.good_options ?? null} />
           <Row label="Store">{s.store.path}</Row>
+          {s.trial_management ? (
+            <Row label="Trial management">
+              {s.trial_management.path}
+              <p className={s.trial_management.error ? "text-red-700" : "text-gray-600"}>
+                {s.trial_management.error ??
+                  `${String(s.trial_management.counts.with_slots)} cohorts with slots, ${String(
+                    s.trial_management.counts.edited,
+                  )} with edited criteria, ${String(s.trial_management.counts.subcohorts)} subcohorts, ${String(
+                    s.trial_management.counts.groups,
+                  )} groups of the centers' own${
+                    s.trial_management.updated_at
+                      ? `; last change ${isoWhen(s.trial_management.updated_at)}`
+                      : ""
+                  }`}
+              </p>
+            </Row>
+          ) : null}
         </dl>
       </section>
       <section>

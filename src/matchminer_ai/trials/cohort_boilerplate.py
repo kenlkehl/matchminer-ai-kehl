@@ -140,6 +140,7 @@ def remove_boilerplate_criteria(
     config: MMAIConfig | None = None,
     section: str = "trial",
     output_dir: str | Path | None = None,
+    known_items: list[dict[int, dict[str, Any]]] | None = None,
     return_metadata: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, Any]]:
     """Each cohort's eligibility criteria separated into key and boilerplate criteria.
@@ -170,6 +171,9 @@ def remove_boilerplate_criteria(
     keep the model's answer and reasoning. With ``output_dir``, each trial's results are saved to
     ``<output_dir>/<trial_id>/deboilerplate.json`` as its requests return, and an item's
     classification is reused when the prompt and its cohort's name and criteria are unchanged.
+    ``known_items`` (one mapping per row, item number from 1 to its two tags) gives items whose tags
+    are already known, such as the unchanged lines of an edited cohort: they are kept as given and
+    not asked, and count in ``items_reused``.
     """
     resolved = config or load_default_preset()
     frame = cohorts.reset_index(drop=True).copy()
@@ -195,6 +199,8 @@ def remove_boilerplate_criteria(
     for row, trial_id in enumerate(frame.trial_id):
         rows_of.setdefault(trial_id, []).append(row)
 
+    if known_items is not None and len(known_items) != len(frame):
+        raise ValueError("known_items needs one mapping per cohort row")
     pending = []
     for trial_id, rows in rows_of.items():
         path = root / str(trial_id) / "deboilerplate.json" if root else None
@@ -205,6 +211,9 @@ def remove_boilerplate_criteria(
         for row in rows:
             done = {i["number"]: i for i in saved.get(inputs[row], {}).get("items", [])
                     if "boilerplate" in i and "criterion_type" in i}
+            for number, tags in (known_items[row] if known_items is not None else {}).items():
+                if 1 <= int(number) <= len(items[row]):
+                    done[int(number)] = {"criterion_type": tags["criterion_type"], "boilerplate": bool(tags["boilerplate"])}
             for number in range(1, len(items[row]) + 1):
                 if number in done:
                     labels[row, number] = {k: done[number][k] for k in ("criterion_type", "boilerplate")}

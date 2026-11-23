@@ -21,7 +21,8 @@ import {
   type PendingTrial,
   VERSION_LABELS,
 } from "@/lib/api";
-import { typeLabels } from "@/lib/format";
+import { isoWhen, typeLabels } from "@/lib/format";
+import { slotText } from "@/lib/management";
 
 import {
   CatalogLink,
@@ -30,6 +31,7 @@ import {
   type OpenEvidence,
   PayloadLinks,
 } from "./catalog-links";
+import { dragUnit, useDropTarget } from "./drag";
 import { COLUMNS, type ColumnKey, drugsIn, STUDIED_ROLES } from "./search";
 
 interface TrialGroupSectionProps {
@@ -40,6 +42,10 @@ interface TrialGroupSectionProps {
   onCriteria: (cohortId: string) => void;
   /** Opens a drug's or class's catalog evidence. */
   onEvidence?: OpenEvidence;
+  /** A cohort dropped on the group (Manage a trial): put it into the group. */
+  onDropUnit?: (unitId: string) => void;
+  /** The rows can be dragged onto another group (while Manage a trial is open). */
+  dragRows?: boolean;
 }
 
 /** One trial group: its header (as mm-dash's "Group: ... (n trials, m cohorts)") and its cohorts' grid. */
@@ -50,16 +56,29 @@ export function TrialGroupSection({
   onDetails,
   onCriteria,
   onEvidence,
+  onDropUnit,
+  dragRows = false,
 }: TrialGroupSectionProps) {
   const shown = COLUMNS.filter((c) => columns[c.key]);
   const total = shown.reduce((sum, c) => sum + c.width, 0);
   const trials = new Set(group.rows.map((r) => r.trial.id)).size;
+  const target = useDropTarget(onDropUnit);
   return (
-    <AccordionItem value={group.id} className="border-gray-300 data-open:bg-gray-100">
+    <AccordionItem
+      value={group.id}
+      className={cn(
+        "border-gray-300 data-open:bg-gray-100",
+        target.over && "bg-brand-blue/10 ring-2 ring-brand-blue ring-inset",
+      )}
+      {...target.props}
+    >
       <AccordionTrigger className="px-4 py-3 font-normal text-gray-900 hover:bg-gray-50 data-open:hover:bg-gray-200/70">
         <span>
           <strong>Group:</strong> {group.name} ({trials} {trials === 1 ? "trial" : "trials"},{" "}
           {group.rows.length} {group.rows.length === 1 ? "cohort" : "cohorts"})
+          {group.custom ? (
+            <span className="text-xs text-gray-500"> · made by your center</span>
+          ) : null}
         </span>
       </AccordionTrigger>
       <AccordionContent className="pb-0">
@@ -82,6 +101,7 @@ export function TrialGroupSection({
                 <CohortRowView
                   key={row.cohort_id}
                   row={row}
+                  draggable={dragRows}
                   columns={columns}
                   labels={labels}
                   onDetails={onDetails}
@@ -101,6 +121,7 @@ export function TrialGroupSection({
 
 function CohortRowView({
   row,
+  draggable,
   columns,
   labels,
   onDetails,
@@ -108,6 +129,7 @@ function CohortRowView({
   onEvidence,
 }: {
   row: CohortRow;
+  draggable: boolean;
   columns: Record<ColumnKey, boolean>;
   labels: Record<string, string>;
   onDetails: (trialId: string) => void;
@@ -118,6 +140,10 @@ function CohortRowView({
     <TableRow
       className={row.trial.is_open ? "bg-white" : "bg-gray-100 opacity-60"}
       data-cohort-id={row.cohort_id}
+      draggable={draggable}
+      onDragStart={(e) => {
+        dragUnit(e, row.cohort_id);
+      }}
     >
       {columns.irbPi ? <IrbPiCell row={row} onDetails={onDetails} /> : null}
       {columns.cohort ? <CohortCell row={row} labels={labels} /> : null}
@@ -201,11 +227,34 @@ function CohortCell({ row, labels }: { row: CohortRow; labels: Record<string, st
           <strong>Cancer:</strong> {types.join(", ")}
         </div>
       ) : null}
-      {row.merged_from > 1 ? (
+      {row.unit?.kind === "subcohort" ? (
+        <div className="text-xs text-teal-800">
+          Subcohort of {row.unit.parent_name ?? "a cohort"}
+        </div>
+      ) : row.unit?.kind === "original" ? (
+        <div className="text-xs text-gray-600">
+          Original cohort, part of {row.unit.parent_name ?? "a merged cohort"}
+        </div>
+      ) : row.merged_from > 1 ? (
         <div className="text-xs text-gray-500">
           Combines {row.merged_from} cohorts with the same criteria
         </div>
       ) : null}
+      {row.unit?.edited || row.unit?.base_changed ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {row.unit.edited ? (
+            <span className="rounded bg-blue-50 px-1 text-[11px] text-blue-800">
+              Criteria edited
+            </span>
+          ) : null}
+          {row.unit.base_changed ? (
+            <span className="rounded bg-amber-50 px-1 text-[11px] text-amber-900">
+              AI extraction changed since the edit
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <SlotLine row={row} />
       {row.group_reason ? (
         <div className="mt-auto flex justify-end pt-2 print:hidden">
           <Tooltip>
@@ -226,6 +275,19 @@ function CohortCell({ row, labels }: { row: CohortRow; labels: Record<string, st
         </div>
       ) : null}
     </Cell>
+  );
+}
+
+/** The cohort's slots (Manage a trial), as entered: its own, never added up with its parent's or subcohorts'. */
+function SlotLine({ row }: { row: CohortRow }) {
+  if (!row.slots) return null;
+  return (
+    <div
+      className="mt-1 rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-900"
+      title={row.slots.updated_at ? `Updated ${isoWhen(row.slots.updated_at)}` : undefined}
+    >
+      <strong>Slots:</strong> {slotText(row.slots)}
+    </div>
   );
 }
 

@@ -242,12 +242,14 @@ def fake_model(monkeypatch):
 
     def check_eligibility_criteria(frame, config=None, return_metadata=False):
         calls["criteria"] += 1
-        found = json.loads(frame.iloc[0]["cohort_criteria_items"])
+        lines = json.loads(frame.iloc[0]["cohort_criteria_items"])
+        found = [i for i in lines if i["criterion_type"] in ("inclusion", "exclusion")]  # as the package: typed lines
         rows = [{"patient_id": frame.iloc[0]["patient_id"], "cohort_trial_id": frame.iloc[0]["cohort_trial_id"],
                  "criterion_number": i["number"], "criterion_type": i["criterion_type"], "boilerplate": i["boilerplate"],
                  "criterion_text": i["text"], "criterion_pass_probability": 0.3 if i["criterion_type"] == "exclusion" else 0.9,
                  "criterion_clearly_fails": i["criterion_type"] == "exclusion"} for i in found]
-        meta = {"model_metadata": {"check_eligibility_criteria": {"unchecked_lines": 0, "input_tokens": 99, "over_max_length": 0}}}
+        meta = {"model_metadata": {"check_eligibility_criteria": {"unchecked_lines": len(lines) - len(found),
+                                                                  "input_tokens": 99, "over_max_length": 0}}}
         return (pd.DataFrame(rows), meta) if return_metadata else pd.DataFrame(rows)
 
     def interpret_match_quality(frame, config=None, top_k=30, head="reasonableness"):

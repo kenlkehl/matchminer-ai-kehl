@@ -278,9 +278,9 @@ def test_finished_extraction_is_picked_up(dash, trial_data):
     assert trial["state"] == "ready" and trial["cohort_ids"] == ["NCT90000004-cohort-0"]
     assert dash.store["cohorts"]["NCT90000004-cohort-0"]["group"] == "Small Cell Lung Cancer"
     deadline = time.monotonic() + 10
-    while dash.cohort_vectors.vector(dash.store, "NCT90000004-cohort-0") is None and time.monotonic() < deadline:
+    while dash.cohort_vectors.vector(dash.store["cohorts"]["NCT90000004-cohort-0"]["key"]) is None and time.monotonic() < deadline:
         time.sleep(0.02)
-    assert dash.cohort_vectors.vector(dash.store, "NCT90000004-cohort-0") is not None
+    assert dash.cohort_vectors.vector(dash.store["cohorts"]["NCT90000004-cohort-0"]["key"]) is not None
     # A newer extraction of a shown trial keeps its last complete cohorts, marked stale.
     write_trial(trial_data["root"], "protocol", "NCT90000004", None, extracted_at="2026-11-12T00:00:00+00:00")
     assert dash.check_store()
@@ -499,7 +499,7 @@ def test_a_round_being_copied_back_is_picked_up_once_whole(dash, dataset):
         assert time.monotonic() < deadline
         time.sleep(0.01)
     assert dash.cohort_vectors.identity == dash.round.encoder
-    assert dash.cohort_vectors.vector(dash.store, "NCT90000001-cohort-0") is not None
+    assert dash.cohort_vectors.vector(dash.store["cohorts"]["NCT90000001-cohort-0"]["key"]) is not None
 
 
 def test_store_is_owner_only(dash, dash_settings):

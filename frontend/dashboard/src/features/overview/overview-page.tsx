@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon, Columns3Icon } from "lucide-react";
+import {
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
+  ClipboardListIcon,
+  Columns3Icon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
@@ -19,6 +24,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import type { CenterInfo, CenterView, CohortRow } from "@/lib/api";
 import { when } from "@/lib/format";
+import { management, useManagementChange } from "@/lib/management";
 import { centerOptions, metaOptions } from "@/lib/queries";
 
 import { CatalogEvidenceDialog } from "./catalog-evidence-dialog";
@@ -36,6 +42,7 @@ import {
 } from "./search";
 import { PendingSection, TrialGroupSection } from "./trial-group-section";
 import { TrialDetailsDialog } from "./trial-details-dialog";
+import { TrialManagementPane } from "./trial-management-pane";
 
 const route = getRouteApi("/_app/");
 
@@ -51,7 +58,11 @@ export function OverviewPage() {
   }
   const center = meta.data.centers.find((c) => c.id === search.center);
   return center ? (
-    <CenterOverview center={center} builtAt={meta.data.built_at} />
+    <CenterOverview
+      center={center}
+      builtAt={meta.data.built_at}
+      managementRevision={meta.data.management_revision}
+    />
   ) : (
     <Landing
       centers={meta.data.centers}
@@ -136,7 +147,12 @@ function useOverview(view: CenterView | undefined) {
     },
     clearFilters: () => {
       setClears((n) => n + 1);
-      go((prev) => ({ center: prev.center, cols: prev.cols }));
+      go((prev) => ({
+        center: prev.center,
+        cols: prev.cols,
+        manage: prev.manage,
+        manageTrial: prev.manageTrial,
+      }));
     },
     setColumn: (key: keyof ReturnType<typeof visibleColumns>, visible: boolean) => {
       go((prev) => ({ ...prev, cols: { ...prev.cols, [key]: visible } }));
@@ -154,20 +170,41 @@ function useOverview(view: CenterView | undefined) {
     showEvidence: (evidence: string | undefined) => {
       go((prev) => ({ ...prev, evidence }));
     },
+    /** The Manage a trial pane: open (on a trial) or closed. */
+    manage: (open: boolean, manageTrial?: string) => {
+      go((prev) => ({
+        ...prev,
+        manage: open || undefined,
+        manageTrial: open ? manageTrial : undefined,
+      }));
+    },
   };
 }
 
-function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: number }) {
-  const query = useQuery(centerOptions(center.id, builtAt));
+function CenterOverview({
+  center,
+  builtAt,
+  managementRevision,
+}: {
+  center: CenterInfo;
+  builtAt: number;
+  managementRevision: number | undefined;
+}) {
+  const query = useQuery(centerOptions(center.id, builtAt, managementRevision));
   const view = query.data?.id === center.id ? query.data : undefined;
   const overview = useOverview(view);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
   const { filters, search } = overview;
   const filtering = hasFilters(filters);
 
+  // A group the center made stays in view while empty (a place to drop cohorts), unless filtering.
   const groups = (view?.groups ?? [])
     .map((g) => ({ ...g, rows: g.rows.filter((r) => overview.shown(r)) }))
-    .filter((g) => g.rows.length > 0);
+    .filter((g) => g.rows.length > 0 || (g.custom && !filtering));
+  const pin = useManagementChange(({ unitId, groupId }: { unitId: string; groupId: string }) =>
+    management.pin(unitId, groupId),
+  );
+  const managing = Boolean(search.manage);
   const closedHidden = closedTrials(overview.rows);
   const pending = filtering ? [] : (view?.pending ?? []);
   // While filtering, the groups with matches open; otherwise as the user left them (all closed at first).
@@ -225,6 +262,17 @@ function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: numb
           {open.length < allIds.length ? <ChevronsUpDownIcon /> : <ChevronsDownUpIcon />}
           {open.length < allIds.length ? "Expand all" : "Collapse all"}
         </Button>
+        <Button
+          variant={managing ? "secondary" : "outline"}
+          className="font-normal"
+          aria-pressed={managing}
+          onClick={() => {
+            overview.manage(!managing);
+          }}
+        >
+          <ClipboardListIcon />
+          Manage a trial
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" className="font-normal" />}>
             <Columns3Icon />
@@ -258,6 +306,21 @@ function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: numb
         )
       ) : (
         <>
+          {managing ? (
+            <TrialManagementPane
+              view={view}
+              trialId={search.manageTrial}
+              onTrial={(trialId) => {
+                overview.manage(true, trialId);
+              }}
+              onClose={() => {
+                overview.manage(false);
+              }}
+            />
+          ) : null}
+          {pin.isError ? (
+            <p className="text-sm text-red-700">Not moved: {pin.error.message}</p>
+          ) : null}
           <Accordion
             multiple
             value={open}
@@ -279,6 +342,10 @@ function CenterOverview({ center, builtAt }: { center: CenterInfo; builtAt: numb
                   overview.open({ cohort });
                 }}
                 onEvidence={overview.showEvidence}
+                dragRows={managing}
+                onDropUnit={(unitId) => {
+                  pin.mutate({ unitId, groupId: group.id });
+                }}
               />
             ))}
             {pending.length ? (

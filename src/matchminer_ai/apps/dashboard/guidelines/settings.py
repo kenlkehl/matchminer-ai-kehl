@@ -169,6 +169,7 @@ def default_backend() -> str:
 # match scores, common exclusions and per-criterion checks. It replaced the per-criterion-only ``criteria_llm`` task
 # (2026-11-22, user instruction); a connection saved under the old name is moved to it (``migrate_task_connections``).
 LLM_DECISIONS_TASK = "llm_decisions"
+CRITERIA_LABELS_TASK = "criteria_labels"
 RENAMED_TASKS = {"criteria_llm": LLM_DECISIONS_TASK}
 
 # Every LLM task of the app, each with its own connection (until set: see Settings.for_task).
@@ -181,6 +182,9 @@ LLM_TASKS = {
     "good_option": "GoodOption checks",
     LLM_DECISIONS_TASK: "LLM decision checks: match scores, common exclusions and per-criterion checks",
     ASSISTANT_TASK: "Chat assistant",
+    # Edited and new criteria lines of Clinical trial management (apps.dashboard.criteria_labels): inclusion or
+    # exclusion, key or common, with the cohort pipeline's own classification step (user, 2026-11-23).
+    CRITERIA_LABELS_TASK: "Criteria classification: edited cohort criteria (inclusion or exclusion, key or common)",
 }
 
 

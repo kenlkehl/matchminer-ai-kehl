@@ -123,10 +123,10 @@ def router(state: DashState) -> APIRouter:
         require_patients()
         started = time.monotonic()
         with state.round_lock:
-            cohort = state.cohort(request.cohort_id)
-            vector = state.cohort_vectors.vector(state.store, cohort["id"])
+            cohort = state.cohort(request.cohort_id)  # its current criteria (edits, originals, subcohorts)
+            vector = state.cohort_vectors.vector(cohort["key"])
             if vector is None:
-                job = state.embed_cohorts()
+                job = state.embed_cohorts([cohort["key"]])
                 return JSONResponse({"error": "This cohort's TrialSpace vector is still being made; try again shortly.",
                                      "pending": True, "job": job.describe(False) if job else None}, status_code=409)
             k = max(1, min(int(request.k or state.settings.default_k), state.settings.max_k))
@@ -161,7 +161,7 @@ def router(state: DashState) -> APIRouter:
                 raise ValueError("choose a patient or enter a cancer summary")
             store = state.store
             scope = [c["id"] for c in store["cohorts"].values() if request.scope == "all" or c["primary"]]
-            ids, matrix = state.cohort_vectors.matrix(store, scope)
+            ids, matrix = state.cohort_matrix(scope)
             if not ids:
                 raise HTTPException(409, "The trial cohorts' TrialSpace vectors are still being made; try again shortly.")
             scores = (matrix @ np.asarray(state.patient_vector(entity), dtype=np.float32)).astype(np.float64)
@@ -175,7 +175,7 @@ def router(state: DashState) -> APIRouter:
             order.append(i)
             if len(order) == k:
                 break
-        rows = [{"rank": rank, "cohort": cohort_row(state, store["cohorts"][ids[i]]), "cosine": round(float(scores[i]), 5)}
+        rows = [{"rank": rank, "cohort": cohort_row(state, state.cohort(ids[i])), "cosine": round(float(scores[i]), 5)}
                 for rank, i in enumerate(order, 1)]
         pairs = [state.pair(entity["id"], r["cohort"]["cohort_id"]) for r in rows]
         for row, cached in zip(rows, state.decisions.cached_scores(pairs)):
