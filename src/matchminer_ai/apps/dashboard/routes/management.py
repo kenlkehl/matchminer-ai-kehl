@@ -63,6 +63,16 @@ class Name(BaseModel):
     revision: int | None = None
 
 
+class TrialRevision(BaseModel):
+    #: The trial's version the page showed (``trial_revision``); a reset of a trial changed since is refused.
+    revision: str | None = Field(default=None, max_length=64)
+
+
+class ClearAll(BaseModel):
+    #: The word the user typed to confirm.
+    confirm: str = Field(default="", max_length=40)
+
+
 class Pin(BaseModel):
     #: A group of the cohort's center; null: back to its rule group (an original or a subcohort: no group).
     group_id: str | None = Field(default=None, max_length=200)
@@ -221,6 +231,20 @@ def router(state: DashState) -> APIRouter:
     def pin(unit_id: str, body: Pin):
         m.pin(unit_id, body.group_id)
         return {"ok": True}
+
+    @api.post("/api/management/trials/{trial_id}/reset")
+    def reset_trial(trial_id: str, body: TrialRevision):
+        """Reset this trial: its slots, edits, subcohorts and placements go (the file is kept beside it first)."""
+        result = m.reset_trial(trial_id, body.revision)
+        state.embed_cohorts()
+        return result
+
+    @api.post("/api/management/clear")
+    def clear_all(body: ClearAll):
+        """Clear all: everything users entered goes (the file is kept beside it first)."""
+        if body.confirm.strip().lower() != "clear":
+            raise InputError('Type "clear" to confirm.')
+        return m.clear_all()
 
     @api.get("/api/management/export")
     def export():

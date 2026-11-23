@@ -88,6 +88,31 @@ export interface TrialManagementView {
   groups: { id: string; name: string; custom: boolean }[];
   log: LogEntry[];
   revision: number;
+  /** The version of what is kept for this trial (Reset this trial is refused if it changed since). */
+  trial_revision: string;
+  /** What Reset this trial removes. */
+  reset: { slots: number; edited: number; subcohorts: number; pins: number; entries: number };
+}
+
+/** A clear or reset: what it removed, and the copy of the file kept before it (Import it to undo). */
+export interface ClearResult {
+  removed: Partial<Record<"slots" | "edited" | "subcohorts" | "pins" | "groups", number>>;
+  backup: string;
+}
+
+/** "2 cohorts with slots, 1 subcohort, …" (the counts that are not zero). */
+export function removedText(counts: ClearResult["removed"]): string {
+  const names: [keyof ClearResult["removed"], string, string][] = [
+    ["slots", "cohort with slots", "cohorts with slots"],
+    ["edited", "edited cohort", "edited cohorts"],
+    ["subcohorts", "subcohort", "subcohorts"],
+    ["pins", "group placement", "group placements"],
+    ["groups", "group of the centers' own", "groups of the centers' own"],
+  ];
+  const parts = names
+    .filter(([key]) => (counts[key] ?? 0) > 0)
+    .map(([key, one, many]) => `${String(counts[key])} ${counts[key] === 1 ? one : many}`);
+  return parts.length ? parts.join(", ") : "nothing";
 }
 
 export interface ManagementStatus {
@@ -95,6 +120,8 @@ export interface ManagementStatus {
   error: string | null;
   revision: number;
   updated_at: string | null;
+  /** Units kept in the file (cohorts with slots, edits or subcohorts, and subcohorts). */
+  entries: number;
   counts: { subcohorts: number; edited: number; with_slots: number; groups: number; pins: number };
   classifier: {
     connection: { label: string; configured: boolean };
@@ -227,6 +254,9 @@ export const management = {
     api.delete(`/api/management/centers/${enc(centerId)}/groups/${enc(groupId)}`),
   pin: (unitId: string, groupId: string | null) =>
     api.put(`/api/management/pins/${enc(unitId)}`, { group_id: groupId }),
+  resetTrial: (trialId: string, revision: string) =>
+    api.post<ClearResult>(`/api/management/trials/${enc(trialId)}/reset`, { revision }),
+  clearAll: (confirm: string) => api.post<ClearResult>("/api/management/clear", { confirm }),
   importFile: (file: File) =>
     api.upload<ManagementStatus>("/api/management/import", { file, confirm: "replace" }),
 };

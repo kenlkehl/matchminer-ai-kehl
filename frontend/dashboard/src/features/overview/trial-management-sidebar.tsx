@@ -32,12 +32,14 @@ import { download, type TrialSummary, VERSION_LABELS } from "@/lib/api";
 import { isoWhen } from "@/lib/format";
 import {
   type ChangeResult,
+  type ClearResult,
   kindLabel,
   management,
   type ManagedLine,
   type ManagedUnit,
   managementStatusOptions,
   managementSummaryOptions,
+  removedText,
   slotText,
   type TrialBadges,
   trialManagementOptions,
@@ -234,6 +236,7 @@ function FileActions() {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [clearing, setClearing] = useState(false);
   const replace = useManagementChange((chosen: File) => management.importFile(chosen));
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -278,7 +281,32 @@ function FileActions() {
               : "No changes yet"}
         </span>
       ) : null}
-      {message ? <span className="text-xs text-gray-700">{message}</span> : null}
+      <Button
+        size="xs"
+        variant="destructive"
+        className="ml-auto"
+        onClick={() => {
+          setClearing(true);
+        }}
+      >
+        <Trash2Icon />
+        Clear all
+      </Button>
+      {message ? <span className="w-full text-xs text-gray-700">{message}</span> : null}
+      {clearing && status ? (
+        <ClearAllDialog
+          status={status}
+          onClose={() => {
+            setClearing(false);
+          }}
+          onCleared={(result) => {
+            setClearing(false);
+            setMessage(
+              `Cleared ${removedText(result.removed)}. The file as it was is kept on the server as ${result.backup}; import it to undo.`,
+            );
+          }}
+        />
+      ) : null}
       {file ? (
         <Dialog
           open
@@ -374,6 +402,7 @@ function TrialManager({ trialId }: { trialId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [enlarged, setEnlarged] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const data = query.data;
   if (!data) {
     return query.isError ? (
@@ -405,11 +434,39 @@ function TrialManager({ trialId }: { trialId: string }) {
   const t = data.trial;
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-gray-500">
-        {[t.phase, t.status, data.version ? `${VERSION_LABELS[data.version]} cohorts` : null]
-          .filter(Boolean)
-          .join(" · ")}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs text-gray-500">
+          {[t.phase, t.status, data.version ? `${VERSION_LABELS[data.version]} cohorts` : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+        {data.reset.entries || data.reset.pins ? (
+          <Button
+            size="xs"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => {
+              setResetting(true);
+            }}
+          >
+            Reset this trial
+          </Button>
+        ) : null}
+      </div>
+      {resetting ? (
+        <ResetTrialDialog
+          data={data}
+          onClose={() => {
+            setResetting(false);
+          }}
+          onReset={(result) => {
+            setResetting(false);
+            setNotice(
+              `Reset: removed ${removedText(result.removed)}. The file as it was is kept on the server as ${result.backup}; import it to undo.`,
+            );
+          }}
+        />
+      ) : null}
       {data.originals_reason && data.units.some((u) => u.merged_from > 1) ? (
         <p className="text-xs text-gray-500">Original cohorts: {data.originals_reason}</p>
       ) : null}
@@ -492,6 +549,191 @@ function TrialManager({ trialId }: { trialId: string }) {
         </Dialog>
       ) : null}
     </div>
+  );
+}
+
+/** Export the file before a clear or reset (the dialogs offer it). */
+function ExportButton() {
+  const [error, setError] = useState("");
+  return (
+    <span className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        onClick={() => {
+          setError("");
+          void download("/api/management/export", "trial_management.json").catch((e: unknown) => {
+            setError(e instanceof Error ? e.message : String(e));
+          });
+        }}
+      >
+        <DownloadIcon />
+        Export first
+      </Button>
+      {error ? <span className="text-xs text-red-700">Export failed: {error}</span> : null}
+    </span>
+  );
+}
+
+/** Clear all: what goes, with counts; Export first; the destructive button waits for the word "clear". */
+function ClearAllDialog({
+  status,
+  onClose,
+  onCleared,
+}: {
+  status: {
+    counts: {
+      subcohorts: number;
+      edited: number;
+      with_slots: number;
+      groups: number;
+      pins: number;
+    };
+  };
+  onClose: () => void;
+  onCleared: (result: ClearResult) => void;
+}) {
+  const [word, setWord] = useState("");
+  const clear = useManagementChange(() => management.clearAll(word));
+  const c = status.counts;
+  const items: [number, string, string][] = [
+    [c.with_slots, "cohort with slots", "cohorts with slots (available, consented, enrolled)"],
+    [c.edited, "cohort with edited criteria", "cohorts with edited criteria"],
+    [c.subcohorts, "subcohort", "subcohorts, with their slots and criteria"],
+    [c.pins, "placement of a cohort in a group", "placements of cohorts in groups"],
+    [c.groups, "group a center made", "groups the centers made"],
+  ];
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Clear all trial management?</DialogTitle>
+          <DialogDescription>
+            This removes everything entered on Trial management in this dashboard, in every center
+            and for everyone using it:
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="list-disc pl-5 text-sm text-gray-800">
+          {items.map(([n, one, many]) => (
+            <li key={many} className={n ? "" : "text-gray-400"}>
+              {n} {n === 1 ? one : many}
+            </li>
+          ))}
+        </ul>
+        <p className="text-sm text-gray-600">
+          Edited cohorts go back to their AI-extracted criteria. Labels the classifier gave to
+          extracted criteria are kept. The file as it is now is kept on the server beside the new
+          one, and you can export it first; importing it undoes the clear.
+        </p>
+        <ExportButton />
+        <label className="flex flex-col gap-1 text-sm">
+          <span>
+            Type <strong>clear</strong> to confirm
+          </span>
+          <Input
+            aria-label="Type clear to confirm"
+            value={word}
+            autoFocus
+            onChange={(e) => {
+              setWord(e.target.value);
+            }}
+          />
+        </label>
+        {clear.isError ? <p className="text-sm text-red-700">{clear.error.message}</p> : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={word.trim().toLowerCase() !== "clear" || clear.isPending}
+            onClick={() => {
+              clear.mutate(undefined, { onSuccess: onCleared });
+            }}
+          >
+            {clear.isPending ? "Clearing…" : "Clear all"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Reset this trial: what goes, with counts; Export first. Refused if the trial changed since it was opened. */
+function ResetTrialDialog({
+  data,
+  onClose,
+  onReset,
+}: {
+  data: TrialManagementView;
+  onClose: () => void;
+  onReset: (result: ClearResult) => void;
+}) {
+  const reset = useManagementChange(() =>
+    management.resetTrial(data.trial.id, data.trial_revision),
+  );
+  const r = data.reset;
+  const items: [number, string, string][] = [
+    [r.slots, "cohort's slots", "cohorts' slots (available, consented, enrolled)"],
+    [r.edited, "cohort's edited criteria", "cohorts' edited criteria"],
+    [r.subcohorts, "subcohort", "subcohorts, with their slots and criteria"],
+    [r.pins, "placement of a cohort in a group", "placements of its cohorts in groups"],
+  ];
+  const orphans = data.orphans.length;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Reset {data.trial.protocol_no || data.trial.nct_id}?</DialogTitle>
+          <DialogDescription>
+            This removes what is kept for this trial, for everyone using the dashboard:
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="list-disc pl-5 text-sm text-gray-800">
+          {items.map(([n, one, many]) => (
+            <li key={many} className={n ? "" : "text-gray-400"}>
+              {n} {n === 1 ? one : many}
+            </li>
+          ))}
+          {orphans ? (
+            <li>
+              {orphans} {orphans === 1 ? "entry" : "entries"} kept for cohorts the trial no longer
+              shows
+            </li>
+          ) : null}
+        </ul>
+        <p className="text-sm text-gray-600">
+          Its cohorts go back to their AI-extracted criteria and their rule groups. The groups the
+          center made stay, even if they are left empty. The file as it is now is kept on the server
+          beside the new one, and you can export it first; importing it undoes the reset.
+        </p>
+        <ExportButton />
+        {reset.isError ? <p className="text-sm text-red-700">{reset.error.message}</p> : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={reset.isPending}
+            onClick={() => {
+              reset.mutate(undefined, { onSuccess: onReset });
+            }}
+          >
+            {reset.isPending ? "Resetting…" : "Reset this trial"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
