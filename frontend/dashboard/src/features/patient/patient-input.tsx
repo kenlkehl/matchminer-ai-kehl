@@ -4,6 +4,7 @@ import { ChevronUpIcon, RotateCcwIcon, TableIcon, UploadIcon } from "lucide-reac
 import { useEffect, useId, useState } from "react";
 
 import { SearchInput } from "@/components/search-input";
+import { SummarySplit } from "@/components/summary-split";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -363,42 +364,46 @@ function SummaryPane() {
   const count = hasSummary(s.summary) ? words(s.summary) : 0;
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid items-start gap-4 md:grid-cols-[3fr_1fr]">
-        <Field
-          label="Cancer history summary"
-          htmlFor={`${id}-summary`}
-          help="A high-quality cancer summary includes age, sex, cancer type/primary site, disease histology, current extent of disease, relevant biomarkers, and treatment history."
-        >
-          <Textarea
-            id={`${id}-summary`}
-            value={s.summary}
-            disabled={busy}
-            spellCheck={false}
-            maxLength={100_000}
-            onChange={(e) => {
-              editSummary({ summary: e.target.value });
-            }}
-            className="field-sizing-fixed scrollbar-visible h-[calc(10lh+10px)] font-mono text-sm"
-          />
-        </Field>
-        <Field
-          label="Other relevant history"
-          htmlFor={`${id}-other`}
-          help="Common exclusions: conditions that often preclude enrollment."
-        >
-          <Textarea
-            id={`${id}-other`}
-            value={s.otherHistory}
-            disabled={busy}
-            spellCheck={false}
-            placeholder="E.g. poor performance status, pneumonitis, active brain metastases."
-            onChange={(e) => {
-              editSummary({ otherHistory: e.target.value });
-            }}
-            className="field-sizing-fixed scrollbar-visible h-[calc(10lh+10px)] font-mono text-sm placeholder:font-sans placeholder:italic"
-          />
-        </Field>
-      </div>
+      <SummarySplit
+        history={
+          <Field
+            label="Cancer history summary"
+            htmlFor={`${id}-summary`}
+            help="A high-quality cancer summary includes age, sex, cancer type/primary site, disease histology, current extent of disease, relevant biomarkers, and treatment history."
+          >
+            <Textarea
+              id={`${id}-summary`}
+              value={s.summary}
+              disabled={busy}
+              spellCheck={false}
+              maxLength={100_000}
+              onChange={(e) => {
+                editSummary({ summary: e.target.value });
+              }}
+              className="field-sizing-fixed scrollbar-visible h-[calc(10lh+10px)] font-mono text-sm"
+            />
+          </Field>
+        }
+        other={
+          <Field
+            label="Other relevant history"
+            htmlFor={`${id}-other`}
+            help="Common exclusions: conditions that often preclude enrollment."
+          >
+            <Textarea
+              id={`${id}-other`}
+              value={s.otherHistory}
+              disabled={busy}
+              spellCheck={false}
+              placeholder="E.g. poor performance status, pneumonitis, active brain metastases."
+              onChange={(e) => {
+                editSummary({ otherHistory: e.target.value });
+              }}
+              className="field-sizing-fixed scrollbar-visible h-[calc(10lh+10px)] font-mono text-sm placeholder:font-sans placeholder:italic"
+            />
+          </Field>
+        }
+      />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
         <span>
           {s.summaryNote ??

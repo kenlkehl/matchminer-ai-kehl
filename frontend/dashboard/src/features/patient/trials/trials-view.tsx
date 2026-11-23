@@ -16,6 +16,7 @@ import {
 } from "react";
 
 import { SidebarSlot } from "@/components/shell/sidebar-slot";
+import { SummarySplit } from "@/components/summary-split";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -617,13 +618,18 @@ function PatientPanel({ patient }: { patient: TrialsForPatientResult["patient"] 
         ref={body}
         id={`${id}-body`}
         hidden={collapsed}
-        className="grid min-h-0 flex-1 gap-x-4 gap-y-2 px-4 pt-2 pb-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]"
+        className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] px-4 pt-2 pb-3"
       >
-        <PatientText id={`${id}-key`} label="Cancer summary" text={patient.key} />
-        <PatientText
-          id={`${id}-boilerplate`}
-          label="Other relevant history"
-          text={patient.boilerplate}
+        <SummarySplit
+          className="min-h-0"
+          history={<PatientText id={`${id}-key`} label="Cancer summary" text={patient.key} />}
+          other={
+            <PatientText
+              id={`${id}-boilerplate`}
+              label="Other relevant history"
+              text={patient.boilerplate}
+            />
+          }
         />
       </div>
       <PanelSplitter
