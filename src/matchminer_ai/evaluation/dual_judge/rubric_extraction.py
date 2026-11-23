@@ -57,7 +57,7 @@ KINDS = {
     'screen': dict(label='Cancer-treatment screen', values=['correct', 'incorrect']),
     'cohort_set': dict(label='Cohort set (names and merges)', values=['correct', 'defensible', 'incorrect'],
                        collapse={'correct': 'acceptable', 'defensible': 'acceptable', 'incorrect': 'incorrect'}),
-    'fidelity': dict(label='Line copied faithfully', values=['ok', 'minor', 'major']),
+    'fidelity': dict(label='Criterion copied faithfully', values=['ok', 'minor', 'major']),
     'boilerplate_tag': dict(label='Key/boilerplate tag', values=['correct', 'should_be_key', 'should_be_boilerplate']),
     'type_tag': dict(label='Inclusion/exclusion tag', values=['correct', 'wrong']),
     'missing': dict(label='Missing criteria', values=['none', 'minor', 'major'], collapse=NO_MAJOR),

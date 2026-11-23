@@ -27,7 +27,7 @@ BOILERPLATE_SCHEMA = {'type': 'object', 'required': ['reason', 'excluded'],
 
 KINDS = {family: dict(label=family.replace('_', ' ').capitalize(), values=['yes', 'no']) for family in FAMILIES}
 KINDS['boilerplate']['label'] = 'Boilerplate (potentially eligible)'
-KINDS['criterion']['label'] = 'Criterion line (does not clearly fail)'
+KINDS['criterion']['label'] = 'Criterion (does not clearly fail)'
 
 
 def render(item, instructions=None):
@@ -89,7 +89,7 @@ def view(item):
 
 def unit_target(item, key):
     if item['task'] == 'criteria':
-        return f'Criterion line [{item["number"]}] ({item["criterion_type"]}): does the patient not clearly fail it?'
+        return f'Criterion [{item["number"]}] ({item["criterion_type"]}): does the patient not clearly fail it?'
     if item['task'] == 'boilerplate':
         return 'Boilerplate criteria: is the patient potentially eligible (not clearly excluded)?'
     return f'Match question: {key.replace("_", " ")}'
