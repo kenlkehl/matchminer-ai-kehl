@@ -283,3 +283,42 @@ def test_opening_a_trial_classifies_its_originals_once_and_the_list_asks_nothing
     # Cached labels are never asked again.
     assert client.post("/api/management/trials/NCT90000001/open").json()["units"] == []
     assert len(cohort_backend.calls) == 1
+
+
+def test_reset_this_trial_and_clear_all(client, managed):
+    center = managed.store["trials"]["NCT90000001"]["center_id"]
+    other = managed.store["trials"]["NCT90000002"]
+    group = client.post(f"/api/management/centers/{center}/groups", json={"name": "Sponsor slots open"}).json()["id"]
+    client.put(f"/api/management/units/{MERGED}/slots", json={"available": 2})
+    view = client.get("/api/management/trials/NCT90000001").json()
+    client.put(f"/api/management/units/{MERGED}/criteria",
+               json={"items": edited(lines_of(view, MERGED)["lines"], "Edited first line.")})
+    client.post("/api/management/subcohorts", json={"parent_id": MERGED, "name": "Sponsor cap"})
+    client.put(f"/api/management/pins/{MERGED}", json={"group_id": group})
+    kept = other["cohort_ids"][0]  # another trial's slots and placement survive the reset
+    other_group = client.post(f"/api/management/centers/{other['center_id']}/groups", json={"name": "Mine"}).json()["id"]
+    client.put(f"/api/management/units/{kept}/slots", json={"available": 7})
+    client.put(f"/api/management/pins/{kept}", json={"group_id": other_group})
+    view = client.get("/api/management/trials/NCT90000001").json()
+    assert view["reset"] == {"slots": 1, "edited": 1, "subcohorts": 1, "pins": 1, "entries": 2}
+    client.put(f"/api/management/units/NCT90000001-cohort-1/slots", json={"available": 1})  # changed since viewed
+    stale = client.post("/api/management/trials/NCT90000001/reset", json={"revision": view["trial_revision"]})
+    assert stale.status_code == 409
+    view = client.get("/api/management/trials/NCT90000001").json()
+    reset = client.post("/api/management/trials/NCT90000001/reset", json={"revision": view["trial_revision"]}).json()
+    path = managed.management.file.path
+    backup = path.with_name(reset["backup"])
+    assert backup.exists() and oct(backup.stat().st_mode & 0o777) == "0o600"
+    assert "NCT90000001-sub-" in backup.read_text()  # the reset can be undone by importing it
+    after = client.get("/api/management/trials/NCT90000001").json()
+    assert after["reset"]["entries"] == 0 and managed.cohort(MERGED)["key"] == managed.store["cohorts"][MERGED]["key"]
+    assert "Sponsor slots open" in {g["name"] for g in after["groups"]}  # the center's own group stays
+    assert managed.cohort(kept)["management"]["slots"]["available"] == 7
+    assert managed.management.center_groups(other["center_id"])[0]["unit_ids"] == [kept]
+    cleared = client.post("/api/management/clear", json={"confirm": "clear"}).json()
+    assert cleared["removed"]["slots"] == 1 and cleared["removed"]["groups"] == 2
+    doc = json.loads(path.read_text())
+    assert doc["units"] == {} and doc["centers"] == {} and path.with_name(cleared["backup"]).exists()
+    assert [e["action"] for e in doc["log"]][-2:] == ["trial reset", "cleared"]
+    assert "Edited first line" not in json.dumps(doc["log"])  # counts, never criteria text
+    assert client.post("/api/management/clear", json={"confirm": "yes"}).status_code == 400

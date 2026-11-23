@@ -48,7 +48,9 @@ work on its cohorts:
 
 Find patients, scoring, the criteria checks and screening all use a cohort's current criteria, and subcohorts can be
 searched like any cohort. Changes are saved as you make them and shared with everyone using the dashboard; **Export**
-and **Import** save and load them as a file.
+and **Import** save and load them as a file. **Reset this trial** removes one trial's slots, edits, subcohorts and
+group placements, and **Clear all** removes everything entered on Trial management. Both ask first, offer an export,
+and keep a copy of the file as it was, which you can import to undo them.
 
 ### Patient-centric search
 

@@ -164,6 +164,19 @@ downloads the file; **Import** replaces it after confirming (a file from the oth
 file is kept beside it as `trial_management.before-import.json`). Synthetic mode's file is never in a `phi` folder,
 and real mode's never in a `no_phi` one. In synthetic mode, anyone who can reach the dashboard can change it.
 
+**Clearing.** Two actions remove what users entered; each confirmation lists what goes, with counts, and offers
+**Export first**. Before either writes, the file is kept beside itself, owner-only, as
+`trial_management.before-clear-<UTC time>.json` or `trial_management.before-reset-<trial>-<UTC time>.json`, so
+importing that copy undoes it. Both are recorded in the log with their counts.
+
+- **Clear all** (the sidebar's header) removes everything in the mode's file: slots, criteria edits, subcohorts,
+  group placements and the centers' own groups, in every center. The button enables only once **clear** is typed.
+  Cached classifier labels of extracted criteria are not user entries and stay.
+- **Reset this trial** (an opened trial) removes that trial's slots, criteria edits (its cohorts go back to the AI
+  extraction), subcohorts, entries kept for cohorts it no longer shows, and its cohorts' group placements. The
+  centers' own groups stay, even when left empty. It is refused if anything kept for the trial changed since the
+  trial was opened, so one user's reset does not remove another's newer change.
+
 ## Assistant
 
 The Assistant tab answers questions about the mode's own data ("what trials are open for EGFR-mutant lung cancer?",

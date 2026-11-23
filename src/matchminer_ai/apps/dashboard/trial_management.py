@@ -336,15 +336,37 @@ class ManagementFile:
         self.refresh()
         return self.doc
 
-    def change(self, function, entries: list[dict]):
-        """Apply ``function(doc)`` to a copy of the current document and write it, with log ``entries``; returns
-        the function's value."""
+    def backup_path(self, label: str) -> Path:
+        """Where the file is kept before a clear or reset: ``<name>.before-<label>-<UTC time>.json``."""
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "_", label)
+        path, n = self.path.with_name(f"{self.path.stem}.before-{safe}-{stamp}{self.path.suffix}"), 1
+        while path.exists():  # two in the same second
+            n += 1
+            path = self.path.with_name(f"{self.path.stem}.before-{safe}-{stamp}-{n}{self.path.suffix}")
+        return path
+
+    def _keep_copy(self, target: Path) -> None:
+        """The file as it is now, copied owner-only to ``target`` (under the lock)."""
+        data = self.path.read_bytes()
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+
+    def change(self, function, entries, *, backup: Path | None = None):
+        """Apply ``function(doc)`` to a copy of the current document and write it, with log ``entries`` (a list, or
+        a function of the function's value); returns the function's value. ``backup``: first keep the file there."""
         with self.lock, self._file_lock():
             self._read() if file_stamp(self.path) != self._stamp else None
             if self.error:
                 raise InputError(self.error + " Fix the file, or import one, before making changes.")
             doc = copy.deepcopy(self.doc)
             value = function(doc)
+            if callable(entries):
+                entries = entries(value)
+            if backup is not None and self.path.exists():
+                self._keep_copy(backup)
             at = now()
             doc["revision"] = int(doc.get("revision") or 0) + 1
             doc["updated_at"] = at
@@ -359,11 +381,7 @@ class ManagementFile:
         doc = validate(copy.deepcopy(doc), self.mode)
         with self.lock, self._file_lock():
             if self.path.exists():
-                previous = self.path.with_name(f"{self.path.stem}.before-import{self.path.suffix}")
-                data = self.path.read_bytes()
-                fd = os.open(previous, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "wb") as stream:
-                    stream.write(data)
+                self._keep_copy(self.path.with_name(f"{self.path.stem}.before-import{self.path.suffix}"))
             at = now()
             doc["revision"] = max(int(doc.get("revision") or 0), int(self.doc.get("revision") or 0)) + 1
             doc["updated_at"] = at
@@ -602,7 +620,8 @@ class TrialManager:
         return {"trial": trial_summary(trial), "version": version, "center_id": trial["center_id"],
                 "units": out, "orphans": orphans, "originals_reason": originals_reason,
                 "groups": [{"id": g["id"], "name": g["name"], "custom": g["custom"]} for g in center],
-                "log": log, "revision": doc["revision"]}
+                "log": log, "revision": doc["revision"], "trial_revision": self.trial_revision(doc, trial_id),
+                "reset": self.trial_counts(doc, trial_id)}
 
     def unit_view(self, unit_id: str, units: dict, placed: dict, pins: dict | None = None) -> dict | None:
         cohort = self.effective(unit_id)
@@ -1009,6 +1028,100 @@ class TrialManager:
 
         self.file.change(change, [self._entry("pinned" if group_id else "unpinned", unit_id, group_id or "")])
 
+    # ------------------------------------------------------------------ clearing
+
+    def _of_trial(self, unit_id: str, units: dict) -> str | None:
+        """The trial a kept unit or pin belongs to."""
+        if unit_id in units:
+            return units[unit_id]["trial_id"]
+        cohort = self.store["cohorts"].get(unit_id)
+        if cohort is not None:
+            return cohort["trial_id"]
+        parsed = parse_original(unit_id)
+        if parsed:
+            return parsed[0]
+        sub = _SUBCOHORT.match(unit_id)
+        return sub.group("trial") if sub else None
+
+    def trial_counts(self, doc: dict, trial_id: str) -> dict:
+        """What Reset this trial removes: cohorts with slots, edited cohorts, subcohorts, group placements and
+        entries in all (the trial's units, with what is kept for cohorts it no longer shows)."""
+        units = [u for u in doc["units"].values() if u["trial_id"] == trial_id]
+        pins = [u for c in doc["centers"].values() for u in c.get("pins", {})
+                if self._of_trial(u, doc["units"]) == trial_id]
+        return {"slots": sum(1 for u in units if u.get("slots")),
+                "edited": sum(1 for u in units if u["kind"] != "subcohort" and u.get("items") is not None),
+                "subcohorts": sum(1 for u in units if u["kind"] == "subcohort"), "pins": len(pins),
+                "entries": len(units)}
+
+    def trial_revision(self, doc: dict, trial_id: str) -> str:
+        """The version of everything kept for one trial (its units and its cohorts' placements): a reset based on
+        an older one is refused."""
+        units = sorted((u["id"], u.get("revision", 0)) for u in doc["units"].values() if u["trial_id"] == trial_id)
+        pins = sorted((cid, u, g) for cid, c in doc["centers"].items() for u, g in c.get("pins", {}).items()
+                      if self._of_trial(u, doc["units"]) == trial_id)
+        return text_key("trial-revision", units, pins)[:16]
+
+    @staticmethod
+    def count_text(counts: dict) -> str:
+        """The log's text-free summary of a clear or reset: "1 cohort with slots, 2 subcohorts" (nothing: none)."""
+        names = {"slots": ("cohort with slots", "cohorts with slots"), "edited": ("edited cohort", "edited cohorts"),
+                 "subcohorts": ("subcohort", "subcohorts"), "pins": ("group placement", "group placements"),
+                 "groups": ("group of the centers' own", "groups of the centers' own")}
+        parts = [f"{counts[k]} {one if counts[k] == 1 else many}" for k, (one, many) in names.items() if counts.get(k)]
+        return ", ".join(parts) or "nothing kept"
+
+    def file_counts(self, doc: dict) -> dict:
+        units = doc["units"].values()
+        return {"slots": sum(1 for u in units if u.get("slots")),
+                "edited": sum(1 for u in units if u["kind"] != "subcohort" and u.get("items") is not None),
+                "subcohorts": sum(1 for u in units if u["kind"] == "subcohort"),
+                "pins": sum(len(c.get("pins", {})) for c in doc["centers"].values()),
+                "groups": sum(len(c.get("groups", [])) for c in doc["centers"].values())}
+
+    def clear_all(self) -> dict:
+        """Remove everything users entered (slots, edits, subcohorts, placements and their own groups, in every
+        center), keeping the file as it was beside it. Cached criteria labels are not entered, and stay."""
+        backup = self.file.backup_path("clear")
+        removed: dict = {}
+
+        def change(doc):
+            removed.update(self.file_counts(doc))
+            doc["units"], doc["centers"] = {}, {}
+            return removed
+
+        self.file.change(change, lambda counts: [{"action": "cleared", "unit": None, "trial_id": None,
+                                                  "detail": self.count_text(counts)}], backup=backup)
+        self.errors.clear()
+        return {"removed": removed, "backup": backup.name}
+
+    def reset_trial(self, trial_id: str, revision: str | None) -> dict:
+        """Remove what is kept for one trial (its slots, edits, subcohorts and its cohorts' placements; the
+        centers' own groups stay), keeping the file as it was beside it, unless the trial changed since ``revision``."""
+        if trial_id not in self.store["trials"]:
+            from .state import NotFound
+
+            raise NotFound(trial_id)
+        backup = self.file.backup_path(f"reset-{trial_id}")
+
+        def change(doc):
+            if revision is not None and self.trial_revision(doc, trial_id) != revision:
+                raise ConflictError("This trial was changed by someone else since you opened it. Reload to see the "
+                                    "changes, then try again.")
+            counts = self.trial_counts(doc, trial_id)
+            for center in doc["centers"].values():
+                for unit_id in [u for u in center.get("pins", {}) if self._of_trial(u, doc["units"]) == trial_id]:
+                    del center["pins"][unit_id]
+            for unit_id in [u for u, unit in doc["units"].items() if unit["trial_id"] == trial_id]:
+                del doc["units"][unit_id]
+            return counts
+
+        removed = self.file.change(change, lambda counts: [self._entry("trial reset", None, self.count_text(
+            {k: v for k, v in counts.items() if k != "entries"}), trial_id)], backup=backup)
+        for unit_id in [u for u in self.errors if u.startswith(trial_id)]:
+            self.errors.pop(unit_id, None)
+        return {"removed": removed, "backup": backup.name}
+
     # ------------------------------------------------------------------ classification
 
     def unlabeled(self, unit_ids: list[str]) -> list[str]:
@@ -1172,7 +1285,7 @@ class TrialManager:
         doc = self.file.snapshot()
         units = doc["units"].values()
         return {"path": str(self.file.path), "error": self.file.error, "revision": doc["revision"],
-                "updated_at": doc.get("updated_at"), "format": FORMAT,
+                "updated_at": doc.get("updated_at"), "format": FORMAT, "entries": len(doc["units"]),
                 "counts": {"subcohorts": sum(1 for u in units if u["kind"] == "subcohort"),
                            "edited": sum(1 for u in units if u["kind"] != "subcohort" and u.get("items") is not None),
                            "with_slots": sum(1 for u in units if u.get("slots")),
