@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { useState } from "react";
+import { DownloadIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api, download, isActive, type Job, waitForJob } from "@/lib/api";
 
 import {
   type Domain,
@@ -30,11 +32,13 @@ import { BackToRuns, Section, StateBar } from "./common";
 import { count, duration, interval, num, signed, stamp, words } from "./format";
 import { fidelityOptions } from "./queries";
 import type {
+  ExportResult,
   FamilyMetrics,
   FidelityJob,
   FidelityMetrics,
   FidelityRun,
   MeanInterval,
+  PipelineRow,
   StageReceipt,
   ValueInterval,
 } from "./types";
@@ -97,6 +101,7 @@ export function FidelityRunPage() {
             </p>
           ) : null}
         </PageHeader>
+        {run?.metrics ? <ExportResults run={run} /> : null}
       </div>
       {query.isPending ? (
         <Spinner className="size-6" />
@@ -115,6 +120,98 @@ export function FidelityRunPage() {
           <Notes run={run} />
         </>
       ) : null}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- export
+
+const enc = encodeURIComponent;
+
+/**
+ * Export results: the server draws the page's results as a PDF (in real mode with Table 1 and the metrics by
+ * demographic group, small cells suppressed), then the browser downloads it.
+ */
+function ExportResults({ run }: { run: FidelityRun }) {
+  const client = useQueryClient();
+  const [job, setJob] = useState<Job<ExportResult> | null>(null);
+  const polling = useRef<string | null>(null);
+  const latest = job ?? run.exports.at(-1) ?? null;
+  const save = () =>
+    download(`/api/benchmarks/fidelity/${enc(run.id)}/report.pdf`, "fidelity-report.pdf");
+
+  const follow = async (id: string) => {
+    if (polling.current === id) return;
+    polling.current = id;
+    try {
+      await waitForJob<ExportResult>(id, setJob, 1000);
+    } finally {
+      polling.current = null;
+      void client.invalidateQueries({ queryKey: ["benchmarks", "fidelity", run.id] });
+    }
+  };
+  const start = useMutation({
+    mutationFn: async () => {
+      const started = await api.post<{ job: Job<ExportResult> }>(
+        `/api/benchmarks/fidelity/${enc(run.id)}/report`,
+        {},
+      );
+      setJob(started.job);
+      await follow(started.job.id);
+      await save();
+    },
+  });
+  const again = useMutation({ mutationFn: save });
+  // An export started earlier (or in another tab) is still running: follow it.
+  const serverActive = run.exports.findLast((j) => isActive(j));
+  useEffect(() => {
+    if (serverActive && !job) void follow(serverActive.id).catch(() => undefined);
+  }, [serverActive?.id]);
+
+  const active = isActive(latest) || start.isPending;
+  const error = start.error ?? again.error;
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button
+        disabled={active}
+        onClick={() => {
+          start.mutate();
+        }}
+      >
+        {active ? <Spinner /> : <DownloadIcon />}
+        Export results
+      </Button>
+      <span className="text-sm text-gray-600">
+        {latest && isActive(latest) ? (
+          <>
+            {latest.message || "waiting for the worker"}
+            {latest.total
+              ? ` (step ${String(Math.min(latest.done + 1, latest.total))} of ${String(latest.total)})`
+              : ""}
+          </>
+        ) : error ? (
+          <span className="text-red-700">{error.message}</span>
+        ) : run.report ? (
+          <>
+            PDF built {stamp(run.report.built)}.{" "}
+            <button
+              type="button"
+              className="link"
+              disabled={again.isPending}
+              onClick={() => {
+                again.mutate();
+              }}
+            >
+              Download it again
+            </button>
+            {latest?.status === "done" && latest.result?.note ? (
+              <span className="block text-xs text-gray-500">{latest.result.note}</span>
+            ) : null}
+          </>
+        ) : (
+          "A PDF of the results below, for sharing."
+        )}
+      </span>
     </div>
   );
 }
@@ -313,7 +410,9 @@ function Results({
 }) {
   return (
     <>
-      {metrics.retrieval ? <Retrieval retrieval={metrics.retrieval} kBinding={kBinding} /> : null}
+      {metrics.retrieval ? (
+        <Retrieval retrieval={metrics.retrieval} full={metrics.full_pipeline} kBinding={kBinding} />
+      ) : null}
       {metrics.decision ? <Decision decision={metrics.decision} /> : null}
     </>
   );
@@ -321,9 +420,11 @@ function Results({
 
 function Retrieval({
   retrieval,
+  full,
   kBinding,
 }: {
   retrieval: NonNullable<FidelityMetrics["retrieval"]>;
+  full: FidelityMetrics["full_pipeline"];
   kBinding: FidelityRun["k_binding"];
 }) {
   const top = retrieval.top;
@@ -344,10 +445,13 @@ function Retrieval({
       title={`Retrieval against the teacher: P@${String(top)}`}
       description={
         <>
-          P@{top}: the share of each query's top {top} that the teacher judged a reasonable match
-          (unlabeled pairs count as not reasonable). Mean score: the teacher's 0–6 match score of
-          the list. 95% intervals bootstrap the queries; paired differences resample the same
-          queries.
+          P@{top}: the share of each query's top {top} that the teacher judged a reasonable match,
+          over the list's labeled pairs (unlabeled pairs are counted beside it). Mean score: the
+          teacher's 0–6 match score of the list. 95% intervals bootstrap the queries; paired
+          differences resample the same queries.
+          {full
+            ? " These ranker comparisons cover the seeded comparison queries; the full pipeline's table covers every query."
+            : ""}
         </>
       }
     >
@@ -357,6 +461,14 @@ function Retrieval({
             <h3 className="text-base font-semibold">{title}</h3>
             <RetrievalTable retrieval={retrieval} workflow={workflow} scoreDomain={scoreDomain} />
             <Differences retrieval={retrieval} workflow={workflow} domains={domains} />
+            {full?.table[`${workflow}/${full.ranker}`] ? (
+              <FullPipeline
+                row={full.table[`${workflow}/${full.ranker}`]}
+                cluster={full.clusters[workflow] ?? "cluster"}
+                top={top}
+                scoreDomain={scoreDomain}
+              />
+            ) : null}
             {kBinding?.[workflow] ? <KBinding values={kBinding[workflow]} top={top} /> : null}
           </div>
         ))}
@@ -563,6 +675,99 @@ function Differences({
               <IntervalAxis domain={domains.mean_score} width={MARK_WIDTH} />
             </TableCell>
             <TableCell />
+          </TableRow>
+        </TableFooter>
+      </Table>
+    </div>
+  );
+}
+
+/** Ranker (c) over every query of a full-denominator run, with intervals from bootstrapping clusters. */
+function FullPipeline({
+  row,
+  cluster,
+  top,
+  scoreDomain,
+}: {
+  row: PipelineRow | undefined;
+  cluster: string;
+  top: number;
+  scoreDomain: Domain;
+}) {
+  if (!row || row.precision_at_top.mean === null) return null;
+  const p = row.precision_at_top;
+  const s = row.mean_score;
+  const pDomain: Domain = [0, 1];
+  return (
+    <div className="flex flex-col gap-1">
+      <h4 className="text-sm font-semibold text-gray-700">
+        Full pipeline over every query: P@{top} of (c)
+      </h4>
+      <p className="text-xs text-gray-600">
+        Every query of this workflow; 95% intervals bootstrap {cluster}s (all of a {cluster}'s
+        queries together).
+      </p>
+      <Table variant="list">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="text-right">Queries</TableHead>
+            <TableHead className="text-right">{capitalizeFirst(cluster)}s</TableHead>
+            <TableHead>P@{top} [95% CI]</TableHead>
+            <TableHead />
+            <TableHead>Mean 0–6 score [95% CI]</TableHead>
+            <TableHead />
+            <TableHead className="text-right">Lists &lt; {top}</TableHead>
+            <TableHead className="text-right">Unlabeled pairs</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell className="text-right tabular-nums">{count(row.queries)}</TableCell>
+            <TableCell className="text-right tabular-nums">{count(row.clusters)}</TableCell>
+            <TableCell>
+              <Estimate value={p.mean} low={p.low} high={p.high} />
+            </TableCell>
+            <TableCell>
+              <IntervalMark
+                value={p.mean}
+                low={p.low}
+                high={p.high}
+                domain={pDomain}
+                width={MARK_WIDTH}
+                label={`P@${String(top)}, full pipeline`}
+              />
+            </TableCell>
+            <TableCell>
+              <Estimate value={s.mean} low={s.low} high={s.high} digits={2} />
+            </TableCell>
+            <TableCell>
+              <IntervalMark
+                value={s.mean}
+                low={s.low}
+                high={s.high}
+                domain={scoreDomain}
+                width={MARK_WIDTH}
+                digits={2}
+                label="Mean score, full pipeline"
+              />
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {count(row.queries_with_fewer_than_top)}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">{count(row.unlabeled_pairs)}</TableCell>
+          </TableRow>
+        </TableBody>
+        <TableFooter className="border-t-0 bg-transparent font-normal">
+          <TableRow>
+            <TableCell colSpan={3} />
+            <TableCell className="pt-0">
+              <IntervalAxis domain={pDomain} width={MARK_WIDTH} />
+            </TableCell>
+            <TableCell />
+            <TableCell className="pt-0">
+              <IntervalAxis domain={scoreDomain} width={MARK_WIDTH} />
+            </TableCell>
+            <TableCell colSpan={2} />
           </TableRow>
         </TableFooter>
       </Table>

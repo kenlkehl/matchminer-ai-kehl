@@ -81,3 +81,52 @@ def test_benchmarks_find_runs_and_adjudicate_through_the_app(tmp_path):
     [row] = judging.read_jsonl(run / "adjudications.jsonl")
     assert row["picked_judge"] == "vertex" and row["user"] == "reviewer"  # the judge who gave the chosen value
     assert stat.S_IMODE(os.stat(run / "adjudications.jsonl").st_mode) == 0o600
+
+
+def test_fidelity_export_builds_and_downloads_a_pdf_without_demographics_in_synthetic_mode(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from matchminer_ai.apps.dashboard.benchmarking import SYNTHETIC_NOTE, Benchmarks
+    from matchminer_ai.apps.dashboard.core.errors import InputError
+    from matchminer_ai.apps.dashboard.routes.benchmarking import router
+    from matchminer_ai.evaluation.dual_judge import judging
+    from matchminer_ai.training.trialspace import stage
+
+    run = tmp_path / "no_phi" / "benchmarks" / "fidelity_run"  # a fabricated synthetic run's results
+    interval = dict(mean=0.8, low=0.7, high=0.9, n=10)
+    value = dict(value=0.9, low=0.85, high=0.95)
+    judging.write_json(run / "run_status.json", {"updated_at": "2026-11-23T06:00:00-0500", "released": True,
+                                                  "jobs": {"metrics": {"state": "done", "tries": 1}}})
+    judging.write_json(run / "design_notes.json", ["Synthetic run (no PHI)."])
+    judging.write_json(run / "metrics" / "metrics.json", {
+        "retrieval": {"top": 20, "table": {"patient_centric/trialspace_round2_decision": dict(
+            queries=10, queries_with_fewer_than_top=0, queries_without_labels=0, unlabeled_pairs=0,
+            precision_at_top=interval, mean_score=dict(interval, mean=3.1, low=2.9, high=3.3))},
+            "paired_differences": {}},
+        "decision": {"pooled": {"reasonableness": dict(
+            n=200, clusters=10, prevalence_yes=0.6, prevalence_no=0.4, mean_predicted=0.6, observed_rate=0.6,
+            auroc=value, auprc_yes=value, auprc_no=value, brier=value, ece=value, calibration_intercept=value,
+            calibration_slope=value, reliability=[dict(n=100, p_min=0.0, p_max=0.5, mean_predicted=0.2, observed=0.25),
+                                                  dict(n=100, p_min=0.5, p_max=1.0, mean_predicted=0.8,
+                                                       observed=0.75)])}},
+        "counts": {"union_pairs": 200}})
+    (run / "patients").mkdir()
+    stage.write_receipt(run / "patients", "retro-patients", dict(stage="synthetic_patients", source_split="test"), [])
+    benchmarks = Benchmarks("synthetic", roots=[tmp_path / "no_phi"], extract_root=tmp_path / "phi" / "extract")
+    app = FastAPI()
+    app.include_router(router(benchmarks))
+    client = TestClient(app)
+    [found] = client.get("/api/benchmarks").json()["runs"]
+    with pytest.raises(InputError, match="Export the results first"):
+        client.get(f"/api/benchmarks/fidelity/{found['id']}/report.pdf")
+    started = client.post(f"/api/benchmarks/fidelity/{found['id']}/report")
+    assert started.status_code == 202
+    job = benchmarks.jobs.get(started.json()["job"]["id"])
+    job.future.result(timeout=60)
+    assert job.status == "done" and job.result["demographics"] is False and job.result["note"] == SYNTHETIC_NOTE
+    pdf = client.get(f"/api/benchmarks/fidelity/{found['id']}/report.pdf")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF") and "fidelity-fidelity_run.pdf" in pdf.headers["content-disposition"]
+    assert stat.S_IMODE(os.stat(run / "reports" / "fidelity_report.pdf").st_mode) == 0o600
+    assert client.get(f"/api/benchmarks/fidelity/{found['id']}").json()["report"]["bytes"] == len(pdf.content)

@@ -1,10 +1,11 @@
-"""The Benchmarking tab's routes (``benchmarking``): runs, a fidelity run, a judge run, recomputing a judge run's
-comparison and metrics, and adjudicating its queued units."""
+"""The Benchmarking tab's routes (``benchmarking``): runs, a fidelity run and its PDF export, a judge run,
+recomputing a judge run's comparison and metrics, and adjudicating its queued units."""
 from __future__ import annotations
 
 from typing import Literal
 
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..benchmarking import Benchmarks
@@ -34,6 +35,16 @@ def router(benchmarks: Benchmarks) -> APIRouter:
     @api.get("/api/benchmarks/fidelity/{run_id}")
     def fidelity(run_id: str):
         return benchmarks.fidelity(run_id)
+
+    @api.post("/api/benchmarks/fidelity/{run_id}/report", status_code=202)
+    def export(run_id: str):
+        return {"job": benchmarks.export(run_id).describe(with_result=False)}
+
+    @api.get("/api/benchmarks/fidelity/{run_id}/report.pdf")
+    def report(run_id: str):
+        path, name = benchmarks.report_file(run_id)
+        return FileResponse(path, media_type="application/pdf", filename=name,
+                            headers={"Cache-Control": "no-store"})
 
     @api.get("/api/benchmarks/judge/{run_id}")
     def judge(run_id: str):
