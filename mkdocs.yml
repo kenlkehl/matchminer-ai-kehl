@@ -32,6 +32,7 @@ nav:
       - OncoReasoning: training/oncoreasoning.md
   - Evaluation: evaluation/index.md
   - Apps:
+      - Dashboard overview: apps/dashboard-overview.md
       - Dashboard: apps/dashboard.md
   - Reference:
       - Configuration: reference/configuration.md

@@ -142,9 +142,10 @@ data.
 
 ## How this works
 
-The How this works tab shows a curated set of the documentation's pages: how matching works at run time, training
-(TrialSpace, the decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and
-criteria screening. The extraction data model page is generated from the schema's declarations (item types, fields,
+The How this works tab shows a curated set of the documentation's pages. It opens on an
+[overview of the app](dashboard-overview.md), then how matching works at run time, training (TrialSpace, the
+decision model, the teacher labels), patient summaries, cohort extraction, structured extraction and criteria
+screening. The extraction data model page is generated from the schema's declarations (item types, fields,
 vocabularies, versions), so it matches the code. From a source checkout the pages are read from `docs/`; the frontend
 build copies them into the package (`static/docs/`) for an installed one. Only the pages listed in
 `docs_pages.json` are served.
