@@ -70,10 +70,23 @@ TrialSpace model and says so on Data and models if they differ.
     when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
     patient search marks the patients it holds (**Structured records**) and, by default, lists only them.
 - **Assistant:** a chat over the mode's own data (see [Assistant](#assistant) below).
-- **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker; the decision
-  model's discrimination and calibration per question family), LLM-as-judge runs (cost, agreement, results), and
-  adjudication of the units the two judges disagree on. Compare and metrics can be rerun from the tab; the runs
-  themselves start from the command line ([Evaluation](../evaluation/index.md)).
+- **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker, and the full
+  pipeline's over every query in a full-denominator run; the decision model's discrimination and calibration per
+  question family), LLM-as-judge runs (cost, agreement, results), and adjudication of the units the two judges
+  disagree on. Compare and metrics can be rerun from the tab; the runs themselves start from the command line
+  ([Evaluation](../evaluation/index.md)).
+  - **Export results** on a fidelity run draws its results as a PDF and downloads it: a title page (the eval, the
+    models, the denominators), the page's retrieval and decision-model tables and charts, a methods note, counts and
+    design, and the stages. A background job builds it into the run's `reports/fidelity_report.pdf` (owner-only);
+    `GET /api/benchmarks/fidelity/{run_id}/report.pdf` downloads the last one.
+  - In real mode the PDF also has **Table 1** of the eval's patients and treatment starts (age at treatment start,
+    race, ethnicity, sex, cancer type) and the **headline metrics by demographic group** (the full pipeline's P@20 and
+    mean teacher score, the decision model's reasonableness AUROC). They come from `evaluation.demographics`, which
+    links the run's patients to the EHR extract at the site config's `paths.retro_source_root` and caches the
+    aggregates in the run's `reports/demographics.json`. Small cells are suppressed: counts of 1 to 10 show as <11,
+    a larger count hidden alongside them as *, and a group with fewer than 11 patients shows n<11.
+  - Synthetic patients have no demographics, so a synthetic run's PDF says so instead; synthetic mode never reads
+    the extract.
 - **How this works:** how the models are trained and fit together at run time, and the structured extraction data
   model (see [How this works](#how-this-works) below).
 - **Data and models** (the last tab): the data sources, the TrialSpace round, the decision model, background jobs and

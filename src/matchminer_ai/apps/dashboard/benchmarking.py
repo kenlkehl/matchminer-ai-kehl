@@ -2,7 +2,11 @@
 
 - **Distillation fidelity** (``matchminer_ai.evaluation.retro_fidelity``): a run directory with ``run_status.json``.
   The tab shows its stage states, the stage receipts' counts and ``metrics/metrics.json`` (retrieval P@20 and mean
-  teacher score with intervals; the decision model's discrimination and calibration per question family).
+  teacher score with intervals; the decision model's discrimination and calibration per question family). **Export
+  results** (``export``, a background job) draws the page's results as a PDF (``fidelity_report``) into the run's
+  ``reports/`` (owner-only); in real mode it adds Table 1 and the metrics by demographic group
+  (``matchminer_ai.evaluation.demographics``, from the EHR extract at the site config's ``paths.retro_source_root``,
+  aggregates with small cells suppressed). Synthetic mode never reads the extract.
 - **LLM as judge** (``matchminer_ai.evaluation.dual_judge``): a run directory with ``build.json`` and ``items/``.
   The tab shows what was built, each judge's answers and cost, ``compare/summary.json`` and ``metrics/metrics.json``,
   reruns compare and metrics (standard-library steps, in a subprocess that keeps files owner-only), and adjudicates
@@ -38,6 +42,9 @@ FIDELITY_STAGES = ("extraction", "patients", "cohort_table", "corpus", "retrieva
                    "labels/boilerplate_ab", "labels/boilerplate_c", "labels/criteria_ab", "labels/criteria_c",
                    "metrics")
 RECOMPUTE_STEPS = ("compare", "metrics")
+REPORT = "fidelity_report.pdf"  # in the run's reports/, beside evaluation.demographics' cache
+SYNTHETIC_NOTE = ("Synthetic patients carry no age, race, ethnicity or sex, so this report has no Table 1 and no "
+                  "metrics by demographic group.")
 
 
 def benchmark_roots(mode: str) -> list[Path]:
@@ -66,8 +73,10 @@ def updated_at(directory: Path, names: tuple[str, ...]) -> float | None:
 
 
 class Benchmarks:
-    def __init__(self, mode: str, roots: list[Path] | None = None, user: str | None = None):
+    def __init__(self, mode: str, roots: list[Path] | None = None, user: str | None = None,
+                 extract_root: Path | None = None):
         self.mode = mode
+        self.extract_root = extract_root  # real mode's EHR extract; default: the site config's paths.retro_source_root
         self.roots = [Path(r) for r in (roots if roots is not None else benchmark_roots(mode))]
         for root in self.roots:
             error = mode_side_error(mode, root)
@@ -166,10 +175,68 @@ class Benchmarks:
                                 "finished_at": (receipt.get("provenance") or {}).get("finished_at"),
                                 "commit": ((receipt.get("provenance") or {}).get("repository") or {}).get("commit")}
         lists = read_json(directory / "lists_c" / "lists.json") or {}
+        report = directory / "reports" / REPORT
         return {"id": run_id, "name": directory.name, "jobs": status.get("jobs") or {},
                 "updated": status.get("updated_at"), "released": status.get("released"),
                 "design_notes": read_json(directory / "design_notes.json") or [], "stages": stages,
-                "k_binding": lists.get("k_binding"), "metrics": read_json(directory / "metrics" / "metrics.json")}
+                "k_binding": lists.get("k_binding"), "metrics": read_json(directory / "metrics" / "metrics.json"),
+                "report": {"built": report.stat().st_mtime, "bytes": report.stat().st_size} if report.is_file() else None,
+                "exports": [j.describe(with_result=True) for j in self.jobs.jobs.values()
+                            if j.kind == "fidelity-report" and (j.restore or {}).get("run_id") == run_id][-3:]}
+
+    def export(self, run_id: str):
+        """Draw a fidelity run's results as a PDF in ``<run>/reports/`` (a background job; one at a time per run)."""
+        directory = self.run(run_id, "fidelity")
+        if not (directory / "metrics" / "metrics.json").is_file():
+            raise InputError("This run has no results yet: export them when the metrics stage has run.")
+        with self.jobs.lock:
+            for job in self.jobs.jobs.values():
+                if job.kind == "fidelity-report" and job.active and (job.restore or {}).get("run_id") == run_id:
+                    return job
+
+        def work(progress):
+            from .fidelity_report import build_report
+
+            progress(0, 3, "reading the results")
+            run = self.fidelity(run_id)
+            demographics, note = None, None
+            if self.mode == "real":
+                progress(1, 3, "linking demographics")
+                demographics, note = self._demographics(directory, lambda message: progress(1, 3, message))
+            else:  # synthetic mode never reads the EHR extract
+                note = SYNTHETIC_NOTE
+            progress(2, 3, "drawing the PDF")
+            pdf = build_report(run, directory, mode=self.mode, demographics=demographics, note=note)
+            from matchminer_ai.evaluation.demographics import write_private
+
+            write_private(directory / "reports" / REPORT, pdf)
+            return {"bytes": len(pdf), "demographics": demographics is not None, "note": note}
+
+        return self.jobs.submit("fidelity-report", f"PDF of {directory.name}", work, restore={"run_id": run_id})
+
+    def _demographics(self, directory: Path, progress):
+        """Real mode: the run's Table 1 and metrics by group (cached in its reports/), or why there are none."""
+        from matchminer_ai.evaluation.demographics import DemographicsError, NoDemographics, run_demographics
+
+        root = self.extract_root or load_site_config().get("paths.retro_source_root")
+        if not root:
+            return None, "The site config names no EHR extract (paths.retro_source_root), so this report has no Table 1."
+        error = mode_side_error(self.mode, root)
+        if error:
+            return None, error
+        try:
+            return run_demographics(directory, Path(root).expanduser(), progress), None
+        except NoDemographics:
+            return None, SYNTHETIC_NOTE
+        except DemographicsError as exc:  # our own messages name files, never their contents
+            return None, f"Table 1 is unavailable: {exc}"
+
+    def report_file(self, run_id: str) -> tuple[Path, str]:
+        directory = self.run(run_id, "fidelity")
+        path = directory / "reports" / REPORT
+        if not path.is_file():
+            raise InputError("Export the results first: this run has no PDF yet.")
+        return path, f"fidelity-{directory.name}.pdf"
 
     # ------------------------------------------------------------------ judge runs
 

@@ -101,11 +101,23 @@ export interface FamilyMetrics {
   calibration_slope?: ValueInterval;
 }
 
+/** A ranker's P@20 over every query with cluster-bootstrap intervals (full-denominator runs). */
+export interface PipelineRow extends RetrievalRow {
+  clusters: number;
+}
+
 export interface FidelityMetrics {
   retrieval?: {
     top: number;
     table: Record<string, RetrievalRow>;
     paired_differences: Record<string, MeanInterval>;
+  };
+  /** Full-denominator runs: ranker (c) over every query; clusters are persons or trials per workflow. */
+  full_pipeline?: {
+    top: number;
+    ranker: string;
+    clusters: Record<string, string>;
+    table: Record<string, PipelineRow>;
   };
   /** "pooled", "patient_centric", "trial_centric": question family -> metrics. */
   decision?: Record<string, Record<string, FamilyMetrics>>;
@@ -122,6 +134,17 @@ export interface FidelityRun {
   stages: Record<string, StageReceipt>;
   k_binding: Record<string, Record<string, number>> | null;
   metrics: FidelityMetrics | null;
+  /** The last exported PDF in the run's reports/ (benchmarking.py export). */
+  report: { built: number; bytes: number } | null;
+  /** The latest export jobs of this run. */
+  exports: Job<ExportResult>[];
+}
+
+/** An export job's result: the PDF's size, whether it has Table 1, and why not. */
+export interface ExportResult {
+  bytes: number;
+  demographics: boolean;
+  note: string | null;
 }
 
 // --------------------------------------------------------------------------- LLM as judge

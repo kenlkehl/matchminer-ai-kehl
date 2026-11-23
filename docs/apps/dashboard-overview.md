@@ -88,6 +88,10 @@ its results.
 The evaluation runs: how closely the models reproduce the large language model (LLM) they were trained from, how
 LLM judges rate the pipeline's outputs, and review of the cases two judges disagree on.
 
+On a distillation fidelity run, **Export results** downloads the results as a PDF to share. For real patients it also
+has a Table 1 describing the patients (age, race, ethnicity, sex and cancer type) and the main results for each of
+these groups. Small numbers are hidden there to protect patient privacy.
+
 ### How this works
 
 These pages: how matching works, how the models are trained, what each model answers, and the data model of the

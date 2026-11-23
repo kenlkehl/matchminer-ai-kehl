@@ -11,6 +11,7 @@ Install with the evaluation extra: `uv pip install -e ".[training,evaluation]"`.
 | --- | --- |
 | `evaluation.retro_cohorts` | Retrospective denominators from an institution's structured EHR extract (its location is the site config's `paths.retro_source_root`): trial-treatment starts and standard-of-care (SOC) treatment starts with their index dates (`pull_denominators`), the SOC trial sample (`sample_soc_trials`), note-level datasets cut before the index date with the event's own trial identifiers masked (`build_note_level_dataset`), and their serial summaries on the site's teacher server (`summarize_retro_cohorts`, `endpoints.teacher.url`). |
 | `evaluation.retro_fidelity` | Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of three rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family. |
+| `evaluation.demographics` | Table 1 and fidelity metrics by demographic group for a real fidelity run (the dashboard's PDF export): links the run's patients to the EHR extract's registration and treatment plan tables, and suppresses small cells. |
 | `evaluation.dual_judge` | Two frontier LLM judges (Claude Opus through a Databricks AI Gateway and Gemini on Vertex AI; GPT on Azure before 2026-11-23) grade cohort extraction, patient summaries and the decision questions; the user adjudicates disagreements on the dashboard's Benchmarking tab. |
 | `evaluation.cohort_lineitems` | One row per cohort for a table of ctgov-style listings, extracted with training's ctgov extractor (`training.trials.extract_ctgov_cohorts`), under the column names the evaluations read. |
 
@@ -45,6 +46,34 @@ persons, or trials for the trial-centric workflow), and the decision-model metri
 Its Design section says which queries each table covers. `--no-criteria` (or `--criteria-lines 0`) leaves out
 per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
 rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.
+
+### Demographics
+
+`evaluation.demographics.run_demographics(run_dir, extract_root)` gives a real fidelity run's Table 1 and its
+headline metrics by demographic group, aggregates only, with small cells suppressed (the dashboard's Export results
+draws them into the PDF):
+
+- **Linkage.** The run's patients are its corpus's index events. The patients stage's receipt names the denominator
+  CSV it read (checked against the receipt's size and mtime stamp), which gives each event's patient, index date (the
+  treatment plan's start) and plan. From the extract's `structured_data/` it reads selected columns of `PT_INFO.csv`
+  (birth date, sex), `PT_DEMOGRAPHICS.csv` (race, ethnicity) and `TREATMENT_PLAN.csv` (the index plan's ICD-10
+  codes). The categories are v22's (`real_eval_code/eval_phi_*/demographics_utils.py`): age at treatment start in
+  `<40, 40-49, 50-59, 60-69, 70-79, 80+, Unknown`; race from the derived race (several races: Multiple); ethnicity
+  from the Hispanic indicator; sex from the gender, else the sex at birth. Cancer type groups the plan's ICD-10 codes
+  by site, a primary cancer code first.
+- **Table 1.** A patients column (race, ethnicity and sex; age and cancer type at each patient's first treatment start
+  in the eval) and a treatment-starts column (every index event), with the median (IQR) age.
+- **By group.** For age group, race, ethnicity and sex: the full pipeline's (ranker (c)) P@20 and mean teacher score
+  over the group's patient-centric queries, and the decision model's reasonableness AUROC over the teacher-labeled
+  pairs of the group's patients (both workflows pooled), with person-cluster bootstrap 95% intervals. Trial-centric
+  queries are cohorts, so trial-centric retrieval is not split by group.
+- **Small cells.** Counts of 1 to 10 show as <11 without a percentage; zero shows as 0; totals are exact. Within each
+  section of a column, larger counts are also hidden (*), smallest first, until no hidden count can be worked out
+  from the total: at least two are hidden, they add up to 11 or more, and their sum has more than one split. A
+  group's metrics are hidden (n<11) when it has fewer than 11 patients.
+- **Cache.** The unsuppressed aggregates are cached in the run's `reports/demographics.json` (file 600, directory 700,
+  inside the run's own PHI directory) and reused while the run's metrics, its denominator file and the three extract
+  tables are unchanged; suppression is applied each time the tables are read.
 
 ### On synthetic data
 

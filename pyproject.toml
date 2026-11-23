@@ -78,12 +78,13 @@ evaluation = [
   "anthropic[vertex]>=2.4",
   "scipy>=1.14",
 ]
-# The web app (matchminer_ai.apps.dashboard: trials, populations, patients, benchmarks).
+# The web app (matchminer_ai.apps.dashboard: trials, populations, patients, benchmarks and their PDF export).
 apps = [
   "fastapi>=0.115,<1",
   "uvicorn>=0.30,<1",
   "python-multipart>=0.0.20",
   "duckdb>=1.1",
+  "reportlab>=4.2",
 ]
 dev = [
   "pre-commit>=3.7",
