@@ -71,9 +71,9 @@ const FAMILY_LABELS: Record<string, string> = {
   treatment_history: "Treatment history",
   biomarker: "Biomarker",
   boilerplate: "Boilerplate",
-  "criterion (all lines)": "Criterion lines: all",
-  "criterion (inclusion lines)": "Criterion lines: inclusion",
-  "criterion (exclusion lines)": "Criterion lines: exclusion",
+  "criterion (all lines)": "Criteria: all",
+  "criterion (inclusion lines)": "Criteria: inclusion",
+  "criterion (exclusion lines)": "Criteria: exclusion",
 };
 const BANDS = ["1-20", "21-50", "51-80", "81-100"];
 /** Rank bands of the retriever's list: an ordinal blue ramp, nearest ranks darkest (validated --ordinal). */
@@ -840,11 +840,11 @@ function Decision({ decision }: { decision: NonNullable<FidelityMetrics["decisio
       description={
         <>
           On the merged top {20} pairs of the three rankers: one row per unique pair (boilerplate:
-          per unique combination of the two boilerplate texts; criterion lines: a stratified
-          sample). Yes means potentially eligible or not clearly failing; for the cancer type,
-          burden, treatment history and biomarker questions, yes means the cohort specifically
-          requires it and the patient is documented to meet it. AUPRC (no) scores 1 − P(yes) against
-          the no class; its chance level is the no prevalence. 95% intervals
+          per unique combination of the two boilerplate texts; criteria: a stratified sample). Yes
+          means potentially eligible or not clearly failing; for the cancer type, burden, treatment
+          history and biomarker questions, yes means the cohort specifically requires it and the
+          patient is documented to meet it. AUPRC (no) scores 1 − P(yes) against the no class; its
+          chance level is the no prevalence. 95% intervals
           {draws ? ` from ${draws.toLocaleString()} draws` : ""} resample{" "}
           {scope === "pooled" ? "patients" : "queries"}.
         </>
