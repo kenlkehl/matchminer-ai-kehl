@@ -324,8 +324,9 @@ def report(result, design):
     names = {RANKERS[0]: '(a) EmbeddingGemma 2 (base)', RANKERS[1]: '(b) TrialSpace round 2',
              RANKERS[2]: '(c) TrialSpace round 2 top-K + decision reasonableness'}
     r = result['retrieval']
-    out = ['# Retrospective distillation fidelity: validation SOC cohort', '',
-           f"Generated {time.strftime('%Y-%m-%d %H:%M %Z')} by `real_eval_code/retro_fidelity/metrics.py`. Counts and metrics "
+    out = ['# Retrospective distillation fidelity', '',  # the Design lines name the patients
+           f"Generated {time.strftime('%Y-%m-%d %H:%M %Z')} by `matchminer_ai.evaluation.retro_fidelity.metrics`. "
+           'Counts and metrics '
            'only. This directory holds PHI; do not copy it elsewhere.', '', '## Design', '']
     out += [f'- {line}' for line in design]
     titles = {'patient_centric': 'Trials for a patient (patient-centric)',
