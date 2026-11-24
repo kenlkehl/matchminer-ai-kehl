@@ -1,7 +1,7 @@
 # Trials
 
 `matchminer_ai.trials` turns trial documents into cohorts: the groups of people a trial enrolls, each with its
-complete eligibility criteria, split into key and boilerplate criteria and tagged line by line.
+complete eligibility criteria, split into key and boilerplate criteria, and each criterion tagged.
 [How matching works](../user-guide/patient-centric-matching.md) explains how the later steps use them. The outputs
 are research abstractions for human review, not eligibility determinations.
 
@@ -12,7 +12,7 @@ are research abstractions for human review, not eligibility determinations.
 | 1. Screen for cancer treatment | `extract_cohorts` (ctgov listings) or `extract_protocol_cohorts` (full protocols) | Rejected trials get no rows |
 | 2. List the cohorts and extract each one's complete criteria | the same extractor | `cohort_name`, `cohort_eligibility_criteria` |
 | 3. Merge cohorts whose criteria are equivalent | `merge_equivalent_cohorts` | `merged_from` |
-| 4. Tag every criteria line inclusion or exclusion, and key or boilerplate | `remove_boilerplate_criteria` | `cohort_key_criteria`, `cohort_boilerplate_criteria`, `cohort_criteria_items` |
+| 4. Tag every criterion inclusion or exclusion, and key or boilerplate | `remove_boilerplate_criteria` | `cohort_key_criteria`, `cohort_boilerplate_criteria`, `cohort_criteria_items` |
 
 `process_trials` runs all four, in this order:
 
@@ -204,7 +204,7 @@ criteria.
 ## Key and boilerplate criteria
 
 `remove_boilerplate_criteria` separates each cohort's **key criteria**, which define its population, from its
-**boilerplate criteria**, the general requirements most cancer trials share, and tags every line as an inclusion or
+**boilerplate criteria**, the general requirements most cancer trials share, and tags each one as an inclusion or
 exclusion criterion.
 
 Boilerplate covers consent, compliance, samples and biopsies, measurable disease, prognosis, performance status,
@@ -214,28 +214,28 @@ legal and administrative requirements, vaccines, investigator-judgment and study
 contraception, pregnancy and lactation. Each is boilerplate unless it is central to what the trial studies, such as
 brain metastasis criteria in a trial for brain metastases.
 
-- **One request per line:** each cohort's criteria are split into items, one per nonblank line other than the
+- **One request per criterion:** each cohort's criteria are split into items, one per nonblank line other than the
   "Inclusion criteria:" and "Exclusion criteria:" headings. Each item gets its own request
   (`trial.cohorts.deboilerplate.user.txt`) showing the cohort's numbered criteria, answered
   `{"criterion_type": "inclusion" | "exclusion", "boilerplate": true | false}`.
 - **Inclusion or exclusion:** an item under a heading takes that heading's type, even when worded negatively.
-  Sub-items, notes and introductory lines take the type of the criterion they belong to.
-- **No rewriting:** code sorts the unchanged lines, so no criterion is lost or reworded.
+  Sub-items, notes and introductions take the type of the criterion they belong to.
+- **No rewriting:** code sorts the unchanged criteria, so no criterion is lost or reworded.
 
 The rows keep `cohort_eligibility_criteria` unchanged and gain:
 
 | Column | Meaning |
 | --- | --- |
-| `cohort_key_criteria` | The lines that are not boilerplate, under their headings. Read by TrialSpace retrieval and the decision model's match questions. |
-| `cohort_boilerplate_criteria` | The boilerplate lines. Read by the decision model's boilerplate question. |
-| `cohort_criteria_items` | Every line with its tags, as a JSON string: a list of `{"number", "heading", "text", "criterion_type", "boilerplate"}` in the original order. Read by [`check_eligibility_criteria`](criteria-check.md). |
+| `cohort_key_criteria` | The criteria that are not boilerplate, under their headings. Read by TrialSpace retrieval and the decision model's match questions. |
+| `cohort_boilerplate_criteria` | The boilerplate criteria. Read by the decision model's boilerplate question. |
+| `cohort_criteria_items` | Every criterion with its tags, as a JSON string: a list of `{"number", "heading", "text", "criterion_type", "boilerplate"}` in the original order. Read by [`check_eligibility_criteria`](criteria-check.md). |
 
-- **Unanswered lines:** a line whose answer never validates counts as key, has `criterion_type` null and is listed
-  in `unclassified_items`.
-- **Unsplittable cohorts:** a cohort without lines, or whose lines are all boilerplate, keeps all its criteria as
-  `cohort_key_criteria`, has `cohort_boilerplate_criteria` None and is listed in `deboilerplate_errors`.
-- **Metadata:** also `criterion_type_heading_disagreements` (lines whose type differs from their heading),
-  `items`, `items_reused`, `skipped_completed` and `trial_cohorts` (every line's attempts with answers and
+- **Unanswered criteria:** a criterion whose answer never validates counts as key, has `criterion_type` null and is
+  listed in `unclassified_items`.
+- **Unsplittable cohorts:** a cohort with no criteria to split, or whose criteria are all boilerplate, keeps all its
+  criteria as `cohort_key_criteria`, has `cohort_boilerplate_criteria` None and is listed in `deboilerplate_errors`.
+- **Metadata:** also `criterion_type_heading_disagreements` (criteria whose type differs from their heading),
+  `items`, `items_reused`, `skipped_completed` and `trial_cohorts` (every criterion's attempts with answers and
   reasoning).
 
 Guideline catalog spaces have no boilerplate criteria. `load_guideline_catalog` gives each space a
@@ -252,7 +252,7 @@ same directory sends only the requests whose inputs changed.
 | --- | --- | --- | --- |
 | `<trial_id>/extraction.json`, `<trial_id>/reasoning.json` | `extract_protocol_cohorts` | The decision, cohort names, combined cohorts, every attempt per step with its serving endpoint, prompt hashes, schema and representation versions and source-document SHA-256; each step's reasoning | Prompts, schema and document bytes |
 | `<trial_id>/merge.json` | `merge_equivalent_cohorts` | The grouping, cohort names and attempts | Prompt and the trial's cohort names and criteria |
-| `<trial_id>/deboilerplate.json` | `remove_boilerplate_criteria` | Per cohort, `key_criteria` and `boilerplate_criteria` (or `error`) and every line's tags and attempts; written once all the trial's lines are answered | Per line: prompt, schema and its cohort's name and criteria |
+| `<trial_id>/deboilerplate.json` | `remove_boilerplate_criteria` | Per cohort, `key_criteria` and `boilerplate_criteria` (or `error`) and every criterion's tags and attempts; written once all the trial's criteria are answered | Per criterion: prompt, schema and its cohort's name and criteria |
 | `screen.jsonl` | `screen_trials` | One line per trial: decision and attempts | Prompt and the trial's document |
 
 `extract_cohorts` saves nothing, so `process_trials(source="ctgov")` extracts listings again on every run and reuses

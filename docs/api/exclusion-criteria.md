@@ -3,7 +3,7 @@
 `exclusion_criteria_check` asks the decision model its boilerplate question about each candidate pair, and
 `exclusion_criteria_check_with_llm` asks an LLM. Both read **boilerplate text only**: the general requirements most
 cancer trials share, inclusion requirements as well as exclusions. Key criteria are the
-[match-quality](match-quality.md) check's; for a line-by-line check, see [criteria check](criteria-check.md).
+[match-quality](match-quality.md) check's; for a criterion-by-criterion check, see [criteria check](criteria-check.md).
 
 Each input row is one candidate pair with:
 

@@ -12,9 +12,9 @@ Three tasks (`matchminer_ai.labeling.tasks`):
 - **`boilerplate`:** whether the patient clearly fails the cohort's boilerplate criteria
   (`llm_exclusion_criteria.user.txt`, ending in `Yes!` or `No!`). Pairs whose cohort has no boilerplate criteria are
   skipped. The decision model's boilerplate question learns the inverse: its yes means not excluded.
-- **`criteria`:** one request per tagged criteria line of a pair (`criterion_check.labels.user.txt` around the
+- **`criteria`:** one request per tagged criterion of a pair (`criterion_check.labels.user.txt` around the
   decision model's per-criterion state and question), decoded under its schema; yes means the patient does not
-  clearly fail the line.
+  clearly fail the criterion.
 
 ## Inputs and outputs
 
@@ -22,7 +22,7 @@ Three tasks (`matchminer_ai.labeling.tasks`):
   Each entity has an `id`, a `split` (`train`, `val` or `test`), its key `text` and its `boilerplate` text; cohorts
   also carry their tagged criteria `items`.
 - **Candidates (`--candidates`):** a JSONL file of pairs (`patient_id`, `cohort_id`, `split`; for `criteria`, one
-  row per line with its `number`, `criterion_type` and the cohort's `criteria_digest`), built by the training
+  row per criterion with its `number`, `criterion_type` and the cohort's `criteria_digest`), built by the training
   pipeline. Pairs stay within their split.
 - **Output directory (`--output`):** every answer is kept with its reasoning and complete prompt in `responses/`,
   and answers that fail validation in `invalid_responses/`. `labels.jsonl` is the flattened export. For `match`,

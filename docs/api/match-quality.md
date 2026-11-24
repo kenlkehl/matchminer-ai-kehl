@@ -93,7 +93,7 @@ text to the configured LLM endpoint; use only an endpoint authorized for that da
 
 The decision model (`matchminer_ai.matching.decision_model`) answers yes/no questions about a state in one forward
 pass, in-process with Transformers. It serves the match questions, the boilerplate question of
-[`exclusion_criteria_check`](exclusion-criteria.md) and the per-line question of
+[`exclusion_criteria_check`](exclusion-criteria.md) and the per-criterion question of
 [`check_eligibility_criteria`](criteria-check.md). The `decision_model` configuration section selects it:
 
 | Key | Default | Meaning |

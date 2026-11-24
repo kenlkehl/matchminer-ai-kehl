@@ -19,7 +19,7 @@ labeler ([`matchminer_ai.labeling`](../api/labeling.md)).
 [How matching works](../user-guide/patient-centric-matching.md)). Retrieval, the match labels and the decision model's
 five match questions read the cohort's key criteria and the patient summary's key section (its cancer history). The
 boilerplate question reads the cohort's boilerplate criteria and the summary's boilerplate section
-(`Other relevant history:`). The per-criterion question reads the complete summary and every criteria line, each
+(`Other relevant history:`). The per-criterion question reads the complete summary and every criterion, each
 tagged inclusion or exclusion and boilerplate or not (`cohort_criteria_items`).
 
 ## Setup
@@ -118,8 +118,8 @@ reasoning parser. The NVFP4 build needs native FP4 (Blackwell); on H100s, use th
 - **ctgov cohorts** (`trials.extract_ctgov_cohorts --trials-jsonl`). Extracts every sampled ctgov record (the
   protocol batch's `seeds.jsonl`) with `matchminer_ai.trials.extract_cohorts`: a cancer-treatment screen, the cohort
   names, then one request per cohort for its criteria, copied verbatim. Equivalent cohorts are then merged and each
-  merged cohort's lines classified (`--output-deboilerplated-cohorts`: key criteria in `cohort_key_criteria`,
-  boilerplate in `cohort_boilerplate_criteria`, the tagged lines in `cohort_criteria_items`,
+  merged cohort's criteria classified (`--output-deboilerplated-cohorts`: key criteria in `cohort_key_criteria`,
+  boilerplate in `cohort_boilerplate_criteria`, the tagged criteria in `cohort_criteria_items`,
   `cohort_eligibility_criteria` unchanged). Remote endpoints only. Per-trial gzip checkpoints and a run fingerprint
   make it resumable; a trial that fails leaves `.partial` outputs and an error unless `--allow-failures` is given.
 - **Synthetic patients** (`synthetic.generate`; prompts in `synthetic.event_prompts`, note prompt and masking in
@@ -182,7 +182,7 @@ teacher labeler, the encoder and the exact search are the package's (`matchminer
 **Corpus.** `trialspace.prepare` (`trialspace.corpus`, `trialspace.data`) gives each patient `text` = the summary's
 key section and `boilerplate` = its boilerplate section (a complete summary is split at `Other relevant history:`),
 and each cohort `text` = `cohort_key_criteria`, `boilerplate` = `cohort_boilerplate_criteria` and `items` = its tagged
-lines (`cohort_criteria_items`). Each cohort's trial version is its `source` (`protocol` or `ctgov`). A cohort table
+criteria (`cohort_criteria_items`). Each cohort's trial version is its `source` (`protocol` or `ctgov`). A cohort table
 without `cohort_key_criteria` falls back to `cohort_eligibility_criteria` (all criteria), so pass the de-boilerplated
 `retrieval_cohorts.csv`, not the patient-generation table. All synthetic patients and cohorts form one pool; their
 original splits are kept as provenance.
@@ -242,16 +242,16 @@ is `llm_exclusion_criteria.user.txt` (the prompt of `exclusion_criteria_check_wi
 the patient clearly fail any boilerplate criterion). Answers go to `labels.jsonl` as `excluded`, with their reasoning.
 
 **Per-criterion labels** (`trialspace.label --task criteria`). A seeded hash of each candidate pair selects
-`--criteria-pair-fraction` (0.01) of the round's pairs, the same pairs in every round. Every criteria line of a
-selected pair that has an inclusion or exclusion tag gets one teacher request: `criterion_check.labels.user.txt`
-around the decision model's own state (the complete patient summary and the cohort's complete numbered criteria) and
-question (the line restated with its number and type). Lines already labeled for the patient (in an identical sibling
-cohort, or in an earlier round) are skipped. The answer is `{"answer", "criterion_status", "reason"}`:
+`--criteria-pair-fraction` (0.01) of the round's pairs, the same pairs in every round. Every criterion of a selected
+pair that has an inclusion or exclusion tag gets one teacher request: `criterion_check.labels.user.txt` around the
+decision model's own state (the complete patient summary and the cohort's complete numbered criteria) and question (the
+criterion restated with its number and type). Criteria already labeled for the patient (in an identical sibling cohort,
+or in an earlier round) are skipped. The answer is `{"answer", "criterion_status", "reason"}`:
 
-- **`answer`:** yes means the patient does not clearly fail the line; no means the patient clearly fails it (an
-  inclusion line clearly not met, or an exclusion line clearly met).
-- **`criterion_status`:** `met`, `not_met`, `insufficient_information` or `not_applicable`, for the line as it binds
-  the patient; a no must name the failing status.
+- **`answer`:** yes means the patient does not clearly fail the criterion; no means the patient clearly fails it (an
+  inclusion criterion clearly not met, or an exclusion criterion clearly met).
+- **`criterion_status`:** `met`, `not_met`, `insufficient_information` or `not_applicable`, for the criterion as it
+  binds the patient; a no must name the failing status.
 
 The answer is decoded under its JSON schema (vLLM structured outputs after the reasoning); unconstrained, Nemotron 3.5
 Super drops the opening quote of free-text strings in a sizable share of answers. On the 5,000-trial corpus the
@@ -266,7 +266,7 @@ answers yes/no (`noul`) questions about a state in one forward pass. Seven quest
 | --- | --- | --- |
 | `match` (1-5) | the patient's key section and the cohort's key criteria | `reasonableness` (potentially eligible; no = clearly ineligible), `cancer_type`, `burden`, `treatment_history`, `biomarker` (the cohort specifically requires that dimension and the patient documentedly satisfies it), from each pair's match labels |
 | `boilerplate` (6) | the patient's boilerplate section and the cohort's boilerplate criteria | potentially eligible: the boilerplate teacher's `excluded`, inverted |
-| `criterion` (7) | the complete summary and the cohort's complete numbered criteria | one per labeled line: yes = does not clearly fail the line, no = clearly fails it |
+| `criterion` (7) | the complete summary and the cohort's complete numbered criteria | one per labeled criterion: yes = does not clearly fail the criterion, no = clearly fails it |
 
 - **`prepare`** writes one row per state (`examples.jsonl`: family, IDs, each question's answer; a later round wins
   a conflict), `prepared.json` (counts, answer balance, question digest) and `preview.jsonl` (rendered prompts with

@@ -35,13 +35,13 @@ Each cohort has the identifier `cohort_trial_id`, `<trial_id>-cohort-<n>`.
 
 ## Key and boilerplate criteria
 
-Every line of a cohort's criteria is tagged twice: inclusion or exclusion, and key or boilerplate.
+Each of a cohort's criteria is tagged twice: inclusion or exclusion, and key or boilerplate.
 
 - **Key criteria** define the population: cancer type, histology, extent of disease, prior treatment and
   biomarkers, along with age or sex when the trial restricts them. They are in `cohort_key_criteria`.
 - **Boilerplate criteria** are the general requirements most trials share, such as performance status, organ
   function, brain metastases and other cancers. They are in `cohort_boilerplate_criteria`.
-- **Every line with its tags** is in `cohort_criteria_items`, which the line-by-line check reads.
+- **Every criterion with its tags** is in `cohort_criteria_items`, which the per-criterion check reads.
 
 Retrieval and the match questions read only the key criteria, so cohorts are compared on the population they target
 rather than on text that nearly every trial shares.
@@ -77,13 +77,13 @@ flowchart LR
 
 | Step | Function | Model | Output |
 | --- | --- | --- | --- |
-| 1. Trials to cohorts | `trials.process_trials` | LLM | One row per cohort with its complete, key and boilerplate criteria and tagged lines |
+| 1. Trials to cohorts | `trials.process_trials` | LLM | One row per cohort with its complete, key and boilerplate criteria and tagged criteria |
 | 2. Notes to summaries | `patients.summarize_patients` | LLM | One row per patient with the two summary sections |
 | 3. Embed | `embedding.embed_for_matching` | TrialSpace | One vector per patient (cancer history) and per cohort (key criteria) |
 | 4. Retrieve | `matching.generate_candidate_matches` | none | The top-k pairs by cosine similarity, with `similarity_score` and `rank` |
 | 5. Match quality | `matching.score_match_quality` | decision model | `match_quality_score` and `match_quality_pass` per pair |
 | 6. Boilerplate | `matching.exclusion_criteria_check` | decision model | `exclusion_criteria_pass` per pair |
-| 7. Line by line | `matching.check_eligibility_criteria` | decision model | One row per criteria line with `criterion_clearly_fails` |
+| 7. Criterion by criterion | `matching.check_eligibility_criteria` | decision model | One row per criterion with `criterion_clearly_fails` |
 
 Step 1 screens each trial for cancer treatment first; trials that are not cancer treatment trials produce no cohorts,
 and the decisions are kept in the run's metadata. Its parts (`extract_cohorts` or `extract_protocol_cohorts`,
@@ -104,7 +104,7 @@ is reported as P(yes).
 | Reasonableness | `score_match_quality` | cancer history, key criteria | The patient is potentially eligible; no means clearly ineligible |
 | Cancer type, disease burden, treatment history, biomarkers | `score_match_quality` | cancer history, key criteria | The cohort specifically requires that dimension and the patient documentedly meets it |
 | Boilerplate | `exclusion_criteria_check` | other history, boilerplate criteria | The patient does not clearly fail any boilerplate criterion |
-| Per criterion | `check_eligibility_criteria` | both summary sections, one criteria line | The patient does not clearly fail the line; no means an inclusion line clearly not met or an exclusion line clearly met |
+| Per criterion | `check_eligibility_criteria` | both summary sections, one criterion | The patient does not clearly fail the criterion; no means an inclusion criterion clearly not met or an exclusion criterion clearly met |
 
 "Clearly" matters: missing information is not a failure. A patient whose record says nothing about a criterion is
 left for the reviewer, not screened out.
@@ -118,10 +118,10 @@ left for the reviewer, not screened out.
   the model's own potentially-eligible call; the score is for ranking only.
 - **`exclusion_criteria_pass`** is true when the boilerplate P(yes) is at least `exclusion_criteria.pass_cutoff`
   (0.5).
-- **`criterion_clearly_fails`** is true when a line's P(yes) is below `criteria_check.fail_cutoff` (0.5).
+- **`criterion_clearly_fails`** is true when a criterion's P(yes) is below `criteria_check.fail_cutoff` (0.5).
 
 `score_match_quality` returns only passing pairs unless `filter_low_quality=False`, and `check_eligibility_criteria`
-can return only failing lines (`filter_failing=True`). Outputs are derived tables keyed on `patient_id` and
+can return only failing criteria (`filter_failing=True`). Outputs are derived tables keyed on `patient_id` and
 `cohort_trial_id`; merge them back onto the pairs.
 
 The default decision model, MatchEval-1226, was trained on synthetic data only. Treat its scores as provisional until

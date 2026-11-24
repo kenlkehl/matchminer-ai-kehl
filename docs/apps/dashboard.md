@@ -30,8 +30,8 @@ TrialSpace model and says so on Data and models if they differ.
   **Find patients**. Trial details show both versions' cohorts (protocol and ClinicalTrials.gov). Find patients ranks
   the mode's patients nearest a cohort's key criteria in TrialSpace, scored by the decision model or the LLM (see
   [Decision model or LLM](#decision-model-or-llm)); the per-criterion check and the GoodOption check run on demand.
-  **Screen with structured data** checks the cohort's criteria lines on the structured records of every candidate the
-  mode's extraction store holds (each line's query is compiled once; see
+  **Screen with structured data** checks each of the cohort's criteria on the structured records of every candidate the
+  mode's extraction store holds (each criterion's query is compiled once; see
   [Structured-Record Criteria Screening](../api/structured-criteria.md)), and the search can be limited to patients
   with stored records. Trials not open to enrollment (OnCore status other than open to accrual; ClinicalTrials.gov
   status other than recruiting or not yet recruiting) are hidden until **Show closed trials** is checked, here and in
@@ -117,13 +117,13 @@ using that dashboard (`matchminer_ai.apps.dashboard.trial_management`).
 - *merged cohorts*: the dashboard cohorts, each standing for the extracted cohorts the merge step found to have
   the same criteria;
 - *original cohorts*: those extracted cohorts, shown under a merged cohort that stands for two or more
-  (`original_cohorts`: real mode reads the extraction's `extraction.json` or the listing run's `run_metadata.json`
-  with `merge.json`; synthetic mode the run's unmerged and merged cohort tables). Their lines take the merged
-  cohort's labels where the line is the same (under the same heading, apart from its list number). When a trial is
-  opened in the sidebar, its original cohorts' other lines are classified automatically (the Criteria classification
-  connection, below), once per version of their lines, and the labels cached, so they are never asked again; lines a
-  failed run left unlabeled are retried with **Classify**. Without a working connection nothing is sent and the
-  trial says so. Listing trials never sends a request;
+  (`original_cohorts`: real mode reads the extraction's `extraction.json` or the listing run's `run_metadata.json` with
+  `merge.json`; synthetic mode the run's unmerged and merged cohort tables). Their criteria take the merged cohort's
+  labels where the criterion is the same (under the same heading, apart from its list number). When a trial is opened in
+  the sidebar, its original cohorts' other criteria are classified automatically (the Criteria classification
+  connection, below), once per version of their criteria, and the labels cached, so they are never asked again; criteria
+  a failed run left unlabeled are retried with **Classify**. Without a working connection nothing is sent and the trial
+  says so. Listing trials never sends a request;
 - *subcohorts*: defined by a user under a merged or an original cohort, for a sponsor's requirements beyond the
   protocol's. A subcohort starts with its parent's current criteria, which are then edited.
 
@@ -135,32 +135,31 @@ merged cohort, its original cohorts and their subcohorts) has slots at more than
 up a trial's slots across its families only when no family has them at two levels, and otherwise says how many
 cohorts have slots. The group rows show each cohort's slots.
 
-**Criteria.** Any unit's lines can be edited, added or removed. Lines keep the cohort pipeline's layout (one line
-each, under "Inclusion criteria:" or "Exclusion criteria:"). An unchanged line keeps its labels; a changed or new
-line is labeled inclusion or exclusion and key or common by the pipeline's own classification step
-(`remove_boilerplate_criteria`, its prompt and one request per line with the whole cohort as context, the unchanged
-lines passed as known), as a job of the browser session on its **Criteria classification** connection (Data and
+**Criteria.** Any unit's criteria can be edited, added or removed. They keep the cohort pipeline's layout (one per line,
+under "Inclusion criteria:" or "Exclusion criteria:"). An unchanged criterion keeps its labels; a changed or new
+criterion is labeled inclusion or exclusion and key or common by the pipeline's own classification step
+(`remove_boilerplate_criteria`, its prompt and one request per criterion with the whole cohort as context, the unchanged
+criteria passed as known), as a job of the browser session on its **Criteria classification** connection (Data and
 models; Claude Haiku 5.5 through the gateway at medium effort when the site names it, else the app's default). A
-line's labels can also be set by hand. Without a working connection the criteria are saved with those lines
+criterion's labels can also be set by hand. Without a working connection the criteria are saved with the new ones
 unclassified: they count as key criteria and are skipped by per-criterion checks, as in the package. **Revert to the
-AI-extracted criteria** restores a merged or original cohort's current AI version. Edits are an overlay; the
-extracted criteria are never changed.
+AI-extracted criteria** restores a merged or original cohort's current AI version. Edits are an overlay; the extracted
+criteria are never changed.
 
 **Subcohorts follow their parent on request.** When a cohort with subcohorts is edited or reverted, the pane asks
 whether the new criteria replace the subcohorts'. Yes: each subcohort's criteria are reset to them, and its previous
 criteria are shown while its own requirements are re-entered. No: each keeps its own.
 
-**What reads the current criteria.** Every cohort lookup goes through the overlay (`DashState.cohort`): Find
-patients (TrialSpace retrieval from the cohort's current key criteria, embedded with the round's encoder when saved),
-the decision model's match, common-exclusion and per-criterion questions, the LLM decision checks, structured-data
-screening (its queries are cached by line, so an edited line is compiled anew), trial details, and the Assistant's
-tools except `search_trials`, whose text search reads the AI-extracted criteria. Original cohorts and subcohorts can
-be searched with Find
-patients; they are not added to the Patient-centric Trials results, whose index holds the dashboard cohorts (with
-their edited criteria).
+**What reads the current criteria.** Every cohort lookup goes through the overlay (`DashState.cohort`): Find patients
+(TrialSpace retrieval from the cohort's current key criteria, embedded with the round's encoder when saved), the
+decision model's match, common-exclusion and per-criterion questions, the LLM decision checks, structured-data screening
+(its queries are cached by criterion, so an edited criterion is compiled anew), trial details, and the Assistant's tools
+except `search_trials`, whose text search reads the AI-extracted criteria. Original cohorts and subcohorts can be
+searched with Find patients; they are not added to the Patient-centric Trials results, whose index holds the dashboard
+cohorts (with their edited criteria).
 
 **Re-extraction.** Real mode re-reads its trial data as extraction runs finish, so a cohort's AI version can change
-under an edit. Each edit is stored with the AI version it was based on (its name and lines); when that changes, the
+under an edit. Each edit is stored with the AI version it was based on (its name and criteria); when that changes, the
 edit stays in effect and is flagged (**Base changed**, with a comparison) until the user keeps it or reverts. A
 subcohort whose parent's criteria changed is flagged the same way (keep its criteria, or reset to the parent's). What
 is kept for a cohort the trial no longer has is listed until deleted.
@@ -211,11 +210,11 @@ file or network access:
 | --- | --- |
 | `search_trials` | Regular-expression search over the dashboard cohorts (trial ID, titles, cohort names, key criteria, drug names), with the Clinical trial management filters: cancer type, center, phase, open status, GoodOption drugs and classes |
 | `match_trials` | TrialSpace retrieval from a patient description (embedded as an entered summary is), one cohort per trial, optionally reranked by the decision model's match questions |
-| `trial_details` | A trial's or cohort's status, phase, center, drugs and key (and, on request, boilerplate) criteria lines |
+| `trial_details` | A trial's or cohort's status, phase, center, drugs and key (and, on request, boilerplate) criteria |
 | `search_patients` | The patient list's search over the summaries |
 | `match_patients` | Find patients: TrialSpace retrieval from a cohort, or from ad-hoc criteria text, optionally reranked |
 | `patient_details` | A patient's summary sections and, when the extraction store holds the patient, the records' disease course |
-| `screen_records` | Screen with structured data: criteria lines (a cohort's, or ad-hoc lines) compiled into queries by the query-writing connection and run in code over the store's records, with per-line counts and the patients documented to meet every checkable inclusion line. Absence never fails a line, and lines no item type can check are reported as not checkable |
+| `screen_records` | Screen with structured data: criteria (a cohort's, or ad-hoc criteria) compiled into queries by the query-writing connection and run in code over the store's records, with per-criterion counts and the patients documented to meet every checkable inclusion criterion. Absence never fails a criterion, and criteria no item type can check are reported as not checkable |
 | `score_pairs` | The match and boilerplate questions for given patient-cohort pairs, from the decision model or the LLM (the session's **Scores from**) |
 | `guideline_spaces` | The guideline catalog's spaces nearest a patient description |
 
@@ -254,10 +253,9 @@ effort, with the conversation so far read from Claude's prompt cache on each ste
 app's default connection. The page shows the conversation's requests and tokens. **Stop** ends a running turn, and
 **New conversation** starts over.
 
-**Data handling.** A conversation lives in the server's memory for its browser session (it expires with the session)
-and is never written to disk or logged; an ad-hoc criteria line's compiled query is kept with the conversation only.
-Patient summaries and structured records go to the selected model connection, so use one authorized for the mode's
-data.
+**Data handling.** A conversation lives in the server's memory for its browser session (it expires with the session) and
+is never written to disk or logged; an ad-hoc criterion's compiled query is kept with the conversation only. Patient
+summaries and structured records go to the selected model connection, so use one authorized for the mode's data.
 
 ## How this works
 
@@ -338,7 +336,7 @@ source and scale in their results, and list each LLM answer under the step, open
 | Its patient dialog (Criteria check tab) | the pair's answers and the per-criterion check | the same, from the LLM |
 | Patient-centric search, Trials: the cohorts' scores, ranking and **Hide trials with likely common exclusions** | as Find patients | as Find patients |
 | Its trial dialog | the pair's answers and the per-criterion check | the same, from the LLM |
-| The per-criterion check (both dialogs) | `check_eligibility_criteria` | `check_eligibility_criteria_with_llm` (one request per line) |
+| The per-criterion check (both dialogs) | `check_eligibility_criteria` | `check_eligibility_criteria_with_llm` (one request per criterion) |
 | Patient-centric search, Guidelines: ranking TrialSpace's candidate spaces | the match score | the LLM's match score |
 | Guideline concordance reporting: selecting and ranking a space's candidates | P(reasonable) at least the threshold | the LLM's reasonableness answer is yes |
 
@@ -353,7 +351,7 @@ probabilities:
   with the score (for example 3/6).
 - *Common exclusions:* "Is this patient clearly excluded from this cohort?" from the cohort's common criteria and the
   patient's other relevant history: yes or no.
-- *Per criterion:* per line, yes (does not clearly fail it) or no (clearly fails it), as the decision model's
+- *Per criterion:* for each criterion, yes (does not clearly fail it) or no (clearly fails it), as the decision model's
   question 7.
 
 Under the LLM, lists rank by the 0-6 score, then TrialSpace similarity; pairs the LLM has not scored follow by
@@ -362,9 +360,9 @@ search keeps the candidates the LLM finds reasonable, ranked the same way (the d
 apply). Both searches still come from the package's retrieval, whose decision-model scores are removed from what the
 view shows; the guideline report keeps the package's table, marked as the decision model's, below the LLM's ranking.
 When both have answered a pair's criteria, the criteria list shows the other scorer's answers too, labeled, with the
-lines they disagree on.
+criteria they disagree on.
 
-**Cost and latency.** LLM scoring is one request per pair and question (per line for the criteria check):
+**Cost and latency.** LLM scoring is one request per pair and question (per criterion for the criteria check):
 
 - Lists score only what the view shows: the first ten results as the page opens, then **Score the next 10 ... with
   the LLM**. A run asks only what the session has no answer to.
