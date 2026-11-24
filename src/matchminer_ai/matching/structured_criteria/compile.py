@@ -156,7 +156,7 @@ def compile_criteria_queries(
                                      "criterion_type": (line or {}).get("criterion_type"),
                                      "boilerplate": bool((line or {}).get("boilerplate"))},
                             "status": "unchecked", "query": None, "cache_key": None,
-                            "error": "the line has no inclusion or exclusion type", "attempts": [],
+                            "error": "the criterion has no inclusion or exclusion type", "attempts": [],
                             "cached": False, "model": None, "contract": contract})
     if not return_metadata:
         return entries

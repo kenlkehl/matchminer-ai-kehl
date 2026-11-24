@@ -44,9 +44,10 @@ STATUSES = ("clearly_fails", "meets", "not_documented", "uncertain", "conflictin
 CHECKED = frozenset({"clearly_fails", "meets", "not_documented", "uncertain", "conflicting", "not_applicable"})
 NOTICE = (
     "Structured-record criteria screen for human review, not an eligibility determination. Queries compiled by an "
-    "LLM from each criteria line ran in code on items an LLM extracted from the notes; check every item against its "
-    "source note and the current protocol. Not documented means no extracted item showed the line satisfied or "
-    "failed, not that the patient is eligible. Lines no extracted item type can check are marked not checkable."
+    "LLM from each criterion ran in code on items an LLM extracted from the notes; check every item against its "
+    "source note and the current protocol. Not documented means no extracted item showed the criterion satisfied "
+    "or failed, not that the patient is eligible. Criteria no extracted item type can check are marked not "
+    "checkable."
 )
 
 
@@ -105,7 +106,7 @@ def evaluate_criterion_query(
     extensions = _all_extensions() if extensions is None else list(extensions)
     if query is None:
         return _result("query_unavailable", "query_unavailable",
-                       "Not checked: no valid query could be compiled for this line.", line_type=criterion_type)
+                       "Not checked: no valid query could be compiled for this criterion.", line_type=criterion_type)
     query = check_criterion_query(query, extensions)
     if not query["expressible"]:
         return _result("not_checkable", "not_expressible",
@@ -138,7 +139,7 @@ def evaluate_criterion_query(
         evidence = _tagged(_evidence(ctx, fail_groups, (YES,)), "fails")
     elif fails == YES:
         status, reason = "uncertain", "applicability_uncertain"
-        text = ("Possibly failing, if the line applies: " + "; ".join(_explain(ctx, fail_groups, YES)) + ".")
+        text = ("Possibly failing, if the criterion applies: " + "; ".join(_explain(ctx, fail_groups, YES)) + ".")
         evidence = _tagged(_evidence(ctx, fail_groups, (YES,)), "fails")
     elif meets == YES:
         status, reason = "meets", "documented_meeting"
@@ -158,8 +159,8 @@ def evaluate_criterion_query(
         text = "Uncertain: " + "; ".join(parts) + "."
     else:
         status, reason = "not_documented", "not_documented"
-        text = ("Not documented: no extracted item shows this line satisfied or failed. A missing item does not "
-                "mean the patient satisfies or fails the line.")
+        text = ("Not documented: no extracted item shows this criterion satisfied or failed. A missing item does "
+                "not mean the patient satisfies or fails the criterion.")
     if notes and status not in ("not_applicable",):
         text += " " + " ".join(notes)
     criteria = [_criterion_entry(evaluate_criterion(ctx, c["id"])) for c in query["criteria"]]

@@ -115,7 +115,7 @@ def compile_criteria_sql(
                                      "criterion_type": (line or {}).get("criterion_type"),
                                      "boilerplate": bool((line or {}).get("boilerplate"))},
                             "status": "unchecked", "sql": None, "cache_key": None,
-                            "error": "the line has no inclusion or exclusion type", "contract": contract})
+                            "error": "the criterion has no inclusion or exclusion type", "contract": contract})
     if not return_metadata:
         return entries
     metadata["unchecked_lines"] = len(lines) - len(numbered)
@@ -134,7 +134,7 @@ def _assess(row, entry, patient: PatientData, database: ExtractionDatabase, *, f
 
     if entry.get("status") != "compiled":
         return result("query_unavailable", "query_unavailable", "Not checked: no SQL query could be accepted "
-                      "for this line.")
+                      "for this criterion.")
     if entry.get("expressible") is False:
         reason = (entry.get("not_expressible_reason") or "").strip().rstrip(".")
         return result("not_checkable", "not_expressible", "Not checkable from extracted items"
@@ -154,7 +154,7 @@ def _assess(row, entry, patient: PatientData, database: ExtractionDatabase, *, f
             "not_documented": "Not documented", "not_applicable": "Not applicable"}[status]
     text = f"{lead}: {detail}." if detail else f"{lead}."
     if status == "not_documented":
-        text += " A missing item does not mean the patient satisfies or fails the line."
+        text += " A missing item does not mean the patient satisfies or fails the criterion."
     out = result(status, row["reason"], text, row["applicability"], evidence)
     missing = database.uncovered(patient.patient_id, entry.get("sql") or "")
     if missing:
