@@ -2010,7 +2010,7 @@ labeler (<a href="../api/labeling/"><code>matchminer_ai.labeling</code></a>).</p
 <a href="../user-guide/patient-centric-matching/">How matching works</a>). Retrieval, the match labels and the decision model's
 five match questions read the cohort's key criteria and the patient summary's key section (its cancer history). The
 boilerplate question reads the cohort's boilerplate criteria and the summary's boilerplate section
-(<code>Other relevant history:</code>). The per-criterion question reads the complete summary and every criteria line, each
+(<code>Other relevant history:</code>). The per-criterion question reads the complete summary and every criterion, each
 tagged inclusion or exclusion and boilerplate or not (<code>cohort_criteria_items</code>).</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <p>Install the package with the training extra, and point it at a data root (where <code>phi/</code> and <code>no_phi/</code> live; never
@@ -2157,8 +2157,8 @@ reasoning parser. The NVFP4 build needs native FP4 (Blackwell); on H100s, use th
 - <strong>ctgov cohorts</strong> (<code>trials.extract_ctgov_cohorts --trials-jsonl</code>). Extracts every sampled ctgov record (the
   protocol batch's <code>seeds.jsonl</code>) with <code>matchminer_ai.trials.extract_cohorts</code>: a cancer-treatment screen, the cohort
   names, then one request per cohort for its criteria, copied verbatim. Equivalent cohorts are then merged and each
-  merged cohort's lines classified (<code>--output-deboilerplated-cohorts</code>: key criteria in <code>cohort_key_criteria</code>,
-  boilerplate in <code>cohort_boilerplate_criteria</code>, the tagged lines in <code>cohort_criteria_items</code>,
+  merged cohort's criteria classified (<code>--output-deboilerplated-cohorts</code>: key criteria in <code>cohort_key_criteria</code>,
+  boilerplate in <code>cohort_boilerplate_criteria</code>, the tagged criteria in <code>cohort_criteria_items</code>,
   <code>cohort_eligibility_criteria</code> unchanged). Remote endpoints only. Per-trial gzip checkpoints and a run fingerprint
   make it resumable; a trial that fails leaves <code>.partial</code> outputs and an error unless <code>--allow-failures</code> is given.
 - <strong>Synthetic patients</strong> (<code>synthetic.generate</code>; prompts in <code>synthetic.event_prompts</code>, note prompt and masking in
@@ -2218,7 +2218,7 @@ teacher labeler, the encoder and the exact search are the package's (<code>match
 <p><strong>Corpus.</strong> <code>trialspace.prepare</code> (<code>trialspace.corpus</code>, <code>trialspace.data</code>) gives each patient <code>text</code> = the summary's
 key section and <code>boilerplate</code> = its boilerplate section (a complete summary is split at <code>Other relevant history:</code>),
 and each cohort <code>text</code> = <code>cohort_key_criteria</code>, <code>boilerplate</code> = <code>cohort_boilerplate_criteria</code> and <code>items</code> = its tagged
-lines (<code>cohort_criteria_items</code>). Each cohort's trial version is its <code>source</code> (<code>protocol</code> or <code>ctgov</code>). A cohort table
+criteria (<code>cohort_criteria_items</code>). Each cohort's trial version is its <code>source</code> (<code>protocol</code> or <code>ctgov</code>). A cohort table
 without <code>cohort_key_criteria</code> falls back to <code>cohort_eligibility_criteria</code> (all criteria), so pass the de-boilerplated
 <code>retrieval_cohorts.csv</code>, not the patient-generation table. All synthetic patients and cohorts form one pool; their
 original splits are kept as provenance.</p>
@@ -2273,16 +2273,16 @@ labeled in an earlier round is asked once (one representative pair each; counts 
 is <code>llm_exclusion_criteria.user.txt</code> (the prompt of <code>exclusion_criteria_check_with_llm</code>, ending <code>Yes!</code> or <code>No!</code>: does
 the patient clearly fail any boilerplate criterion). Answers go to <code>labels.jsonl</code> as <code>excluded</code>, with their reasoning.</p>
 <p><strong>Per-criterion labels</strong> (<code>trialspace.label --task criteria</code>). A seeded hash of each candidate pair selects
-<code>--criteria-pair-fraction</code> (0.01) of the round's pairs, the same pairs in every round. Every criteria line of a
-selected pair that has an inclusion or exclusion tag gets one teacher request: <code>criterion_check.labels.user.txt</code>
-around the decision model's own state (the complete patient summary and the cohort's complete numbered criteria) and
-question (the line restated with its number and type). Lines already labeled for the patient (in an identical sibling
-cohort, or in an earlier round) are skipped. The answer is <code>{"answer", "criterion_status", "reason"}</code>:</p>
+<code>--criteria-pair-fraction</code> (0.01) of the round's pairs, the same pairs in every round. Every criterion of a selected
+pair that has an inclusion or exclusion tag gets one teacher request: <code>criterion_check.labels.user.txt</code> around the
+decision model's own state (the complete patient summary and the cohort's complete numbered criteria) and question (the
+criterion restated with its number and type). Criteria already labeled for the patient (in an identical sibling cohort,
+or in an earlier round) are skipped. The answer is <code>{"answer", "criterion_status", "reason"}</code>:</p>
 <ul>
-<li><strong><code>answer</code>:</strong> yes means the patient does not clearly fail the line; no means the patient clearly fails it (an
-  inclusion line clearly not met, or an exclusion line clearly met).</li>
-<li><strong><code>criterion_status</code>:</strong> <code>met</code>, <code>not_met</code>, <code>insufficient_information</code> or <code>not_applicable</code>, for the line as it binds
-  the patient; a no must name the failing status.</li>
+<li><strong><code>answer</code>:</strong> yes means the patient does not clearly fail the criterion; no means the patient clearly fails it (an
+  inclusion criterion clearly not met, or an exclusion criterion clearly met).</li>
+<li><strong><code>criterion_status</code>:</strong> <code>met</code>, <code>not_met</code>, <code>insufficient_information</code> or <code>not_applicable</code>, for the criterion as it
+  binds the patient; a no must name the failing status.</li>
 </ul>
 <p>The answer is decoded under its JSON schema (vLLM structured outputs after the reasoning); unconstrained, Nemotron 3.5
 Super drops the opening quote of free-text strings in a sizable share of answers. On the 5,000-trial corpus the
@@ -2313,7 +2313,7 @@ answers yes/no (<code>noul</code>) questions about a state in one forward pass. 
 <tr>
 <td><code>criterion</code> (7)</td>
 <td>the complete summary and the cohort's complete numbered criteria</td>
-<td>one per labeled line: yes = does not clearly fail the line, no = clearly fails it</td>
+<td>one per labeled criterion: yes = does not clearly fail the criterion, no = clearly fails it</td>
 </tr>
 </tbody>
 </table>

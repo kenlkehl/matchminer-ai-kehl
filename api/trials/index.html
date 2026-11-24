@@ -2832,7 +2832,7 @@
 
 <h1 id="trials">Trials<a class="headerlink" href="#trials" title="Permanent link">&para;</a></h1>
 <p><code>matchminer_ai.trials</code> turns trial documents into cohorts: the groups of people a trial enrolls, each with its
-complete eligibility criteria, split into key and boilerplate criteria and tagged line by line.
+complete eligibility criteria, split into key and boilerplate criteria, and each criterion tagged.
 <a href="../../user-guide/patient-centric-matching/">How matching works</a> explains how the later steps use them. The outputs
 are research abstractions for human review, not eligibility determinations.</p>
 <h2 id="the-trial-steps">The trial steps<a class="headerlink" href="#the-trial-steps" title="Permanent link">&para;</a></h2>
@@ -2861,7 +2861,7 @@ are research abstractions for human review, not eligibility determinations.</p>
 <td><code>merged_from</code></td>
 </tr>
 <tr>
-<td>4. Tag every criteria line inclusion or exclusion, and key or boilerplate</td>
+<td>4. Tag every criterion inclusion or exclusion, and key or boilerplate</td>
 <td><code>remove_boilerplate_criteria</code></td>
 <td><code>cohort_key_criteria</code>, <code>cohort_boilerplate_criteria</code>, <code>cohort_criteria_items</code></td>
 </tr>
@@ -3077,7 +3077,7 @@ criteria.</p>
 </ul>
 <h2 id="key-and-boilerplate-criteria">Key and boilerplate criteria<a class="headerlink" href="#key-and-boilerplate-criteria" title="Permanent link">&para;</a></h2>
 <p><code>remove_boilerplate_criteria</code> separates each cohort's <strong>key criteria</strong>, which define its population, from its
-<strong>boilerplate criteria</strong>, the general requirements most cancer trials share, and tags every line as an inclusion or
+<strong>boilerplate criteria</strong>, the general requirements most cancer trials share, and tags each one as an inclusion or
 exclusion criterion.</p>
 <p>Boilerplate covers consent, compliance, samples and biopsies, measurable disease, prognosis, performance status,
 organ function, brain metastases, toxicities of earlier treatment, washout periods of 30 days or less, recovery from
@@ -3086,13 +3086,13 @@ legal and administrative requirements, vaccines, investigator-judgment and study
 contraception, pregnancy and lactation. Each is boilerplate unless it is central to what the trial studies, such as
 brain metastasis criteria in a trial for brain metastases.</p>
 <ul>
-<li><strong>One request per line:</strong> each cohort's criteria are split into items, one per nonblank line other than the
+<li><strong>One request per criterion:</strong> each cohort's criteria are split into items, one per nonblank line other than the
   "Inclusion criteria:" and "Exclusion criteria:" headings. Each item gets its own request
   (<code>trial.cohorts.deboilerplate.user.txt</code>) showing the cohort's numbered criteria, answered
   <code>{"criterion_type": "inclusion" | "exclusion", "boilerplate": true | false}</code>.</li>
 <li><strong>Inclusion or exclusion:</strong> an item under a heading takes that heading's type, even when worded negatively.
-  Sub-items, notes and introductory lines take the type of the criterion they belong to.</li>
-<li><strong>No rewriting:</strong> code sorts the unchanged lines, so no criterion is lost or reworded.</li>
+  Sub-items, notes and introductions take the type of the criterion they belong to.</li>
+<li><strong>No rewriting:</strong> code sorts the unchanged criteria, so no criterion is lost or reworded.</li>
 </ul>
 <p>The rows keep <code>cohort_eligibility_criteria</code> unchanged and gain:</p>
 <table>
@@ -3105,25 +3105,25 @@ brain metastasis criteria in a trial for brain metastases.</p>
 <tbody>
 <tr>
 <td><code>cohort_key_criteria</code></td>
-<td>The lines that are not boilerplate, under their headings. Read by TrialSpace retrieval and the decision model's match questions.</td>
+<td>The criteria that are not boilerplate, under their headings. Read by TrialSpace retrieval and the decision model's match questions.</td>
 </tr>
 <tr>
 <td><code>cohort_boilerplate_criteria</code></td>
-<td>The boilerplate lines. Read by the decision model's boilerplate question.</td>
+<td>The boilerplate criteria. Read by the decision model's boilerplate question.</td>
 </tr>
 <tr>
 <td><code>cohort_criteria_items</code></td>
-<td>Every line with its tags, as a JSON string: a list of <code>{"number", "heading", "text", "criterion_type", "boilerplate"}</code> in the original order. Read by <a href="../criteria-check/"><code>check_eligibility_criteria</code></a>.</td>
+<td>Every criterion with its tags, as a JSON string: a list of <code>{"number", "heading", "text", "criterion_type", "boilerplate"}</code> in the original order. Read by <a href="../criteria-check/"><code>check_eligibility_criteria</code></a>.</td>
 </tr>
 </tbody>
 </table>
 <ul>
-<li><strong>Unanswered lines:</strong> a line whose answer never validates counts as key, has <code>criterion_type</code> null and is listed
-  in <code>unclassified_items</code>.</li>
-<li><strong>Unsplittable cohorts:</strong> a cohort without lines, or whose lines are all boilerplate, keeps all its criteria as
-  <code>cohort_key_criteria</code>, has <code>cohort_boilerplate_criteria</code> None and is listed in <code>deboilerplate_errors</code>.</li>
-<li><strong>Metadata:</strong> also <code>criterion_type_heading_disagreements</code> (lines whose type differs from their heading),
-  <code>items</code>, <code>items_reused</code>, <code>skipped_completed</code> and <code>trial_cohorts</code> (every line's attempts with answers and
+<li><strong>Unanswered criteria:</strong> a criterion whose answer never validates counts as key, has <code>criterion_type</code> null and is
+  listed in <code>unclassified_items</code>.</li>
+<li><strong>Unsplittable cohorts:</strong> a cohort with no criteria to split, or whose criteria are all boilerplate, keeps all its
+  criteria as <code>cohort_key_criteria</code>, has <code>cohort_boilerplate_criteria</code> None and is listed in <code>deboilerplate_errors</code>.</li>
+<li><strong>Metadata:</strong> also <code>criterion_type_heading_disagreements</code> (criteria whose type differs from their heading),
+  <code>items</code>, <code>items_reused</code>, <code>skipped_completed</code> and <code>trial_cohorts</code> (every criterion's attempts with answers and
   reasoning).</li>
 </ul>
 <p>Guideline catalog spaces have no boilerplate criteria. <code>load_guideline_catalog</code> gives each space a
@@ -3158,8 +3158,8 @@ same directory sends only the requests whose inputs changed.</p>
 <tr>
 <td><code>&lt;trial_id&gt;/deboilerplate.json</code></td>
 <td><code>remove_boilerplate_criteria</code></td>
-<td>Per cohort, <code>key_criteria</code> and <code>boilerplate_criteria</code> (or <code>error</code>) and every line's tags and attempts; written once all the trial's lines are answered</td>
-<td>Per line: prompt, schema and its cohort's name and criteria</td>
+<td>Per cohort, <code>key_criteria</code> and <code>boilerplate_criteria</code> (or <code>error</code>) and every criterion's tags and attempts; written once all the trial's criteria are answered</td>
+<td>Per criterion: prompt, schema and its cohort's name and criteria</td>
 </tr>
 <tr>
 <td><code>screen.jsonl</code></td>

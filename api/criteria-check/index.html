@@ -2138,13 +2138,13 @@
 
 <h1 id="criteria-check">Criteria Check<a class="headerlink" href="#criteria-check" title="Permanent link">&para;</a></h1>
 <p><code>check_eligibility_criteria</code> asks the decision model (<a href="../match-quality/#decision-model">match quality</a>) about <strong>each
-line</strong> of a cohort's eligibility criteria, and <code>check_eligibility_criteria_with_llm</code> asks an LLM.</p>
+criterion</strong> in a cohort's eligibility criteria, and <code>check_eligibility_criteria_with_llm</code> asks an LLM.</p>
 <div class="admonition important">
 <p class="admonition-title">Polarity</p>
-<p><strong>Yes (<code>criterion_pass_probability</code>) means the patient does not clearly fail the line</strong>: it is met, its
+<p><strong>Yes (<code>criterion_pass_probability</code>) means the patient does not clearly fail the criterion</strong>: it is met, its
 information is missing, the patient could meet it by waiting, or it does not bind this patient. <strong>No means the
-patient clearly fails it: an inclusion line clearly not met, or an exclusion line clearly met.</strong> A low
-<code>criterion_pass_probability</code> flags a likely failing line for review, whichever list the line is on.</p>
+patient clearly fails it: an inclusion criterion clearly not met, or an exclusion criterion clearly met.</strong> A low
+<code>criterion_pass_probability</code> flags a likely failing criterion for review, whichever list it is on.</p>
 </div>
 <p>Each input row is one candidate pair with:</p>
 <table>
@@ -2169,26 +2169,25 @@ patient clearly fails it: an inclusion line clearly not met, or an exclusion lin
 </tr>
 <tr>
 <td><code>cohort_criteria_items</code></td>
-<td>The cohort's tagged lines from <a href="../trials/#key-and-boilerplate-criteria"><code>remove_boilerplate_criteria</code></a>: a JSON list of <code>number</code>, <code>heading</code>, <code>text</code>, <code>criterion_type</code> (<code>inclusion</code> or <code>exclusion</code>) and <code>boilerplate</code></td>
+<td>The cohort's tagged criteria from <a href="../trials/#key-and-boilerplate-criteria"><code>remove_boilerplate_criteria</code></a>: a JSON list of <code>number</code>, <code>heading</code>, <code>text</code>, <code>criterion_type</code> (<code>inclusion</code> or <code>exclusion</code>) and <code>boilerplate</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="decision-model-check">Decision-model check<a class="headerlink" href="#decision-model-check" title="Permanent link">&para;</a></h2>
-<p>For each pair the model reads one state and one question per line.</p>
+<p>For each pair the model reads one state and one question per criterion.</p>
 <ul>
-<li><strong>State:</strong> the complete patient summary, then the cohort's complete criteria, numbered in their original order
-  under their inclusion and exclusion labels. The state also gives the rules for how a line binds the patient
-  through its role: a sub-item belongs to the line above it; an alternative fails only when the patient clearly fails
-  every alternative of its group; a line introducing others fails when they fail together; a requirement for only
-  some patients fails only when it clearly applies; a standalone requirement fails a patient who lacks what it
-  requires.</li>
+<li><strong>State:</strong> the complete patient summary, then the cohort's complete criteria, numbered in their original order under
+  their inclusion and exclusion labels. The state also gives the rules for how a criterion binds the patient through its
+  role: a sub-item belongs to the criterion above it; an alternative fails only when the patient clearly fails every
+  alternative of its group; a criterion introducing others fails when they fail together; a requirement for only some
+  patients fails only when it clearly applies; a standalone requirement fails a patient who lacks what it requires.</li>
 <li><strong>Question:</strong> <em>Is this patient potentially eligible for this cohort after review of the patient summary and the
   one criterion named below? If the patient is potentially eligible, answer yes; if the patient is clearly
   ineligible because of this criterion, answer no.</em> It adds the answer rules (benefit of the doubt; missing
-  information and waitable requirements, such as washouts, are not failures) and ends by restating the line, for
+  information and waitable requirements, such as washouts, are not failures) and ends by restating the criterion, for
   example <code>[12] Exclusion criterion: Active hepatitis B.</code></li>
 </ul>
-<p>Lines without a validated inclusion or exclusion type, or with empty text, are skipped and counted in the
+<p>Criteria without a validated inclusion or exclusion type, or with empty text, are skipped and counted in the
 metadata's <code>unchecked_lines</code>. Pairs with identical summary and criteria are asked once.</p>
 <table>
 <thead>
@@ -2204,7 +2203,7 @@ metadata's <code>unchecked_lines</code>. Pairs with identical summary and criter
 </tr>
 <tr>
 <td><code>criterion_number</code>, <code>criterion_type</code>, <code>boilerplate</code>, <code>criterion_text</code></td>
-<td>The line</td>
+<td>The criterion</td>
 </tr>
 <tr>
 <td><code>criterion_pass_probability</code></td>
@@ -2216,7 +2215,7 @@ metadata's <code>unchecked_lines</code>. Pairs with identical summary and criter
 </tr>
 </tbody>
 </table>
-<p>The result has one row per pair and checked line. <code>filter_failing=True</code> keeps only flagged lines.</p>
+<p>The result has one row per pair and checked criterion. <code>filter_failing=True</code> keeps only flagged criteria.</p>
 <p>These are screening signals for human review, not eligibility determinations. The decision model runs locally;
 patient text reaches only the configured model.</p>
 
@@ -2632,20 +2631,20 @@ criterion_clearly_fails : bool
 
 </div><h2 id="llm-check">LLM check<a class="headerlink" href="#llm-check" title="Permanent link">&para;</a></h2>
 <p><code>check_eligibility_criteria_with_llm</code> takes the same inputs and has the same polarity: <strong>yes means the patient does
-not clearly fail the line; no means the patient clearly fails it.</strong></p>
+not clearly fail the criterion; no means the patient clearly fails it.</strong></p>
 <ul>
-<li><strong>Requests:</strong> one per checkable line, with the per-criterion teacher prompt the decision model is trained on:
+<li><strong>Requests:</strong> one per checkable criterion, with the per-criterion teacher prompt the decision model is trained on:
   <code>criterion_check.labels.user.txt</code> around the decision model's own state and question
   (<code>decision_model.criterion_teacher_messages</code>). Its label contract is <code>labeling.contract_hash("criteria")</code>.</li>
 <li><strong>Answer:</strong> a JSON object with <code>answer</code> (<code>yes</code> or <code>no</code>), <code>criterion_status</code> (<code>met</code>, <code>not_met</code>,
-  <code>insufficient_information</code> or <code>not_applicable</code>, as the line binds this patient) and <code>reason</code>.</li>
+  <code>insufficient_information</code> or <code>not_applicable</code>, as the criterion binds this patient) and <code>reason</code>.</li>
 <li><strong>Validation:</strong> on a remote backend the answer is decoded under <code>decision_model.CRITERION_LABEL_JSON_SCHEMA</code>
   (<code>llm_criteria_check.structured_outputs</code>, default true). Every answer is validated by
-  <code>decision_model.parse_criterion_label</code>: "no" needs <code>not_met</code> on an inclusion line and <code>met</code> on an exclusion line,
-  and a response stopped before its end is invalid. An invalid answer is asked again with the validation error, up
-  to <code>llm_criteria_check.max_attempts</code> (3) requests per line.</li>
+  <code>decision_model.parse_criterion_label</code>: "no" needs <code>not_met</code> on an inclusion criterion and <code>met</code> on an exclusion
+  criterion, and a response stopped before its end is invalid. An invalid answer is asked again with the validation
+  error, up to <code>llm_criteria_check.max_attempts</code> (3) requests per criterion.</li>
 <li><strong>Concurrency:</strong> on a remote backend, <code>chunk_size × chunks_in_flight</code> requests (64) are in flight through the
-  <code>RequestQueue</code>, and a pair's lines share the prompt prefix. A local backend gets batches of <code>chunk_size</code>. Pairs
+  <code>RequestQueue</code>, and a pair's requests share the prompt prefix. A local backend gets batches of <code>chunk_size</code>. Pairs
   with identical summary and criteria are asked once.</li>
 <li><strong>Model:</strong> the <code>llm_criteria_check</code> section uses the training teacher's settings:
   <code>nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4</code>, thinking on, 32,768 output tokens, <code>reasoning_effort: xhigh</code>
@@ -2665,7 +2664,7 @@ not clearly fail the line; no means the patient clearly fails it.</strong></p>
 </tr>
 <tr>
 <td><code>criterion_number</code>, <code>criterion_type</code>, <code>boilerplate</code>, <code>criterion_text</code></td>
-<td>The line, as in the decision-model check</td>
+<td>The criterion, as in the decision-model check</td>
 </tr>
 <tr>
 <td><code>llm_criterion_answer</code></td>
@@ -2677,7 +2676,7 @@ not clearly fail the line; no means the patient clearly fails it.</strong></p>
 </tr>
 <tr>
 <td><code>llm_criterion_status</code></td>
-<td>The line's <code>criterion_status</code>; None when no attempt validated</td>
+<td>The criterion's <code>criterion_status</code>; None when no attempt validated</td>
 </tr>
 <tr>
 <td><code>llm_criterion_reason</code></td>
@@ -2689,7 +2688,7 @@ not clearly fail the line; no means the patient clearly fails it.</strong></p>
 </tr>
 <tr>
 <td><code>llm_criterion_attempts</code></td>
-<td>Requests sent for the line</td>
+<td>Requests sent for the criterion</td>
 </tr>
 <tr>
 <td><code>llm_criterion_parse_status</code></td>
@@ -2701,10 +2700,10 @@ not clearly fail the line; no means the patient clearly fails it.</strong></p>
 </tr>
 </tbody>
 </table>
-<p><code>filter_failing=True</code> keeps the lines answered no. An optional <code>progress(done, total)</code> callback reports each line's
-final answer. With <code>return_metadata=True</code> the metadata gives the <code>criteria_contract</code> and, under
-<code>model_metadata["check_eligibility_criteria_with_llm"]</code>, the endpoint's metadata with <code>lines</code>, <code>requests</code>, <code>retries</code>,
-<code>parse_failures</code>, <code>unchecked_lines</code> and <code>structured_outputs</code>.</p>
+<p><code>filter_failing=True</code> keeps the criteria answered no. An optional <code>progress(done, total)</code> callback reports each
+criterion's final answer. With <code>return_metadata=True</code> the metadata gives the <code>criteria_contract</code> and, under
+<code>model_metadata["check_eligibility_criteria_with_llm"]</code>, the endpoint's metadata with <code>lines</code> (criteria checked),
+<code>requests</code>, <code>retries</code>, <code>parse_failures</code>, <code>unchecked_lines</code> and <code>structured_outputs</code>.</p>
 <p>The patient's complete summary reaches the configured LLM endpoint: use an endpoint authorized for the sensitivity
 of the data.</p>
 

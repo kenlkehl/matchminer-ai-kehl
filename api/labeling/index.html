@@ -2180,9 +2180,9 @@ decision model. The <a href="../../training/">training pipeline</a>'s label stag
 <li><strong><code>boilerplate</code>:</strong> whether the patient clearly fails the cohort's boilerplate criteria
   (<code>llm_exclusion_criteria.user.txt</code>, ending in <code>Yes!</code> or <code>No!</code>). Pairs whose cohort has no boilerplate criteria are
   skipped. The decision model's boilerplate question learns the inverse: its yes means not excluded.</li>
-<li><strong><code>criteria</code>:</strong> one request per tagged criteria line of a pair (<code>criterion_check.labels.user.txt</code> around the
+<li><strong><code>criteria</code>:</strong> one request per tagged criterion of a pair (<code>criterion_check.labels.user.txt</code> around the
   decision model's per-criterion state and question), decoded under its schema; yes means the patient does not
-  clearly fail the line.</li>
+  clearly fail the criterion.</li>
 </ul>
 <h2 id="inputs-and-outputs">Inputs and outputs<a class="headerlink" href="#inputs-and-outputs" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2190,7 +2190,7 @@ decision model. The <a href="../../training/">training pipeline</a>'s label stag
   Each entity has an <code>id</code>, a <code>split</code> (<code>train</code>, <code>val</code> or <code>test</code>), its key <code>text</code> and its <code>boilerplate</code> text; cohorts
   also carry their tagged criteria <code>items</code>.</li>
 <li><strong>Candidates (<code>--candidates</code>):</strong> a JSONL file of pairs (<code>patient_id</code>, <code>cohort_id</code>, <code>split</code>; for <code>criteria</code>, one
-  row per line with its <code>number</code>, <code>criterion_type</code> and the cohort's <code>criteria_digest</code>), built by the training
+  row per criterion with its <code>number</code>, <code>criterion_type</code> and the cohort's <code>criteria_digest</code>), built by the training
   pipeline. Pairs stay within their split.</li>
 <li><strong>Output directory (<code>--output</code>):</strong> every answer is kept with its reasoning and complete prompt in <code>responses/</code>,
   and answers that fail validation in <code>invalid_responses/</code>. <code>labels.jsonl</code> is the flattened export. For <code>match</code>,

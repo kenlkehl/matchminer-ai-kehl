@@ -2015,18 +2015,19 @@
 <h1 id="structured-record-criteria-screening">Structured-Record Criteria Screening<a class="headerlink" href="#structured-record-criteria-screening" title="Permanent link">&para;</a></h1>
 <div class="admonition warning">
 <p class="admonition-title">Review aids, not eligibility determinations</p>
-<p>Results say whether structured items extracted from the notes show a trial criteria line satisfied or clearly
-failed. An LLM wrote each line's query and an LLM extracted the items: check every cited quote against its note
-and the current protocol. <em>Not documented</em> means no extracted item showed either outcome, not that the patient
-is eligible.</p>
+<p>Results say whether structured items extracted from the notes show a trial criterion satisfied or clearly
+failed. An LLM wrote each criterion's query and an LLM extracted the items: check every cited quote against its
+note and the current protocol. <em>Not documented</em> means no extracted item showed either outcome, not that the
+patient is eligible.</p>
 </div>
 <p>Criteria-level screening from extraction records is the trial-side analogue of the
 <a href="../workup-queries/">extraction-based workup checks</a>:</p>
 <ol>
-<li><strong>Compile once per line.</strong> Each criteria line of a cohort (a <code>cohort_criteria_items</code> row typed inclusion or
+<li><strong>Compile once per criterion.</strong> Each criterion of a cohort (a <code>cohort_criteria_items</code> row typed inclusion or
    exclusion) is compiled once, by an LLM, into a query over the item types of
-   <a href="../extraction/">Structured Clinical Extraction</a>. Key lines see the cohort's key criteria as context; boilerplate
-   lines compile without context, so one query serves every trial with the same line. Queries are cached.</li>
+   <a href="../extraction/">Structured Clinical Extraction</a>. Key criteria are compiled in the context of the cohort's key
+   criteria; boilerplate criteria compile without context, so one query serves every trial with the same criterion.
+   Queries are cached.</li>
 <li><strong>Run in code.</strong> The query runs on each patient's extraction records with no model call: one patient, or every
    candidate of a cohort.</li>
 </ol>
@@ -2035,10 +2036,10 @@ is eligible.</p>
 <li><strong>Compiled queries</strong> (<code>compile_criteria_queries</code>, <code>check_criteria_with_extractions</code>): a declarative JSON query, the
   workup query language's matchers (item types, filters, date windows) with two expressions, <code>meets_when</code> and
   <code>fails_when</code>. Validated in code; the model never sees patient data.</li>
-<li><strong>The SQL agent</strong> (<code>compile_criteria_sql</code>, <code>check_criteria_with_sql</code>): the workup SQL agent's loop, read-only
-  sandbox, store profile and search, exploring an extraction store and writing one DuckDB query per line. It can also
-  read lab values from result text, take the latest value (such as the most recent ECOG score) and use treatment end
-  dates. Exploration results (extracted values, never patient ids or note text) reach the agent's endpoint.</li>
+<li><strong>The SQL agent</strong> (<code>compile_criteria_sql</code>, <code>check_criteria_with_sql</code>): the workup SQL agent's loop, read-only sandbox,
+  store profile and search, exploring an extraction store and writing one DuckDB query per criterion. It can also read
+  lab values from result text, take the latest value (such as the most recent ECOG score) and use treatment end dates.
+  Exploration results (extracted values, never patient ids or note text) reach the agent's endpoint.</li>
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">matchminer_ai.matching.structured_criteria</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">check_criteria_with_extractions</span><span class="p">,</span>
@@ -2050,14 +2051,14 @@ is eligible.</p>
 <span class="n">report</span> <span class="o">=</span> <span class="n">check_criteria_with_extractions</span><span class="p">([</span><span class="n">document_records</span><span class="p">,</span> <span class="n">patient_records</span><span class="p">],</span> <span class="n">compiled</span><span class="p">,</span>
                                          <span class="n">patient_ids</span><span class="o">=</span><span class="p">[</span><span class="s2">"patient-1"</span><span class="p">,</span> <span class="s2">"patient-2"</span><span class="p">])</span>
 <span class="n">report</span><span class="p">[</span><span class="s2">"patients"</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">"lines"</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">"status"</span><span class="p">]</span>  <span class="c1"># e.g. "clearly_fails"</span>
-<span class="n">report</span><span class="p">[</span><span class="s2">"aggregate"</span><span class="p">]</span>                          <span class="c1"># per line: statuses across patients</span>
+<span class="n">report</span><span class="p">[</span><span class="s2">"aggregate"</span><span class="p">]</span>                          <span class="c1"># per criterion: statuses across patients</span>
 </code></pre></div>
 <h2 id="polarity-and-statuses">Polarity and statuses<a class="headerlink" href="#polarity-and-statuses" title="Permanent link">&para;</a></h2>
-<p>Results use the <a href="../criteria-check/">decision model</a>'s polarity: yes means the patient does not clearly fail the line.
-A line is <code>clearly_fails</code> only when documented facts contradict eligibility (an inclusion line contradicted, such as a
-negative result for a required marker; or an exclusion line's condition documented), the facts that would satisfy
-it do not also hold, and the line applies. A missing item never fails a line: the validator rejects a <code>fails_when</code>
-or <code>meets_when</code> built only from negated (absent) criteria.</p>
+<p>Results use the <a href="../criteria-check/">decision model</a>'s polarity: yes means the patient does not clearly fail the
+criterion. A criterion is <code>clearly_fails</code> only when documented facts contradict eligibility (an inclusion criterion
+contradicted, such as a negative result for a required marker; or an exclusion criterion's condition documented), the
+facts that would satisfy it do not also hold, and the criterion applies. A missing item never fails a criterion: the
+validator rejects a <code>fails_when</code> or <code>meets_when</code> built only from negated (absent) query criteria.</p>
 <table>
 <thead>
 <tr>
@@ -2068,11 +2069,11 @@ or <code>meets_when</code> built only from negated (absent) criteria.</p>
 <tbody>
 <tr>
 <td><code>clearly_fails</code></td>
-<td>Documented facts fail the line</td>
+<td>Documented facts fail the criterion</td>
 </tr>
 <tr>
 <td><code>meets</code></td>
-<td>Documented facts satisfy the line</td>
+<td>Documented facts satisfy the criterion</td>
 </tr>
 <tr>
 <td><code>not_documented</code></td>
@@ -2084,15 +2085,15 @@ or <code>meets_when</code> built only from negated (absent) criteria.</p>
 </tr>
 <tr>
 <td><code>conflicting</code></td>
-<td>Documented facts both satisfy and fail the line</td>
+<td>Documented facts both satisfy and fail the criterion</td>
 </tr>
 <tr>
 <td><code>not_applicable</code></td>
-<td>Documented facts show the line's condition does not apply</td>
+<td>Documented facts show the criterion's condition does not apply</td>
 </tr>
 <tr>
 <td><code>not_checkable</code></td>
-<td>No item type can check the line (age, lab thresholds in the compiled language, comorbidities)</td>
+<td>No item type can check the criterion (age, lab thresholds in the compiled language, comorbidities)</td>
 </tr>
 <tr>
 <td><code>no_records</code></td>
@@ -2100,16 +2101,16 @@ or <code>meets_when</code> built only from negated (absent) criteria.</p>
 </tr>
 <tr>
 <td><code>query_unavailable</code></td>
-<td>No valid query could be compiled, or the line has no inclusion or exclusion type</td>
+<td>No valid query could be compiled, or the criterion has no inclusion or exclusion type</td>
 </tr>
 </tbody>
 </table>
-<p>Conditional lines ("for patients with prior surgery", "women of childbearing potential") encode their condition in
-<code>applies_when</code>, or say why it cannot be documented (<code>condition_not_expressible_reason</code>); such a line is never reported
-as clearly failed while its condition is uncertain.</p>
+<p>Conditional criteria ("for patients with prior surgery", "women of childbearing potential") encode their condition in
+<code>applies_when</code>, or say why it cannot be documented (<code>condition_not_expressible_reason</code>); such a criterion is never
+reported as clearly failed while its condition is uncertain.</p>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <p>The extraction schema records cancers only (no comorbidities), anticancer treatments only, labs as a test with a free
-text result, and performance status as stated numbers. Lines about age, organ-function thresholds, cardiac function,
+text result, and performance status as stated numbers. Criteria about age, organ-function thresholds, cardiac function,
 pregnancy, consent, measurable disease or whether brain metastases are active are therefore usually not checkable by
 compiled queries; the SQL agent may read some lab values from result text. In the compiled language a treatment is
 dated by its start, so washouts are approximated (and say so).</p>

@@ -2197,9 +2197,9 @@ eligibility criteria, the trial's drugs and how they work, and contacts. Trial d
 protocol and the ClinicalTrials.gov listing. Trials not open to enrollment are hidden until <strong>Show closed trials</strong> is
 checked.</p>
 <p><strong>Find patients</strong> ranks the patients nearest a cohort's key criteria and scores each candidate. For a candidate you
-can also check each criteria line, and run the GoodOption check on the trial's drugs. <strong>Screen with structured data</strong>
-checks the cohort's criteria lines against the clinical facts extracted from every candidate's notes. A line fails
-only when the records contradict it; a fact that is simply not documented never fails a line.</p>
+can also check each criterion, and run the GoodOption check on the trial's drugs. <strong>Screen with structured data</strong>
+checks the cohort's criteria against the clinical facts extracted from every candidate's notes. A criterion fails
+only when the records contradict it; a fact that is simply not documented never fails a criterion.</p>
 <p><strong>Trial management</strong> opens a sidebar beside the groups. It lists the trials the page shows (narrow them with the
 search and filters, or the sidebar's own filter), with each trial's slots and what has been changed. Open a trial to
 work on its cohorts:</p>
@@ -2210,8 +2210,8 @@ work on its cohorts:</p>
 <li><strong>Subcohorts:</strong> when a sponsor takes only patients with requirements beyond the protocol's, define a subcohort. It
   starts with its cohort's criteria; add the sponsor's requirements to them. A diagram shows where each cohort and
   subcohort comes from.</li>
-<li><strong>Criteria:</strong> edit, add or remove any cohort's criteria lines. New and changed lines are labeled inclusion or
-  exclusion and key or common automatically, or by you. When you open a trial, the lines of its original cohorts
+<li><strong>Criteria:</strong> edit, add or remove any cohort's criteria. New and changed criteria are labeled inclusion or
+  exclusion and key or common automatically, or by you. When you open a trial, the criteria of its original cohorts
   are labeled automatically too. <strong>Revert to the AI-extracted criteria</strong> undoes the edits. When a cohort with
   subcohorts changes, you choose whether the subcohorts take the new criteria. If the trial is extracted again and
   its criteria change, edited cohorts are flagged for review.</li>
@@ -2231,7 +2231,7 @@ or text) that the app summarizes. Then:</p>
 <li><strong>Trials:</strong> the trial cohorts that fit the patient, ranked and scored, with filters by phase and disease center.
   <strong>Only cohorts with open slots</strong> searches only the cohorts and subcohorts with slots available on Trial
   management, each on its own criteria.
-  Each trial's criteria can be checked line by line, and the GoodOption check weighs the trial's drugs for this
+  Each trial's criteria can be checked one by one, and the GoodOption check weighs the trial's drugs for this
   patient using the published evidence gathered for each drug and drug class.</li>
 <li><strong>Guidelines:</strong> the guideline populations (NCCN and NCI PDQ) that fit the patient, with their recommended workup
   and treatment options and the sources they come from. A workup review checks which recommended steps the notes
@@ -2253,6 +2253,9 @@ its results.</p>
 <h3 id="benchmarking">Benchmarking<a class="headerlink" href="#benchmarking" title="Permanent link">&para;</a></h3>
 <p>The evaluation runs: how closely the models reproduce the large language model (LLM) they were trained from, how
 LLM judges rate the pipeline's outputs, and review of the cases two judges disagree on.</p>
+<p>On a distillation fidelity run, <strong>Export results</strong> downloads the results as a PDF to share. For real patients it also
+has a Table 1 describing the patients (age, race, ethnicity, sex and cancer type) and the main results for each of
+these groups. Small numbers are hidden there to protect patient privacy.</p>
 <h3 id="how-this-works">How this works<a class="headerlink" href="#how-this-works" title="Permanent link">&para;</a></h3>
 <p>These pages: how matching works, how the models are trained, what each model answers, and the data model of the
 extracted clinical facts. Start with <a href="../../user-guide/patient-centric-matching/">How matching works</a>.</p>
@@ -2263,7 +2266,7 @@ labeling edited criteria).</p>
 <h2 id="decision-model-or-llm">Decision model or LLM<a class="headerlink" href="#decision-model-or-llm" title="Permanent link">&para;</a></h2>
 <p>Wherever the app scores a patient and a trial cohort, <strong>Scores from</strong> switches between the decision model, a small
 model that answers in a fraction of a second, and an LLM, which shows its reasoning. Both answer the same questions,
-such as whether the pair is a reasonable consideration and whether the patient clearly fails a criteria line.</p>
+such as whether the pair is a reasonable consideration and whether the patient clearly fails a criterion.</p>
 
 
 
