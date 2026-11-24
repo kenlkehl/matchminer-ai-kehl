@@ -89,8 +89,9 @@ def plan(args):
         jobs = [Job('extraction', extraction, kind='gb300', output=e('extraction')),
                 Job('patients', [*mod('prepare'), 'patients', '--summaries', args.summaries, '--denominator',
                                  args.denominator, '--output', e('patients')], output=e('patients')),
-                Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--output',
-                                     e('cohort_table')], ['extraction'], output=e('cohort_table'))]
+                Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--exclude-trials',
+                                     str(args.training_trials), '--output', e('cohort_table')], ['extraction'],
+                    output=e('cohort_table'))]
     queries = (['--all-queries', '--comparison-patient-queries', str(args.comparison_patient_queries),
                 '--comparison-cohort-queries', str(args.comparison_cohort_queries)] if args.all_queries else
                ['--patient-queries', str(args.patient_queries), '--cohort-queries', str(args.cohort_queries)])
@@ -161,7 +162,46 @@ def plan(args):
                                 e('decide', 'boilerplate'), *decided, '--output', e('metrics')],
                     [*labels, *([] if args.no_criteria else ['decide_criteria']), 'decide_boilerplate'],
                     output=e('metrics')))
-    return {job.name: job for job in jobs}
+    jobs = {job.name: job for job in jobs}
+    if args.reuse_run:
+        reuse(args, jobs)
+    return jobs
+
+
+def reuse(args, jobs):
+    """--reuse-run: the commands that take what an earlier run of the same inputs already has. The corpus keeps its
+    comparison samples; the decision model scores, and the teacher labels, only pairs (and boilerplate combinations)
+    the earlier run has no answer for; metrics read the earlier labels beside the new ones."""
+    old = Path(args.reuse_run)
+    jobs['corpus'].command += ['--comparison-from', str(old / 'corpus')]
+    for task in ('match', 'boilerplate'):
+        jobs[f'decide_{task}'].command += ['--reuse', str(old / 'decide' / task / 'scores.parquet')]
+        earlier = [str(old / 'labels' / f'{task}_{part}') for part in ('ab', 'c')]
+        for part in ('ab', 'c'):
+            command = jobs[f'label_{task}_{part}'].command
+            if '--skip-labeled' in command:
+                at = command.index('--skip-labeled') + 1
+                command[at:at] = earlier
+            else:
+                command += ['--skip-labeled', *earlier]
+        command = jobs['metrics'].command
+        at = command.index(f'--{task}-labels') + 1
+        command[at:at] = earlier
+
+
+def link_reused(args, root, jobs):
+    """--reuse-run: link the earlier run's stages whose inputs and settings are this run's (the cohort extraction,
+    patients, patient embeddings), and stop unless each one checks complete here, so a stage is never rewritten in
+    the earlier run."""
+    old = Path(args.reuse_run)
+    links = {'extraction': root / 'extraction', 'patients': root / 'patients',
+             **{f'embed_{embedder}_patients': root / 'embeddings' / embedder / 'patients' for embedder in EMBEDDERS}}
+    for name, path in links.items():
+        if not path.exists() and not path.is_symlink():
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path.symlink_to(old / path.relative_to(root))
+        if path.is_symlink() and checked(jobs[name]) != 0:
+            raise SystemExit(f'{name}: the earlier run\'s stage was made with other inputs or settings; not reusing it')
 
 
 def query_note(args):
@@ -223,7 +263,9 @@ def trials_note(args) -> str:
                 kind, f'{n:,} trials')
     how = (f'the frozen code snapshot {Path(args.extraction_source).name}' if args.extraction_source
            else "the training run's frozen programs")
-    return f'Trials: {what}; ctgov cohorts extracted with {how} (extraction/).'
+    return (f'Trials: {what}; ctgov cohorts extracted with {how} (extraction/). Trials of the synthetic-training sample '
+            '(--training-trials) are dropped from the cohort table (cohort_table/cohorts.json excluded_trials), so '
+            'none is a candidate or a query.')
 
 
 def teacher_note(args) -> str:
@@ -276,6 +318,12 @@ def main(argv=None):
     p.add_argument('--trials', help='The trial sample CSV (a real run)')
     p.add_argument('--summaries', help='The summary batches (a real run)')
     p.add_argument('--denominator', help='processed_soc_treatments.csv (a real run)')
+    p.add_argument('--reuse-run', help='A real run: an earlier run directory of the same patients and trials whose '
+                   'patients, patient embeddings, comparison samples, decision scores and teacher labels are reused '
+                   '(for a re-run after its cohort table changed; needs --no-criteria)')
+    p.add_argument('--training-trials', help='A real run: CSV (nct_id) of the synthetic-training trial sample, whose '
+                   'cohorts are never in the corpus (default: <data root>/no_phi/'
+                   'training_run_screened_sample5000_20261104/registry_sample_trials.csv)')
     p.add_argument('--synthetic-corpus', help="A synthetic run: the n=5000 run's trialspace_corpus directory")
     p.add_argument('--synthetic-split', default='test', help='A synthetic run: the generator split of its patients')
     p.add_argument('--embed-device', default='cpu', help='Encoding device(s), comma-separated (cpu, cuda:0,cuda:1)')
@@ -335,6 +383,14 @@ def main(argv=None):
     args.secondary_teacher_url = args.secondary_teacher_url or site.get('endpoints.secondary_teacher.url')
     args.no_proxy = args.no_proxy or not args.secondary_teacher_url
     args.cache_dir = args.cache_dir or site.get('paths.hf_cache')
+    if args.reuse_run and (args.synthetic_corpus or not args.no_criteria or not args.all_queries):
+        p.error('--reuse-run is for a real full-denominator run with --no-criteria')
+    if not args.synthetic_corpus:
+        from matchminer_ai.evaluation.retro_cohorts.sample_soc_trials import RUN
+        from matchminer_ai.training.paths import no_phi
+        args.training_trials = args.training_trials or no_phi(RUN, 'registry_sample_trials.csv')
+        if not Path(args.training_trials).is_file():
+            raise SystemExit(f'No synthetic-training trial list at {args.training_trials} (--training-trials)')
     private()
     root = private_dir(args.root)
     for name in ('logs', 'servers', 'oa_pause', 'labels', 'decide', 'embeddings'):
@@ -346,6 +402,8 @@ def main(argv=None):
     os.environ.setdefault('OPENAI_API_KEY', 'not-needed')
     hold_gb300(root / 'oa_pause' / 'holders.json', 'orchestrator (run.py)')
     jobs = plan(args)
+    if args.reuse_run:
+        link_reused(args, root, jobs)
     if args.synthetic_corpus:
         write_json(root / 'design_notes.json', [
             f'Synthetic run (no PHI): the n=5000 run\'s {args.synthetic_split}-split synthetic patients with their '
@@ -375,7 +433,12 @@ def main(argv=None):
                f'encoded on {args.embed_device} (bf16 autocast).'),
             teacher_note(args),
             'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
-            criteria_note(args)])
+            criteria_note(args),
+            *([f'Re-run of {Path(args.reuse_run).name} with the cohort table above: its patients, patient embeddings '
+               'and comparison samples (without the dropped cohorts) are reused, and so are its decision scores and '
+               'teacher labels; only pairs and boilerplate combinations it had no answer for were scored and labeled. '
+               'Teacher labels are sampled (temperature 1.0), so reused and new labels are draws of the same '
+               'labeler.'] if args.reuse_run else [])])
     proxy, released = None, False
     status_path = root / 'run_status.json'
     log(f'orchestrator started: {len(jobs)} jobs')

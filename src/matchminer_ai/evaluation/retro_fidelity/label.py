@@ -6,7 +6,8 @@ command-line flags (``trialspace.label``, ``add_label_cli_args``), the same cont
 (match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; checked at start), Nemotron's own sampling profile
 (resolved from ``--teacher-tokenizer``) and schema-constrained decoding of the JSON tasks. Every request, answer
 and reasoning is kept (``labels.jsonl``, ``responses``), and an interrupted run resumes.
-- ``match``: the five match labels of every pair in ``--candidates`` in one request, scored 0-6 (``scores.jsonl``).
+- ``match``: the five match labels of every pair in ``--candidates`` in one request, scored 0-6 (``scores.jsonl``),
+  skipping the pairs of ``--skip-labeled`` directories.
 - ``boilerplate``: one request per unique combination of patient boilerplate section and cohort boilerplate criteria
   among ``--candidates`` (trialspace.candidates.unique_boilerplate_pairs), skipping the combinations of
   ``--skip-labeled`` directories.
@@ -33,7 +34,8 @@ def parser():
     add_label_cli_args(p)
     p.set_defaults(return_records=False)
     p.add_argument('--skip-labeled', type=Path, nargs='+', default=[],
-                   help='boilerplate: earlier label directories whose combinations are not labeled again')
+                   help='match, boilerplate: earlier label directories whose pairs (match) or combinations '
+                   '(boilerplate) are not labeled again')
     p.add_argument('--holders', help='OA-pause holder registry (common.hold_gb300)')
     stage.add_check_arg(p)
     return p
@@ -81,6 +83,12 @@ def main(argv=None):
         args.candidates = str(unique_boilerplate_pairs(args.corpus, [source], output, skip=args.skip_labeled))
     else:  # the candidate rows this directory labels, kept beside its labels
         rows = read_jsonl(source)
+        if args.skip_labeled:
+            if args.task != 'match':
+                raise SystemExit('--skip-labeled is for the match and boilerplate tasks')
+            done = {(row['patient_id'], row['cohort_id']) for path in args.skip_labeled
+                    for row in read_jsonl(Path(path) / 'scores.jsonl')}
+            rows = [row for row in rows if (row['patient_id'], row['cohort_id']) not in done]
         if target.exists():
             if read_jsonl(target) != rows:
                 raise ValueError('This label directory was built from different candidates; use a new directory')

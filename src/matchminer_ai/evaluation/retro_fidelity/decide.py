@@ -138,9 +138,10 @@ def main(argv=None):
     p.add_argument('--token-budget', type=int, default=32768, help='Padded tokens per forward pass')
     p.add_argument('--batch-size', type=int, default=256)
     p.add_argument('--part-size', type=int, default=2048)
-    p.add_argument('--reuse', type=Path, help='match only: an earlier scores.parquet of the same model and inputs; its '
-                   'rows are kept as they are and only the missing pairs are scored (not part of the identity: '
-                   'the model is deterministic, so reused and fresh scores are the same)')
+    p.add_argument('--reuse', type=Path, help='match, boilerplate: an earlier scores.parquet of the same model and '
+                   'texts; its pairs (match) or text combinations (boilerplate) are kept as they are and only the '
+                   'missing ones are scored (not part of the identity: the model is deterministic, so reused and '
+                   'fresh scores are the same)')
     stage.add_check_arg(p)
     args = p.parse_args(argv)
     if os.environ.get('CUDA_VISIBLE_DEVICES') not in (None, args.gpu):
@@ -166,24 +167,32 @@ def main(argv=None):
         frame, keys, lines = frames(args, args.corpus)
         reused = None
         if args.reuse is not None:
-            if args.task != 'match':
-                raise SystemExit('--reuse is for the match task only')
-            wanted = set(zip(frame.patient_id, frame.cohort_trial_id))
-            reused = pd.read_parquet(args.reuse)
-            reused = reused[[key in wanted for key in zip(reused.patient_id, reused.cohort_id)]].reset_index(drop=True)
-            have = set(zip(reused.patient_id, reused.cohort_id))
-            frame = frame[[key not in have for key in zip(frame.patient_id, frame.cohort_trial_id)]].reset_index(drop=True)
-            log(f'decide {args.task}: reusing {len(reused)} scored pairs from {args.reuse.parent.name}; {len(frame)} to score')
+            earlier = pd.read_parquet(args.reuse)
+            if args.task == 'match':
+                wanted = set(zip(frame.patient_id, frame.cohort_trial_id))
+                reused = earlier[[key in wanted for key in zip(earlier.patient_id, earlier.cohort_id)]]
+                have = set(zip(reused.patient_id, reused.cohort_id))
+                frame = frame[[key not in have for key in zip(frame.patient_id, frame.cohort_trial_id)]]
+            elif args.task == 'boilerplate':  # by combination: identical texts, identical answer
+                known = earlier.drop_duplicates('combination').set_index('combination').p_boilerplate
+                reused = pd.DataFrame(dict(combination=[c for c in frame.combination if c in known.index]))
+                reused['p_boilerplate'] = known.reindex(reused.combination).values
+                frame = frame[~frame.combination.isin(known.index)]
+            else:
+                raise SystemExit('--reuse is for the match and boilerplate tasks')
+            reused, frame = reused.reset_index(drop=True), frame.reset_index(drop=True)
+            log(f'decide {args.task}: reusing {len(reused)} scored units from {args.reuse.parent.name}; {len(frame)} to score')
         parts = private_dir(output / 'parts')
-        free = wait_for_gpu(args, output / 'gpu.json')
-        log(f'decide {args.task}: {len(frame)} units, GPU {args.gpu} with {free:.1f} GB free')
-        import torch
-        total, _ = gpu_memory_gb(args.gpu)
-        # Cap this process so it can never take the memory of the GPU's other (the user's) processes.
-        torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total), 0)
-        settings = config(args)
         started, done = time.time(), 0
         starts = list(range(0, len(frame), args.part_size))
+        if starts:
+            free = wait_for_gpu(args, output / 'gpu.json')
+            log(f'decide {args.task}: {len(frame)} units, GPU {args.gpu} with {free:.1f} GB free')
+            import torch
+            total, _ = gpu_memory_gb(args.gpu)
+            # Cap this process so it can never take the memory of the GPU's other (the user's) processes.
+            torch.cuda.set_per_process_memory_fraction(min(1.0, args.max_gpu_gb / total), 0)
+            settings = config(args)
         for number, start in enumerate(starts):
             path = parts / f'{number:05d}.parquet'
             if path.exists():
@@ -195,9 +204,10 @@ def main(argv=None):
             done += len(chunk)
             rate = done / max(time.time() - started, 1e-9)
             log(f'decide {args.task}: part {number + 1}/{len(starts)}; {rate:.1f} units/s')
-        result = pd.concat([pd.read_parquet(parts / f'{n:05d}.parquet') for n in range(len(starts))], ignore_index=True)
+        scored = [pd.read_parquet(parts / f'{n:05d}.parquet') for n in range(len(starts))]
         if reused is not None:
-            result = pd.concat([reused[list(result.columns)], result], ignore_index=True)
+            scored = [reused[list(scored[0].columns)] if scored else reused, *scored]
+        result = pd.concat(scored, ignore_index=True)
         if args.task == 'match' and (result.duplicated(['patient_id', 'cohort_id']).any()
                                      or set(zip(result.patient_id, result.cohort_id)) != set(keys)):
             raise ValueError('Match scores do not cover every pair exactly once')

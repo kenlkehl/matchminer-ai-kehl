@@ -24,6 +24,7 @@ queries``) and ``comparison_cohort_queries`` (``--comparison-cohort-queries``): 
 same seed and counts makes.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import random
@@ -105,13 +106,23 @@ def cohort_rows(table):
 
 
 def cohorts(args):
+    """The ctgov cohort table; ``--exclude-trials`` (a CSV with ``nct_id``, a real run's synthetic-training sample)
+    drops every cohort of those trials, so no trial the models were trained on is a candidate or a query."""
     table = Path(args.extraction) / 'trial_cohort_lineitems_deboilerplated.csv'
     identity = dict(version=VERSION, stage='cohorts', split=SPLIT, extraction=stage.receipt_id(args.extraction))
+    excluded = set()
+    if args.exclude_trials:
+        from matchminer_ai.evaluation.retro_cohorts.trials import load_training_nct_ids
+        excluded = load_training_nct_ids(args.exclude_trials)
+        identity['excluded_trials'] = digest(sorted(excluded))
 
     def work():
         rows, empty = cohort_rows(table)
+        dropped = [r for r in rows if r['trial_id'].strip().upper() in excluded]
+        rows = [r for r in rows if r['trial_id'].strip().upper() not in excluded]
         write_jsonl(Path(args.output) / 'cohorts.jsonl', rows)
         summary = dict(cohorts=len(rows), trials=len({r['trial_id'] for r in rows}), dropped_without_key_criteria=empty,
+                       excluded_trials=len({r['trial_id'] for r in dropped}), excluded_cohorts=len(dropped),
                        without_boilerplate=sum(not r['boilerplate'] for r in rows),
                        criteria_lines=sum(len(r['items']) for r in rows),
                        exclusion_lines=sum(i.get('criterion_type') == 'exclusion' for r in rows for i in r['items']),
@@ -189,6 +200,8 @@ def corpus_identity(args):
     if args.all_queries:  # full denominator: the query counts are the corpus's, the comparison counts are settings
         identity.update(all_queries=True, comparison_patient_queries=args.comparison_patient_queries,
                         comparison_cohort_queries=args.comparison_cohort_queries)
+        if args.comparison_from:
+            identity['comparison_from'] = stage.receipt_id(args.comparison_from)
     else:
         identity.update(patient_queries=args.patient_queries, cohort_queries=args.cohort_queries)
     return identity
@@ -202,8 +215,8 @@ def corpus_options(args):
             raise SystemExit('--all-queries takes every patient and cohort; give no --patient-queries/--cohort-queries')
         if None in comparison or min(comparison) < 0:
             raise SystemExit('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0)')
-    elif comparison != (None, None):
-        raise SystemExit('--comparison-patient-queries/--comparison-cohort-queries need --all-queries')
+    elif comparison != (None, None) or args.comparison_from:
+        raise SystemExit('--comparison-patient-queries/--comparison-cohort-queries/--comparison-from need --all-queries')
     else:
         args.patient_queries = 500 if args.patient_queries is None else args.patient_queries
         args.cohort_queries = 200 if args.cohort_queries is None else args.cohort_queries
@@ -236,6 +249,12 @@ def corpus(args):
                                                           'patient_queries'),
                           comparison_cohort_queries=draw(spaces, args.comparison_cohort_queries, args.seed,
                                                          'cohort_queries'))
+            if args.comparison_from:  # an earlier corpus's comparison samples, without the IDs this one lacks
+                earlier = json.loads((Path(args.comparison_from) / 'sample.json').read_text())
+                kept = dict(comparison_patient_queries=set(events), comparison_cohort_queries=set(spaces))
+                sample.update(comparison_method=f'the comparison samples of an earlier corpus (seed {earlier["seed"]}), '
+                              'without its IDs this corpus does not have',
+                              **{key: [i for i in earlier[key] if i in ids] for key, ids in kept.items()})
         else:
             sample = dict(seed=args.seed, method=method,
                           patient_queries=draw(events, args.patient_queries, args.seed, 'patient_queries'),
@@ -247,8 +266,8 @@ def corpus(args):
                        patient_queries=len(sample['patient_queries']), cohort_queries=len(sample['cohort_queries']),
                        query_persons=len({person_of[i] for i in sample['patient_queries']}))
         if args.all_queries:
-            summary.update(all_queries=True, comparison_patient_queries=args.comparison_patient_queries,
-                           comparison_cohort_queries=args.comparison_cohort_queries,
+            summary.update(all_queries=True, comparison_patient_queries=len(sample['comparison_patient_queries']),
+                           comparison_cohort_queries=len(sample['comparison_cohort_queries']),
                            comparison_query_persons=len({person_of[i] for i in sample['comparison_patient_queries']}))
         write_json(output / 'corpus.json', summary)
         log(f'corpus: {summary}')
@@ -266,6 +285,8 @@ def main(argv=None):
     a.add_argument('--denominator', required=True, help='processed_soc_treatments.csv of the same pull')
     b = sub.add_parser('cohorts')
     b.add_argument('--extraction', required=True, help='The cohorts.py stage directory')
+    b.add_argument('--exclude-trials', help="CSV with nct_id: trials whose cohorts are dropped (a real run: the "
+                   "synthetic-training trial sample)")
     d = sub.add_parser('synthetic-patients')
     d.add_argument('--corpus', required=True, help="The n=5000 run's trialspace_corpus directory")
     d.add_argument('--split', default='test', help="The generator split (patients.jsonl source_split)")
@@ -283,6 +304,8 @@ def main(argv=None):
                    help='With --all-queries: seeded patient-centric queries that rankers (a) and (b) also run for')
     c.add_argument('--comparison-cohort-queries', type=int,
                    help='With --all-queries: seeded trial-centric queries that rankers (a) and (b) also run for')
+    c.add_argument('--comparison-from', help='With --all-queries: an earlier corpus directory whose comparison samples '
+                   'are kept (without the IDs this corpus lacks) instead of drawn, so its labels stay comparable')
     for q in (a, b, c, d, f):
         q.add_argument('--output', required=True)
         stage.add_check_arg(q)
