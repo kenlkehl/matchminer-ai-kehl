@@ -142,8 +142,12 @@ def main(argv=None):
                    'texts; its pairs (match) or text combinations (boilerplate) are kept as they are and only the '
                    'missing ones are scored (not part of the identity: the model is deterministic, so reused and '
                    'fresh scores are the same)')
+    p.add_argument('--reuse-only', action='store_true', help='boilerplate with --reuse: score nothing new; pairs '
+                   'whose combination the earlier run lacks get no row (they have no teacher label either)')
     stage.add_check_arg(p)
     args = p.parse_args(argv)
+    if args.reuse_only and (args.task != 'boilerplate' or args.reuse is None):
+        p.error('--reuse-only is for the boilerplate task with --reuse')
     if os.environ.get('CUDA_VISIBLE_DEVICES') not in (None, args.gpu):
         raise SystemExit(f'CUDA_VISIBLE_DEVICES is {os.environ["CUDA_VISIBLE_DEVICES"]}, not {args.gpu}')
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu  # before torch initializes CUDA
@@ -157,6 +161,8 @@ def main(argv=None):
                     inputs=[dict(stage=stage.receipt_id(Path(path).parent), name=Path(path).name) for path in inputs],
                     model=stage.receipt_id(DECISION_MODEL), model_fingerprint=contract['fingerprint'],
                     questions_sha256=contract['questions_sha256'], part_size=args.part_size)
+    if args.reuse_only:
+        identity['reuse_only'] = stage.receipt_id(Path(args.reuse).parent)
     output = Path(args.output)
 
     def work():
@@ -181,6 +187,8 @@ def main(argv=None):
             else:
                 raise SystemExit('--reuse is for the match and boilerplate tasks')
             reused, frame = reused.reset_index(drop=True), frame.reset_index(drop=True)
+            if args.reuse_only:  # nothing new is scored: units the earlier run lacks are left out
+                frame = frame.iloc[0:0]
             log(f'decide {args.task}: reusing {len(reused)} scored units from {args.reuse.parent.name}; {len(frame)} to score')
         parts = private_dir(output / 'parts')
         started, done = time.time(), 0
@@ -221,6 +229,8 @@ def main(argv=None):
                 if not (c.get('boilerplate') or '').strip():
                     continue
                 combination = stage.digest([patients[patient_id].get('boilerplate') or '', c['boilerplate']])
+                if args.reuse_only and combination not in mapping:
+                    continue
                 rows.append(dict(patient_id=patient_id, cohort_id=cohort_id, combination=combination,
                                  p_boilerplate=mapping[combination]))
             result = pd.DataFrame(rows)

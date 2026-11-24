@@ -20,7 +20,7 @@ import argparse
 import json
 from pathlib import Path
 
-from matchminer_ai.evaluation.retro_fidelity.common import hold_gb300, log, private, private_dir, read_jsonl, stage, write_jsonl  # noqa: E402
+from matchminer_ai.evaluation.retro_fidelity.common import hold_gb300, log, private, private_dir, read_jsonl, stage, write_json, write_jsonl  # noqa: E402
 
 VERSION = 'retro-fidelity-label-v1'
 CONTRACTS = {'match': 'edbff87086e7f2dfb79d5fb0ae0de9e5b2ecd48d3a02b19c4c23fe1e79b3a405',
@@ -97,7 +97,14 @@ def main(argv=None):
         args.candidates = str(target)
     count = sum(1 for _ in open(args.candidates))
     log(f'label {args.task} ({output.name}): {count} requests')
-    run_label(args)
+    if count == 0 and args.task == 'match':  # every pair was labeled earlier (--skip-labeled)
+        for name in ('labels.jsonl', 'scores.jsonl'):
+            (output / name).write_text('')
+        write_json(output / 'scores_ready.json', dict(pairs=0))
+        write_json(output / 'labeling_manifest.json', dict(requests=0, note='nothing to label: every candidate pair '
+                                                           'has a label in a --skip-labeled directory'))
+    else:
+        run_label(args)
     manifest = json.loads((output / 'labeling_manifest.json').read_text())
     content = dict(teacher_signature=stage.digest(manifest), requests=count)
     if args.task == 'match':

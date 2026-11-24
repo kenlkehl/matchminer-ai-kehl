@@ -92,7 +92,8 @@ def plan(args):
                 Job('cohort_table', [*mod('prepare'), 'cohorts', '--extraction', e('extraction'), '--exclude-trials',
                                      str(args.training_trials), '--output', e('cohort_table')], ['extraction'],
                     output=e('cohort_table'))]
-    queries = (['--all-queries', '--comparison-patient-queries', str(args.comparison_patient_queries),
+    queries = (['--all-queries', '--compare-all'] if args.compare_all else
+               ['--all-queries', '--comparison-patient-queries', str(args.comparison_patient_queries),
                 '--comparison-cohort-queries', str(args.comparison_cohort_queries)] if args.all_queries else
                ['--patient-queries', str(args.patient_queries), '--cohort-queries', str(args.cohort_queries)])
     jobs += [Job('corpus', [*mod('prepare'), 'corpus', '--patients', e('patients'), '--cohorts',
@@ -168,25 +169,62 @@ def plan(args):
     return jobs
 
 
+REUSED_LABELS = 'reused_labels.json'
+
+
+def label_dirs(run) -> dict:
+    """The label directories a run's metrics read, by task: those it reused (``reused_labels.json``, written by a
+    --reuse-run) and its own."""
+    run = Path(run)
+    if (run / REUSED_LABELS).is_file():
+        return json.loads((run / REUSED_LABELS).read_text())
+    return {task: [str(run / 'labels' / f'{task}_{part}') for part in ('ab', 'c')
+                   if (run / 'labels' / f'{task}_{part}' / 'stage_receipt.json').is_file()]
+            for task in ('match', 'boilerplate')}
+
+
 def reuse(args, jobs):
     """--reuse-run: the commands that take what an earlier run of the same inputs already has. The corpus keeps its
-    comparison samples; the decision model scores, and the teacher labels, only pairs (and boilerplate combinations)
-    the earlier run has no answer for; metrics read the earlier labels beside the new ones."""
+    comparison samples (unless --compare-all); the decision model scores, and the teacher labels, only pairs (and
+    boilerplate combinations) the earlier run has no answer for; metrics read the earlier labels beside the new
+    ones. With --no-new-boilerplate no boilerplate is labeled or scored anew."""
     old = Path(args.reuse_run)
-    jobs['corpus'].command += ['--comparison-from', str(old / 'corpus')]
+    earlier = label_dirs(old)
+    if not args.compare_all:
+        jobs['corpus'].command += ['--comparison-from', str(old / 'corpus')]
     for task in ('match', 'boilerplate'):
         jobs[f'decide_{task}'].command += ['--reuse', str(old / 'decide' / task / 'scores.parquet')]
-        earlier = [str(old / 'labels' / f'{task}_{part}') for part in ('ab', 'c')]
+        if task == 'boilerplate' and args.no_new_boilerplate:
+            jobs['decide_boilerplate'].command.append('--reuse-only')
+            for part in ('ab', 'c'):
+                del jobs[f'label_boilerplate_{part}']
+            jobs['metrics'].deps = [d for d in jobs['metrics'].deps if not d.startswith('label_boilerplate')]
+            command = jobs['metrics'].command
+            at = command.index('--boilerplate-labels') + 1
+            end = next((i for i in range(at, len(command)) if command[i].startswith('--')), len(command))
+            command[at:end] = earlier[task]
+            continue
         for part in ('ab', 'c'):
             command = jobs[f'label_{task}_{part}'].command
             if '--skip-labeled' in command:
                 at = command.index('--skip-labeled') + 1
-                command[at:at] = earlier
+                command[at:at] = earlier[task]
             else:
-                command += ['--skip-labeled', *earlier]
+                command += ['--skip-labeled', *earlier[task]]
         command = jobs['metrics'].command
         at = command.index(f'--{task}-labels') + 1
-        command[at:at] = earlier
+        command[at:at] = earlier[task]
+
+
+def write_reused_labels(args, root, jobs):
+    """The label directories this run's metrics read (for a later --reuse-run of this run)."""
+    command = jobs['metrics'].command
+    out = {}
+    for task in ('match', 'boilerplate'):
+        at = command.index(f'--{task}-labels') + 1
+        end = next((i for i in range(at, len(command)) if command[i].startswith('--')), len(command))
+        out[task] = command[at:end]
+    write_json(root / REUSED_LABELS, out)
 
 
 def link_reused(args, root, jobs):
@@ -209,6 +247,9 @@ def query_note(args):
     if not args.all_queries:
         return (f'{args.patient_queries} sampled for the patient-centric workflow and {args.cohort_queries} cohorts for '
                 f'the trial-centric one (seed {args.seed}; corpus/sample.json).')
+    if args.compare_all:
+        return ('every one is a patient-centric query and every cohort a trial-centric one, and all three rankers '
+                '(a), (b) and (c) rank and are labeled for every query (full denominators, --compare-all).')
     return ('every one is a patient-centric query and every cohort a trial-centric one (full denominator: ranker (c), '
             'the full pipeline, ranks and is labeled for all of them); rankers (a) and (b) run only for a seeded '
             f'comparison subset of {args.comparison_patient_queries} of them and {args.comparison_cohort_queries} '
@@ -321,6 +362,10 @@ def main(argv=None):
     p.add_argument('--reuse-run', help='A real run: an earlier run directory of the same patients and trials whose '
                    'patients, patient embeddings, comparison samples, decision scores and teacher labels are reused '
                    '(for a re-run after its cohort table changed; needs --no-criteria)')
+    p.add_argument('--compare-all', action='store_true', help='With --all-queries: rankers (a) and (b) run, and are '
+                   'labeled, for every query too (no comparison subset)')
+    p.add_argument('--no-new-boilerplate', action='store_true', help='With --reuse-run: no boilerplate label or '
+                   'decision for pairs the earlier run lacks (the match labels are enough for the ranker comparison)')
     p.add_argument('--training-trials', help='A real run: CSV (nct_id) of the synthetic-training trial sample, whose '
                    'cohorts are never in the corpus (default: <data root>/no_phi/'
                    'training_run_screened_sample5000_20261104/registry_sample_trials.csv)')
@@ -367,8 +412,12 @@ def main(argv=None):
     if args.all_queries:
         if args.patient_queries is not None or args.cohort_queries is not None:
             p.error('--all-queries takes every patient and cohort; give no --patient-queries/--cohort-queries')
-        if None in comparison or min(comparison) < 0:
-            p.error('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0)')
+        if args.compare_all:
+            if comparison != (None, None):
+                p.error('--compare-all takes every query; give no --comparison-patient/cohort-queries')
+        elif None in comparison or min(comparison) < 0:
+            p.error('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0), or '
+                    '--compare-all')
     elif comparison != (None, None):
         p.error('--comparison-patient-queries/--comparison-cohort-queries need --all-queries')
     args.patient_queries = 500 if args.patient_queries is None else args.patient_queries
@@ -385,6 +434,10 @@ def main(argv=None):
     args.cache_dir = args.cache_dir or site.get('paths.hf_cache')
     if args.reuse_run and (args.synthetic_corpus or not args.no_criteria or not args.all_queries):
         p.error('--reuse-run is for a real full-denominator run with --no-criteria')
+    if args.compare_all and not args.all_queries:
+        p.error('--compare-all needs --all-queries')
+    if args.no_new_boilerplate and not args.reuse_run:
+        p.error('--no-new-boilerplate needs --reuse-run')
     if not args.synthetic_corpus:
         from matchminer_ai.evaluation.retro_cohorts.sample_soc_trials import RUN
         from matchminer_ai.training.paths import no_phi
@@ -404,6 +457,7 @@ def main(argv=None):
     jobs = plan(args)
     if args.reuse_run:
         link_reused(args, root, jobs)
+        write_reused_labels(args, root, jobs)
     if args.synthetic_corpus:
         write_json(root / 'design_notes.json', [
             f'Synthetic run (no PHI): the n=5000 run\'s {args.synthetic_split}-split synthetic patients with their '
@@ -434,11 +488,14 @@ def main(argv=None):
             teacher_note(args),
             'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
             criteria_note(args),
-            *([f'Re-run of {Path(args.reuse_run).name} with the cohort table above: its patients, patient embeddings '
-               'and comparison samples (without the dropped cohorts) are reused, and so are its decision scores and '
-               'teacher labels; only pairs and boilerplate combinations it had no answer for were scored and labeled. '
-               'Teacher labels are sampled (temperature 1.0), so reused and new labels are draws of the same '
-               'labeler.'] if args.reuse_run else [])])
+            *([f'Re-run of {Path(args.reuse_run).name}: its cohort extraction, patients and patient embeddings are '
+               'reused' + ('' if args.compare_all else ', and its comparison samples (without any dropped cohorts)')
+               + ', and so are its decision scores and teacher labels (and those it reused); only pairs and boilerplate '
+               'combinations it had no answer for were scored and labeled. Teacher labels are sampled (temperature '
+               '1.0), so reused and new labels are draws of the same labeler.'] if args.reuse_run else []),
+            *(['No boilerplate was labeled or scored anew (--no-new-boilerplate): the boilerplate tables cover the '
+               'combinations the earlier runs labeled, the pairs of every (c) list and of the earlier comparison '
+               'subset.'] if args.no_new_boilerplate else [])])
     proxy, released = None, False
     status_path = root / 'run_status.json'
     log(f'orchestrator started: {len(jobs)} jobs')

@@ -202,6 +202,8 @@ def corpus_identity(args):
                         comparison_cohort_queries=args.comparison_cohort_queries)
         if args.comparison_from:
             identity['comparison_from'] = stage.receipt_id(args.comparison_from)
+        if args.compare_all:
+            identity['compare_all'] = True
     else:
         identity.update(patient_queries=args.patient_queries, cohort_queries=args.cohort_queries)
     return identity
@@ -210,12 +212,16 @@ def corpus_identity(args):
 def corpus_options(args):
     """Resolve and check the query options (defaults 500 patient and 200 cohort queries)."""
     comparison = (args.comparison_patient_queries, args.comparison_cohort_queries)
+    if args.compare_all and (not args.all_queries or comparison != (None, None) or args.comparison_from):
+        raise SystemExit('--compare-all needs --all-queries and no other comparison option')
     if args.all_queries:
         if args.patient_queries is not None or args.cohort_queries is not None:
             raise SystemExit('--all-queries takes every patient and cohort; give no --patient-queries/--cohort-queries')
+        if args.compare_all:
+            return args
         if None in comparison or min(comparison) < 0:
             raise SystemExit('--all-queries needs --comparison-patient-queries and --comparison-cohort-queries (>= 0)')
-    elif comparison != (None, None) or args.comparison_from:
+    elif comparison != (None, None) or args.comparison_from or args.compare_all:
         raise SystemExit('--comparison-patient-queries/--comparison-cohort-queries/--comparison-from need --all-queries')
     else:
         args.patient_queries = 500 if args.patient_queries is None else args.patient_queries
@@ -245,10 +251,14 @@ def corpus(args):
                           cohort_queries=spaces, patient_pool=len(events), cohort_pool=len(spaces),
                           comparison_method=method + ' with name patient_queries / cohort_queries (the sample a '
                           'default corpus with the same seed and counts draws)',
-                          comparison_patient_queries=draw(events, args.comparison_patient_queries, args.seed,
-                                                          'patient_queries'),
-                          comparison_cohort_queries=draw(spaces, args.comparison_cohort_queries, args.seed,
-                                                         'cohort_queries'))
+                          comparison_patient_queries=(events if args.compare_all else
+                                                      draw(events, args.comparison_patient_queries, args.seed,
+                                                           'patient_queries')),
+                          comparison_cohort_queries=(spaces if args.compare_all else
+                                                     draw(spaces, args.comparison_cohort_queries, args.seed,
+                                                          'cohort_queries')))
+            if args.compare_all:
+                sample['comparison_method'] = 'every query (--compare-all): rankers (a) and (b) run for all of them'
             if args.comparison_from:  # an earlier corpus's comparison samples, without the IDs this one lacks
                 earlier = json.loads((Path(args.comparison_from) / 'sample.json').read_text())
                 kept = dict(comparison_patient_queries=set(events), comparison_cohort_queries=set(spaces))
@@ -304,6 +314,8 @@ def main(argv=None):
                    help='With --all-queries: seeded patient-centric queries that rankers (a) and (b) also run for')
     c.add_argument('--comparison-cohort-queries', type=int,
                    help='With --all-queries: seeded trial-centric queries that rankers (a) and (b) also run for')
+    c.add_argument('--compare-all', action='store_true', help='With --all-queries: rankers (a) and (b) run for every '
+                   'query too (no comparison subset)')
     c.add_argument('--comparison-from', help='With --all-queries: an earlier corpus directory whose comparison samples '
                    'are kept (without the IDs this corpus lacks) instead of drawn, so its labels stay comparable')
     for q in (a, b, c, d, f):

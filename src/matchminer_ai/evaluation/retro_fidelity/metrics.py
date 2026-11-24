@@ -20,7 +20,8 @@ reliability table. CIs are cluster bootstraps: pooled rows are clustered by pati
 query. Counts and metrics only: no clinical text or identifiers reach metrics.json or the report.
 
 Full-denominator corpus (prepare.py corpus --all-queries): the retrieval comparison (``retrieval``: (a), (b), (c) and
-their paired differences) covers the comparison queries only; ``full_pipeline`` adds (c)'s P@20 and mean score over
+their paired differences) covers the comparison queries only (every query with ``--compare-all``), with CIs from
+bootstrapping the same clusters as ``full_pipeline``; ``full_pipeline`` adds (c)'s P@20 and mean score over
 every query, with CIs from bootstrapping clusters of queries (patient-centric: the index events of one person;
 trial-centric: the cohorts of one trial); the decision-model tables cover every labeled pair of the merged union, as
 always. Without ``--criteria-labels`` and ``--decide-criteria`` (run.py --no-criteria) there are no per-criterion
@@ -36,7 +37,7 @@ import numpy as np
 from matchminer_ai.evaluation.retro_fidelity.common import (RANKERS, TOP, WORKFLOWS, full_denominator, log, private, queries, read_jsonl,  # noqa: E402
                     run_stage, stage, write_json)
 
-VERSION = 'retro-fidelity-metrics-v2'  # v2: a full section per workflow (user, 2026-11-18)
+VERSION = 'retro-fidelity-metrics-v3'  # v3: clustered comparison CIs in a full-denominator corpus
 LABELS = ('reasonableness', 'cancer_type', 'burden', 'treatment_history', 'biomarker')
 EPS = 1e-6
 
@@ -78,28 +79,38 @@ def bootstrap_mean(values, *, draws=2000, seed=42, alpha=0.05):
                 high=float(np.quantile(means, 1 - alpha / 2)), n=int(len(values)))
 
 
-def retrieval_metrics(lists, teacher, *, draws=2000, seed=42, top=TOP):
+def retrieval_metrics(lists, teacher, *, draws=2000, seed=42, top=TOP, cluster_of=None):
+    """P@``top`` and mean score per workflow and ranker, and the rankers' paired differences. CIs bootstrap queries,
+    or with ``cluster_of`` (a full-denominator corpus: ``cluster_of[workflow](query_id)``) clusters of queries, as
+    the full-pipeline table does."""
     rows = per_query(lists, teacher, top)
     table, differences = {}, {}
+
+    def mean(values, keys, workflow):
+        if cluster_of is None:
+            return bootstrap_mean(values, draws=draws, seed=seed)
+        return cluster_bootstrap_mean(values, [cluster_of[workflow](q) for q in keys], draws=draws, seed=seed)
+
     for workflow in WORKFLOWS:
         queries = sorted({q for w, _, q in rows if w == workflow})
         for ranker in RANKERS:
-            cells = [rows.get((workflow, ranker, q)) for q in queries]
-            cells = [c for c in cells if c is not None]
+            keys = [q for q in queries if (workflow, ranker, q) in rows]
+            cells = [rows[(workflow, ranker, q)] for q in keys]
             if not cells:
                 continue
             table[f'{workflow}/{ranker}'] = dict(
                 queries=len(cells), queries_with_fewer_than_top=sum(c['n'] < top for c in cells),
                 queries_without_labels=sum(c['labeled'] == 0 for c in cells),
                 unlabeled_pairs=sum(c['unlabeled'] for c in cells),
-                precision_at_top=bootstrap_mean([c['precision'] for c in cells], draws=draws, seed=seed),
-                mean_score=bootstrap_mean([c['mean_score'] for c in cells], draws=draws, seed=seed))
+                precision_at_top=mean([c['precision'] for c in cells], keys, workflow),
+                mean_score=mean([c['mean_score'] for c in cells], keys, workflow))
         for first, second in ((RANKERS[1], RANKERS[0]), (RANKERS[2], RANKERS[1]), (RANKERS[2], RANKERS[0])):
             both = [q for q in queries if (workflow, first, q) in rows and (workflow, second, q) in rows]
             for metric in ('precision', 'mean_score'):
                 deltas = [rows[(workflow, first, q)][metric] - rows[(workflow, second, q)][metric] for q in both]
-                differences[f'{workflow}/{metric}/{first}-minus-{second}'] = bootstrap_mean(deltas, draws=draws, seed=seed)
-    return dict(top=top, table=table, paired_differences=differences)
+                differences[f'{workflow}/{metric}/{first}-minus-{second}'] = mean(deltas, both, workflow)
+    return dict(top=top, table=table, paired_differences=differences,
+                clusters=None if cluster_of is None else dict(patient_centric='person', trial_centric='trial'))
 
 
 def cluster_bootstrap_mean(values, clusters, *, draws=2000, seed=42, alpha=0.05):
@@ -466,12 +477,13 @@ def main(argv=None):
         if full:  # the ranker comparison covers the queries (a) and (b) ran for
             compared = pd.concat([lists[(lists.workflow == w) & lists.query_id.isin(queries(sample, w, comparison=True))]
                                   for w in WORKFLOWS], ignore_index=True)
-        result = dict(retrieval=retrieval_metrics(compared, teacher, seed=args.seed))
+        clusters = None
         if full:
             trial_of = {row['id']: row['trial_id'] for row in read_jsonl(Path(args.corpus) / 'cohorts.jsonl')}
-            result['full_pipeline'] = pipeline_metrics(lists, teacher, dict(patient_centric=persons.__getitem__,
-                                                                            trial_centric=trial_of.__getitem__),
-                                                       seed=args.seed)
+            clusters = dict(patient_centric=persons.__getitem__, trial_centric=trial_of.__getitem__)
+        result = dict(retrieval=retrieval_metrics(compared, teacher, seed=args.seed, cluster_of=clusters))
+        if full:
+            result['full_pipeline'] = pipeline_metrics(lists, teacher, clusters, seed=args.seed)
         # --- decision model on the merged top 20
         union = lists[['workflow', 'query_id', 'patient_id', 'cohort_id']].drop_duplicates()
         decide = pd.read_parquet(Path(args.decide_match) / 'scores.parquet').set_index(['patient_id', 'cohort_id'])
