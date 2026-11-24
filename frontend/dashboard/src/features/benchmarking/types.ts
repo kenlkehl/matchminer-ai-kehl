@@ -147,6 +147,49 @@ export interface ExportResult {
   note: string | null;
 }
 
+/** A Table 1 cell: a count with its percentage, or a suppressed count's text ("<11" or "*"). */
+export interface Table1Cell {
+  n: number | null;
+  pct: number | null;
+  text: string | null;
+}
+
+export interface AgeSummary {
+  median: number | null;
+  q1: number | null;
+  q3: number | null;
+  known: number;
+}
+
+/** A linkage share: the percentage of treatment starts reached, or "all but <11". */
+export interface Share {
+  pct: number | null;
+  text: string | null;
+}
+
+/** A real fidelity run's Table 1 (small cells suppressed), from the cache Export results writes. */
+export type Table1 =
+  | { status: "unavailable"; note: string }
+  | { status: "not_built"; eval: { kind: string; label: string } }
+  | {
+      status: "ready";
+      eval: { kind: string; label: string };
+      built_at: string;
+      intro: string;
+      method: string;
+      rule: string;
+      linkage: Record<string, Share | null | number>;
+      table1: {
+        columns: { key: string; label: string; n: number }[];
+        age: Record<string, AgeSummary>;
+        sections: {
+          key: string;
+          label: string;
+          rows: { category: string; cells: Record<string, Table1Cell> }[];
+        }[];
+      };
+    };
+
 // --------------------------------------------------------------------------- LLM as judge
 
 export type UnitStatus = "agreed" | "disputed" | "single" | "awaiting" | "missing";

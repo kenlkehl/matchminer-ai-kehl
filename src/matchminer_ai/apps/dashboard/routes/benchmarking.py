@@ -36,6 +36,10 @@ def router(benchmarks: Benchmarks) -> APIRouter:
     def fidelity(run_id: str):
         return benchmarks.fidelity(run_id)
 
+    @api.get("/api/benchmarks/fidelity/{run_id}/table1")
+    def table1(run_id: str):
+        return benchmarks.table1(run_id)
+
     @api.post("/api/benchmarks/fidelity/{run_id}/report", status_code=202)
     def export(run_id: str):
         return {"job": benchmarks.export(run_id).describe(with_result=False)}

@@ -27,6 +27,8 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (CondPageBreak, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
                                 TableStyle)
 
+from matchminer_ai.evaluation.demographics import TABLE1_METHOD, table1_intro
+
 RANKERS = (("embeddinggemma2", "(a) EmbeddingGemma 2 (base)"),
            ("trialspace_round2", "(b) TrialSpace round 2"),
            ("trialspace_round2_decision", "(c) TrialSpace round 2 top K + decision reasonableness"))
@@ -535,9 +537,7 @@ def table1_section(demographics: dict, info: dict) -> list:
     out = [PageBreak(), p("Table 1: patients and treatment starts", H1)]
     t1 = demographics["table1"]
     columns = t1["columns"]
-    out.append(p(f"{escape(info['label'])}: the eval's patients and their treatment starts (index events). Patients: "
-                 "race, ethnicity and sex, with age and cancer type at the patient's first treatment start in this "
-                 "eval. Treatment starts: every index event, with its own age and cancer type.", BODY))
+    out.append(p(escape(table1_intro(info["label"])), BODY))
     head = [p("Characteristic", HEAD)] + [p(f"{escape(c['label'])}<br/>(N = {c['n']:,})", HEAD_RIGHT) for c in columns]
     data, sections = [head], []
     ages = []
@@ -553,12 +553,7 @@ def table1_section(demographics: dict, info: dict) -> list:
     out.append(table(data, [300, 150, 150], right=(1, 2), section_rows=sections))
     link = demographics.get("linkage") or {}
     out += [Spacer(1, 6),
-            p("Age is (index date - birth date) / 365.25, among treatment starts with a recorded birth date. The index "
-              "date is the start of the treatment plan that defines the event: the first research chemotherapy plan "
-              "on the trial for an enrollment, the standard chemotherapy plan for a SOC start. Cancer type groups the "
-              "ICD-10 diagnosis codes of the index plan by site (a primary cancer code first, then in situ, then an "
-              "unknown primary or secondary site). Race: the registration record's derived race (several races: "
-              "Multiple); ethnicity: its Hispanic indicator; sex: its gender, else the sex assigned at birth.", SMALL),
+            p(escape(TABLE1_METHOD), SMALL),
             p("Linkage to the registration records: "
               f"{linkage_text(link.get('registration'))} of treatment starts; recorded birth date "
               f"{linkage_text(link.get('birth_date'))}; index plan diagnosis code "

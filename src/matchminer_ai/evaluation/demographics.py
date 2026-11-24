@@ -540,6 +540,45 @@ def aggregates(run: Path, extract_root: Path, progress=None) -> dict:
     return dict(eval=kind, linkage=linkage, table1=table1_counts(frame), groups=groups)
 
 
+TABLE1_METHOD = (
+    'Age is (index date - birth date) / 365.25, among treatment starts with a recorded birth date. The index date is the '
+    'start of the treatment plan that defines the event: the first research chemotherapy plan on the trial for an '
+    'enrollment, the standard chemotherapy plan for a SOC start. Cancer type groups the ICD-10 diagnosis codes of the '
+    'index plan by site (a primary cancer code first, then in situ, then an unknown primary or secondary site). Race: '
+    'the registration record\'s derived race (several races: Multiple); ethnicity: its Hispanic indicator; sex: its '
+    'gender, else the sex assigned at birth.')
+
+
+def table1_intro(label: str) -> str:
+    return (f"{label}: the eval's patients and their treatment starts (index events). Patients: race, ethnicity and "
+            "sex, with age and cancer type at the patient's first treatment start in this eval. Treatment starts: every "
+            "index event, with its own age and cancer type.")
+
+
+def _view(raw: dict) -> dict:
+    link = raw['linkage']
+    return dict(identity=raw['identity'], built_at=raw['built_at'], eval=raw['eval'],
+                linkage=dict(events=link['events'], persons=link['persons'],
+                             **{k: share(v, link['events']) for k, v in link['missing'].items()}),
+                table1=table1(raw['table1']), groups=suppress_groups(raw['groups']),
+                labeled_pairs=raw['groups']['labeled_pairs'], rule=RULE)
+
+
+def cached_demographics(run, extract_root) -> dict | None:
+    """``run_demographics``' result from its cache when the cache is current, else None (nothing is computed)."""
+    run = Path(run)
+    path = run / 'reports' / CACHE
+    if not path.is_file() or not (run / 'metrics' / 'metrics.json').is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except ValueError:
+        return None
+    if raw.get('identity') != identity_of(run, Path(extract_root)):
+        return None
+    return _view(raw)
+
+
 def run_demographics(run, extract_root, progress=None, *, cache=True) -> dict:
     """A real run's Table 1 and metrics by group, suppressed for the report. The aggregates are cached in
     ``<run>/reports/`` (owner-only, beside the run's own PHI) and reused while its inputs are unchanged. Raises
@@ -564,12 +603,7 @@ def run_demographics(run, extract_root, progress=None, *, cache=True) -> dict:
         raw['seconds'] = round(time.time() - started, 1)
         if cache:
             write_private(path, json.dumps(raw, indent=1) + '\n')
-    link = raw['linkage']
-    return dict(identity=raw['identity'], built_at=raw['built_at'], eval=raw['eval'],
-                linkage=dict(events=link['events'], persons=link['persons'],
-                             **{k: share(v, link['events']) for k, v in link['missing'].items()}),
-                table1=table1(raw['table1']), groups=suppress_groups(raw['groups']),
-                labeled_pairs=raw['groups']['labeled_pairs'], rule=RULE)
+    return _view(raw)
 
 
 def write_private(path: Path, text: str | bytes) -> None:

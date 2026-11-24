@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { DownloadIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import {
 } from "./charts";
 import { BackToRuns, Section, StateBar } from "./common";
 import { count, duration, interval, num, signed, stamp, words } from "./format";
-import { fidelityOptions } from "./queries";
+import { fidelityOptions, table1Options } from "./queries";
 import type {
   ExportResult,
   FamilyMetrics,
@@ -39,7 +39,9 @@ import type {
   FidelityRun,
   MeanInterval,
   PipelineRow,
+  Share,
   StageReceipt,
+  Table1Cell,
   ValueInterval,
 } from "./types";
 
@@ -117,6 +119,7 @@ export function FidelityRunPage() {
               The results appear here when the metrics stage has run.
             </p>
           )}
+          {run.metrics ? <Table1Section runId={run.id} /> : null}
           <Notes run={run} />
         </>
       ) : null}
@@ -213,6 +216,120 @@ function ExportResults({ run }: { run: FidelityRun }) {
         )}
       </span>
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- Table 1
+
+function cellText(cell: Table1Cell | undefined): string {
+  if (!cell) return "–";
+  if (cell.text) return cell.text;
+  if (!cell.n) return "0";
+  return `${cell.n.toLocaleString()} (${(cell.pct ?? 0).toFixed(1)}%)`;
+}
+
+function shareText(value: Share | number | null | undefined): string {
+  if (value === null || value === undefined || typeof value === "number") return "–";
+  if (value.text) return value.text;
+  return value.pct === null ? "–" : `${value.pct.toFixed(1)}%`;
+}
+
+/**
+ * Table 1 of a real run: its patients and treatment starts, small cells suppressed as in the PDF. It comes from the
+ * cache Export results writes (linking the run's patients to the EHR extract takes minutes), so before the first
+ * export the section says to export.
+ */
+function Table1Section({ runId }: { runId: string }) {
+  const query = useQuery(table1Options(runId));
+  const data = query.data;
+  const title = "Table 1: patients and treatment starts";
+  if (query.isPending) return null;
+  if (query.isError)
+    return (
+      <Section title={title}>
+        <p className="text-sm text-red-700">{query.error.message}</p>
+      </Section>
+    );
+  if (!data) return null;
+  if (data.status === "unavailable")
+    return (
+      <Section title={title}>
+        <p className="text-sm text-gray-600">{data.note}</p>
+      </Section>
+    );
+  if (data.status === "not_built")
+    return (
+      <Section title={title}>
+        <p className="text-sm text-gray-600">
+          Table 1 is built with <span className="font-medium">Export results</span> (above): it
+          links the run&apos;s patients to the EHR extract, which takes a few minutes, and then
+          appears here.
+        </p>
+      </Section>
+    );
+  const { columns, age, sections } = data.table1;
+  const link = data.linkage;
+  return (
+    <Section title={title} description={data.intro}>
+      <Table variant="list" className="max-w-3xl">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Characteristic</TableHead>
+            {columns.map((c) => (
+              <TableHead key={c.key} className="text-right">
+                {c.label} (N = {c.n.toLocaleString()})
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell>Age at treatment start, years, median (IQR)</TableCell>
+            {columns.map((c) => {
+              const a = age[c.key];
+              return (
+                <TableCell key={c.key} className="text-right tabular-nums">
+                  {a?.median == null || a.q1 == null || a.q3 == null
+                    ? "–"
+                    : `${a.median.toFixed(0)} (${a.q1.toFixed(0)}–${a.q3.toFixed(0)})`}
+                </TableCell>
+              );
+            })}
+          </TableRow>
+          {sections.map((section) => (
+            <Fragment key={section.key}>
+              <TableRow className="bg-gray-50">
+                <TableCell colSpan={columns.length + 1} className="font-medium">
+                  {section.label}, n (%)
+                </TableCell>
+              </TableRow>
+              {section.rows.map((row) => (
+                <TableRow key={row.category}>
+                  <TableCell className="pl-6">{row.category}</TableCell>
+                  {columns.map((c) => (
+                    <TableCell key={c.key} className="text-right tabular-nums">
+                      {cellText(row.cells[c.key])}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </Fragment>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="flex max-w-3xl flex-col gap-1 text-xs text-gray-500">
+        <p>{data.method}</p>
+        <p>
+          Linkage to the registration records: {shareText(link.registration)} of treatment starts;
+          recorded birth date {shareText(link.birth_date)}; index plan diagnosis code{" "}
+          {shareText(link.plan_diagnosis)}.
+        </p>
+        <p>
+          <span className="font-medium">Small cells.</span> {data.rule}
+        </p>
+        <p>Built {stamp(data.built_at)} with the last export.</p>
+      </div>
+    </Section>
   );
 }
 

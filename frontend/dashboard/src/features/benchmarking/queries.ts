@@ -2,7 +2,14 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-import type { AdjudicationItem, AdjudicationState, FidelityRun, JudgeRun, RunList } from "./types";
+import type {
+  AdjudicationItem,
+  AdjudicationState,
+  FidelityRun,
+  JudgeRun,
+  RunList,
+  Table1,
+} from "./types";
 
 const enc = encodeURIComponent;
 
@@ -12,6 +19,13 @@ export const runsOptions = () =>
     queryKey: ["benchmarks"],
     queryFn: () => api.get<RunList>("/api/benchmarks"),
     refetchInterval: 30_000,
+  });
+
+/** A fidelity run's Table 1; under the run's key, so an export (which invalidates it) refreshes it too. */
+export const table1Options = (runId: string) =>
+  queryOptions({
+    queryKey: ["benchmarks", "fidelity", runId, "table1"],
+    queryFn: () => api.get<Table1>(`/api/benchmarks/fidelity/${enc(runId)}/table1`),
   });
 
 /** A fidelity run; polled while any of its stages is still to run. */

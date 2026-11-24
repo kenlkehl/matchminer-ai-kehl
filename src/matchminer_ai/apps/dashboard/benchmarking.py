@@ -231,6 +231,35 @@ class Benchmarks:
         except DemographicsError as exc:  # our own messages name files, never their contents
             return None, f"Table 1 is unavailable: {exc}"
 
+    def table1(self, run_id: str) -> dict:
+        """A fidelity run's Table 1 for its page, from the cache Export results writes (never computed here: linking
+        the run's patients takes minutes). ``status`` is ``ready`` (with the suppressed table), ``not_built`` or
+        ``unavailable`` (with why)."""
+        from matchminer_ai.evaluation.demographics import TABLE1_METHOD, cached_demographics, table1_intro
+
+        from .fidelity_report import eval_of
+
+        directory = self.run(run_id, "fidelity")
+        info = eval_of(directory)
+        if self.mode != "real" or info["kind"] == "synthetic":
+            return {"status": "unavailable", "note": SYNTHETIC_NOTE}
+        root = self.extract_root or load_site_config().get("paths.retro_source_root")
+        if not root:
+            return {"status": "unavailable",
+                    "note": "The site config names no EHR extract (paths.retro_source_root), so there is no Table 1."}
+        error = mode_side_error(self.mode, root)
+        if error:
+            return {"status": "unavailable", "note": error}
+        try:
+            found = cached_demographics(directory, Path(root).expanduser())
+        except (OSError, ValueError):  # a moved denominator or extract: Export results says why
+            found = None
+        if found is None:
+            return {"status": "not_built", "eval": info}
+        return {"status": "ready", "eval": info, "built_at": found["built_at"], "table1": found["table1"],
+                "linkage": found["linkage"], "rule": found["rule"], "intro": table1_intro(info["label"]),
+                "method": TABLE1_METHOD}
+
     def report_file(self, run_id: str) -> tuple[Path, str]:
         directory = self.run(run_id, "fidelity")
         path = directory / "reports" / REPORT
