@@ -177,11 +177,61 @@ def query_note(args):
 
 def criteria_note(args):
     if args.no_criteria:
-        return 'Per-criterion: not run (--no-criteria): no line sample, teacher labels or decision scores.'
-    return (f'Per-criterion sample: about {args.criteria_lines:,} lines in 6 strata (workflow x ranker; '
+        return 'Per-criterion: not run (--no-criteria): no criteria sample, teacher labels or decision scores.'
+    return (f'Per-criterion sample: about {args.criteria_lines:,} criteria in 6 strata (workflow x ranker; '
             'lists_ab/criteria_sample.json, lists_c/criteria_sample.json)'
             + ('; the (c) strata sample every query\'s list.' if args.all_queries else '.'))
 
+
+
+SPLIT_ORDER = ('train', 'validation', 'test')
+
+
+def patients_note(args) -> str:
+    """A real run's patients: the denominator's kind of index event and the splits its summarized events come from
+    (read from the summary batches' IDs and the denominator's split column; no patient data is written)."""
+    import pandas as pd
+    from matchminer_ai.evaluation.demographics import EVAL_KINDS
+    from matchminer_ai.training.cohort_format import read_clinical_csv
+    kind = EVAL_KINDS.get(Path(args.denominator).name, ('other', ''))[0]
+    what = {'soc': 'standard-of-care treatment start', 'enrollment': 'trial enrollment (the start of research '
+            'treatment on a trial)'}.get(kind, 'index event')
+    ids = set()
+    for path in sorted(Path(args.summaries).glob('*.parquet')):
+        ids.update(pd.read_parquet(path, columns=['patient_id']).patient_id.astype(str))
+    frame = read_clinical_csv(args.denominator, usecols=['pseudo_mrn', 'split'], dtype=str).drop_duplicates()
+    splits = sorted(set(frame[frame.pseudo_mrn.isin(ids)].split.dropna()),
+                    key=lambda s: (SPLIT_ORDER.index(s) if s in SPLIT_ORDER else len(SPLIT_ORDER), s))
+    if len(splits) == 1:
+        where = f'of the denominator\'s {splits[0]} split'
+    elif set(splits) >= set(SPLIT_ORDER):
+        where = 'from every split of the denominator (' + ', '.join(splits) + '; the distilled models were trained on ' \
+                'synthetic patients only)'
+    else:
+        where = 'from the denominator\'s ' + ' and '.join(splits) + ' splits'
+    return f'Patients: every summarized {what} {where}; {query_note(args)}'
+
+
+def trials_note(args) -> str:
+    """A real run's trials: the trial list and how their cohorts were extracted."""
+    import pandas as pd
+    from matchminer_ai.evaluation.demographics import EVAL_KINDS
+    kind = EVAL_KINDS.get(Path(args.denominator).name, ('other', ''))[0]
+    n = pd.read_csv(args.trials, usecols=['nct_id']).nct_id.nunique()
+    what = {'soc': f'the v22-style SOC trial sample ({n:,} NCT IDs, training trials excluded)',
+            'enrollment': f'the {n:,} trials the denominator\'s patients enrolled on (their ctgov listings)'}.get(
+                kind, f'{n:,} trials')
+    how = (f'the frozen code snapshot {Path(args.extraction_source).name}' if args.extraction_source
+           else "the training run's frozen programs")
+    return f'Trials: {what}; ctgov cohorts extracted with {how} (extraction/).'
+
+
+def teacher_note(args) -> str:
+    where = ('the on-prem teacher server and its FP8 build on a second server' if not args.no_proxy else
+             'the servers of servers/teacher_servers.json (the on-prem teacher server, and any replicas of the same '
+             'model a server pool adds to it)')
+    return (f'Teacher: {MODEL} on {where}, contracts match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; '
+            'Nemotron sampling (temperature 1.0, top_p 0.95), thinking on, JSON tasks schema-constrained.')
 
 def write_servers(args, root, proxy_ok):
     rows = [dict(url=args.teacher_url, model=MODEL, kind='teacher (on-prem)')]
@@ -316,17 +366,14 @@ def main(argv=None):
             'A demonstration of the evaluation on synthetic data; the real-patient evaluation is the meaningful one.'])
     else:
         write_json(root / 'design_notes.json', [
-            f'Patients: validation-split SOC index events with summaries; {query_note(args)}',
-            'Trials: the v22-style SOC trial sample (500 NCT IDs, training trials excluded), ctgov cohorts extracted with '
-            "the training run's frozen programs (extraction/).",
+            patients_note(args),
+            trials_note(args),
             f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
             f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
             'Key texts, trialspace prompt profile, 4,096-token cap, '
             + ('CPU float32 encoding.' if args.embed_device == 'cpu' else
                f'encoded on {args.embed_device} (bf16 autocast).'),
-            'Teacher: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 on the on-prem teacher server (and its FP8 '
-            'build on a second server), contracts match edbff870, boilerplate f0fc2d3c, per-criterion 7a7eb230; Nemotron '
-            'sampling (temperature 1.0, top_p 0.95), thinking on, JSON tasks schema-constrained.',
+            teacher_note(args),
             'Decision model: the n=5000 final fine-tune of LiquidAI/d1-2B (trialspace/models/decision_model).',
             criteria_note(args)])
     proxy, released = None, False
