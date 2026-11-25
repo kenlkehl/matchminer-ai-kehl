@@ -3796,8 +3796,8 @@ with Transformers and the checkpoint's own code (<code>trust_remote_code</code>)
 </tr>
 <tr>
 <td><code>dtype</code></td>
-<td><code>bfloat16</code></td>
-<td>Weight type</td>
+<td><code>auto</code></td>
+<td>Weight type: <code>auto</code> (bfloat16 where the device computes in it natively, CUDA from Ampere on and the CPU, else float16: <code>resolve_dtype</code>), <code>bfloat16</code>, <code>float16</code> or <code>float32</code></td>
 </tr>
 <tr>
 <td><code>max_length</code></td>

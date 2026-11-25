@@ -1146,6 +1146,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-lite-space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The lite Space
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#after-a-dataset-update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2149,6 +2160,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-lite-space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The lite Space
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#after-a-dataset-update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2221,7 +2243,8 @@ TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA'
 training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GPU under 90 GB (an L40S, say) the
 same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
 <a href="../dashboard/#openrouter">OpenRouter</a> with a visitor's own API key (<code>allow_openrouter</code>), at the visitor's own risk:
-while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.</p>
+while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
+<a href="#the-lite-space">The lite Space</a> runs the same image on a T4, with OpenRouter as its only LLM connection.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
 <p>The Space's files are <code>deploy/hf_space/space/</code> in this repository:</p>
 <table>
@@ -2250,7 +2273,11 @@ while the local server loads, or on hardware without a suitable GPU. It needs no
 </tr>
 <tr>
 <td><code>entrypoint.sh</code></td>
-<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there; it logs the GPU and torch's view of it, falls back to Bolt on a GPU under 90 GB, and starts <code>prefetch.py</code></td>
+<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there; it logs the GPU, sets the tier (<code>tier.py</code>) and, with a local server, starts <code>prefetch.py</code></td>
+</tr>
+<tr>
+<td><code>tier.py</code></td>
+<td>The tier by the GPU's memory: Super with vLLM from 90 GB, Bolt with llama.cpp from 40 GB, else no local model server (<a href="#the-lite-space">the lite Space</a>)</td>
 </tr>
 <tr>
 <td><code>prefetch.py</code></td>
@@ -2258,22 +2285,27 @@ while the local server loads, or on hardware without a suitable GPU. It needs no
 </tr>
 </tbody>
 </table>
-<p><code>MMAI_COMMIT</code>, the commit whose code the image installs, is not in the repository: <code>publish.py</code> writes it.
+<p><code>MMAI_COMMIT</code>, the commit whose code the image installs, is not in the repository: <code>publish.py</code> writes it. A Space
+may have its own card in <code>deploy/hf_space/cards/</code>, which <code>publish.py</code> uploads as its <code>README.md</code>.
 <code>deploy/hf_space/refresh.py</code> restarts the Space after a dataset update (below).</p>
 <h2 id="publishing">Publishing<a class="headerlink" href="#publishing" title="Permanent link">&para;</a></h2>
-<p><code>deploy/hf_space/publish.py</code> uploads <code>space/</code> and <code>MMAI_COMMIT</code> to the Space repository in one commit, which
-rebuilds the Space. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
+<p><code>deploy/hf_space/publish.py</code> uploads <code>space/</code> and <code>MMAI_COMMIT</code> to a Space repository in one commit, which
+rebuilds the Space. Its <code>SPACES</code> lists the Spaces with their hardware: <code>ksg-dfci/matchminer-ai-1226</code> (the default,
+an RTX PRO 6000) and <code>ksg-dfci/matchminer-ai-1226-lite</code> (a T4, with its own card); <code>--space</code> picks one. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
 the source, frontend and package layers. The commit must be on GitHub, since the image downloads its code there.</p>
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>deploy/hf_space/publish.py<span class="w">                    </span><span class="c1"># this checkout's HEAD (pushed, no uncommitted changes)</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--commit<span class="w"> </span>&lt;sha&gt;
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--create<span class="w">           </span><span class="c1"># once: create the public Space with its GPU and sleep time</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--factory-rebuild<span class="w">  </span><span class="c1"># also rebuild without the layer cache</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--dry-run<span class="w">          </span><span class="c1"># stage only</span>
+python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--space<span class="w"> </span>ksg-dfci/matchminer-ai-1226-lite<span class="w">   </span><span class="c1"># the lite Space (likewise --create)</span>
 </code></pre></div>
 <p><strong>Automatic rebuilds.</strong> The workflow <code>.github/workflows/hf-space.yml</code> runs <code>publish.py --commit $GITHUB_SHA</code> on every
 push to <code>main</code> that changes <code>src/</code>, <code>frontend/dashboard/</code>, <code>docs/</code> (the How this works tab serves its pages),
-<code>pyproject.toml</code> or <code>deploy/hf_space/</code>, and on demand (Actions, <strong>Run workflow</strong>, optionally a factory rebuild). It
-needs the repository secret <code>HF_TOKEN</code>: a Hugging Face token with write access to the Space.</p>
+<code>pyproject.toml</code> or <code>deploy/hf_space/</code>, and on demand (Actions, <strong>Run workflow</strong>, optionally a factory rebuild), once for
+each Space, as separate jobs: one Space's failure does not stop the other's. It needs the repository secret <code>HF_TOKEN</code>:
+a Hugging Face token with write access to every Space (a fine-grained token must list each). A token without access
+fails that Space's job with a message saying so; a Space not created yet is skipped with a warning.</p>
 <h2 id="data-and-models">Data and models<a class="headerlink" href="#data-and-models" title="Permanent link">&para;</a></h2>
 <p><code>site.yaml</code> names every input (see <a href="../../reference/site-config/#hugging-face-hub-files">site configuration</a>), all of
 the dataset at one revision: <code>${MMAI_DATASET_REVISION:-main}</code>, the Space variable <code>MMAI_DATASET_REVISION</code> when it is
@@ -2360,6 +2392,52 @@ model (by default <code>nvidia/nemotron-3.5-super-vl</code>, the same Nemotron 3
   - the Dockerfile gives it the layout FlashInfer's and nvcc's links expect: <code>lib64</code> (a link to the wheels' <code>lib</code>),
     unversioned names such as <code>libcudart.so</code> beside the versioned libraries, and the CUDA toolkit's driver stub as
     <code>lib/stubs/libcuda.so</code> (only linked against; the host driver's <code>libcuda.so.1</code> is loaded at run time).</p>
+<h2 id="the-lite-space">The lite Space<a class="headerlink" href="#the-lite-space" title="Permanent link">&para;</a></h2>
+<p><a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226-lite"><code>ksg-dfci/matchminer-ai-1226-lite</code></a> runs the same
+image and commit on one T4 (16 GB, <code>t4-small</code>), which sleeps after five hours too. It hosts no LLM:</p>
+<ul>
+<li><strong>Tier:</strong> <code>tier.py</code> finds under 40 GB of GPU memory (or none) and sets <code>MMAI_DASH_LOCAL_SERVER_ENABLED=false</code>; no
+  weights are prefetched and no server starts. With site.yaml's <code>only</code> and <code>allow_openrouter</code>, OpenRouter with each
+  visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
+  <code>nvidia/nemotron-3.5-super-vl</code>, with reasoning on). Data and models says why there is no local server and shows the
+  key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.</li>
+<li><strong>Decision model:</strong> the T4 (Turing, compute capability 7.5) has no native bfloat16, so <code>dtype: auto</code> loads
+  MatchEval-1226 in float16 there (<code>matching.decision_model.PRE_AMPERE_DTYPE</code>; <code>MMAI_DASH_DTYPE</code> or <code>--dtype</code> choose
+  another). Its own attention code takes the masked-SDPA path below compute capability 8.0 (its flash path needs
+  Ampere). Checked on 390 synthetic requests of the published corpus (1,798 answers: 300 match pairs of five questions,
+  60 boilerplate, 30 per-criterion sets), with the pre-Ampere path forced on an H100 (November 2026):</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Against bfloat16 with the flash kernels (production)</th>
+<th>max abs. difference in P(yes)</th>
+<th>answers on the other side of 0.5</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>float16, masked SDPA</td>
+<td>0.0054</td>
+<td>none</td>
+</tr>
+<tr>
+<td>float32, masked SDPA</td>
+<td>0.0054</td>
+<td>none</td>
+</tr>
+<tr>
+<td>bfloat16, masked SDPA</td>
+<td>0.0069</td>
+<td>1 (0.496 vs 0.500)</td>
+</tr>
+</tbody>
+</table>
+<p>float16 is the closest to float32 (max 0.0008), with no non-finite values (the largest layer output was 48), the
+  same memory as bfloat16 (4.8 GiB at the app's 16,384-token budget) and bfloat16's speed; float32 took 7.8 GiB and
+  four times as long. TrialSpace keeps its published settings (float32 weights, bfloat16 autocast, which torch
+  emulates on a T4).
+- <strong>Image:</strong> vLLM and llama.cpp are installed but unused. torch 2.14's CUDA 13 wheels carry SM 7.5 kernels.</p>
 <h2 id="after-a-dataset-update">After a dataset update<a class="headerlink" href="#after-a-dataset-update" title="Permanent link">&para;</a></h2>
 <p>A new dataset commit (new guideline catalogs, published vectors, a new extraction store) needs only a restart, no
 rebuild:</p>
@@ -2367,7 +2445,8 @@ rebuild:</p>
 python<span class="w"> </span>deploy/hf_space/refresh.py<span class="w"> </span>--wait<span class="w">      </span><span class="c1"># restart, and wait until it runs again</span>
 </code></pre></div>
 <p>It warns when <code>MMAI_DATASET_REVISION</code> pins another commit. The token is <code>HF_TOKEN</code> (or the huggingface_hub login), as
-for <code>publish.py</code>. A restart repeats the startup below.</p>
+for <code>publish.py</code>. A restart repeats the startup below. Add <code>--space ksg-dfci/matchminer-ai-1226-lite</code> for the lite
+Space.</p>
 <h2 id="startup">Startup<a class="headerlink" href="#startup" title="Permanent link">&para;</a></h2>
 <p>A Space has no persistent disk unless a storage bucket is mounted, so every start after sleep repeats the work:</p>
 <ol>
