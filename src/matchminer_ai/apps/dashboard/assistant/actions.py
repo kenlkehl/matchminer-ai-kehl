@@ -199,7 +199,7 @@ TOOLS: dict[str, dict] = {
         },
     },
     "guideline_spaces": {
-        "description": "The guideline catalog's spaces (NCCN-derived treatment and workup menus) nearest a patient "
+        "description": "The guideline catalog's spaces (guideline treatment and workup menus) nearest a patient "
                        "description.",
         "properties": {
             "description": _string("A patient cancer-history summary in the corpus style."),

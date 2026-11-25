@@ -55,7 +55,7 @@ Do not ask when the answer would not change the result, when the user or the con
 - `score_pairs`: scores for up to 20 patient-cohort pairs (10 when the scores come from an LLM): the match question and the common-criteria question.
 
 Scores (rerank and `score_pairs`) come from what the user chose under "Scores from" in the app: the decision model (a match score from 0 to 1 and P(reasonable consideration)) or an LLM (a 0-6 match score from five yes/no questions, its reasonableness answer, and whether a common exclusion clearly applies). Each result's note says which; always name the source and its scale when you report scores, and never compare scores from the two.
-- `guideline_spaces`: the guideline catalog's spaces (NCCN-derived treatment and workup menus) nearest a patient description.
+- `guideline_spaces`: the guideline catalog's spaces (guideline-derived treatment and workup menus) nearest a patient description.
 
 # Strategies
 

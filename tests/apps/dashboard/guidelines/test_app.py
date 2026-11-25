@@ -34,8 +34,8 @@ def test_category_display_clarifies_absence_without_rewriting_evidence():
         ],
     }])
     displayed = display_considerations(original).iloc[0]
-    assert displayed.diagnostic_workup[0]["category"] == "NCCN recommendation category not specified"
-    assert displayed.treatment_options[0]["category"] == "NCCN recommendation category not specified"
+    assert displayed.diagnostic_workup[0]["category"] == "Recommendation category not specified"
+    assert displayed.treatment_options[0]["category"] == "Recommendation category not specified"
     assert displayed.treatment_options[1]["category"] == "Category 1"
     assert displayed.treatment_options[0]["evidence"] == original.iloc[0].treatment_options[0]["evidence"]
     assert original.iloc[0].diagnostic_workup[0]["category"] == "Not specified in supplied evidence"

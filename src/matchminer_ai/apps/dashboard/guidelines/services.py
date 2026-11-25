@@ -156,7 +156,7 @@ def display_considerations(frame):
                     "not specified in supplied evidence",
                     "not specified in the supplied evidence",
                 }:
-                    option["category"] = "NCCN recommendation category not specified"
+                    option["category"] = "Recommendation category not specified"
     return pd.DataFrame(rows, columns=frame.columns)
 
 
