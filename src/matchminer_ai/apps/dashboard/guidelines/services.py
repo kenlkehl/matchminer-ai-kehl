@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 import pandas as pd
 
 from matchminer_ai.patients.workup import is_history_and_physical
-from matchminer_ai.trials.guideline_catalog import latest_guideline_catalogs
+from matchminer_ai.trials.guideline_catalog import latest_guideline_catalogs, source_label
 
 from ..core.errors import InputError  # noqa: F401  (raised here; imported from here by the routes)
 
@@ -141,12 +141,15 @@ def parse_upload(name, content):
 
 
 def display_considerations(frame):
-    """Clarify absent recommendation categories in the UI/report, preserving source data.
+    """Clarify absent recommendation categories in the UI/report, preserving source data, and name each space's
+    source as the views show it (``source.label``: ``guideline_catalog.source_label``).
 
     History-and-physical workup items are left out (``is_history_and_physical``).
     """
     rows = copy.deepcopy(frame.to_dict("records"))
     for row in rows:
+        if isinstance(row.get("source"), dict):  # what the views show as the source ("Derived from PDQ®: ...")
+            row["source"]["label"] = source_label(row["source"])
         row["diagnostic_workup"] = [item for item in row["diagnostic_workup"]
                                     if not is_history_and_physical(item)]
         for menu in ("diagnostic_workup", "treatment_options"):

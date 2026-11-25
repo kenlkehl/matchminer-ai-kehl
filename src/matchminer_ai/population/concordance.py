@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from matchminer_ai.trials.guideline_catalog import source_label
+
 from .anchors import GROUP_FIELDS
 from .prepare import (
     VERSION, check_output_location, completed_receipt, gateway_log, gateway_usage, load_prepared_population,
@@ -148,7 +150,7 @@ def match_guideline_spaces(summaries, catalogs, *, config, candidate_k=20, min_r
         excluded = reasonable < min_reasonableness
         rows.append({
             "patient_id": str(record["patient_id"]), "space_trial_id": record["space_trial_id"],
-            "space_name": record.get("name"), "disease": source.get("disease"), "guideline": source.get("title"),
+            "space_name": record.get("name"), "disease": source.get("disease"), "guideline": source_label(source),
             "catalog_version": source.get("version"), "retrieval_rank": record.get("retrieval_rank"),
             "similarity_score": record.get("similarity_score"),
             "match_quality_score": record.get("match_quality_score"),

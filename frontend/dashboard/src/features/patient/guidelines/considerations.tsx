@@ -120,7 +120,7 @@ export function PopulationTab({ space }: { space: GuidelineSpace }) {
 
 export function SourceTab({ space }: { space: GuidelineSpace }) {
   const facts: [string, string][] = [
-    ["Guideline", space.source.title],
+    ["Source", space.source.label || space.source.title],
     ["Edition", space.source.version],
     ["Space ID", space.space_trial_id],
     space.llm_match !== undefined

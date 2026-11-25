@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from matchminer_ai._storage import atomic_text
+from matchminer_ai.trials.guideline_catalog import source_label
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -159,7 +160,7 @@ def write_guideline_considerations_report(
                 "",
                 f"Space ID: `{row['space_trial_id']}`",
                 "",
-                f"Source: {_text(source['title'])}, {_text(source['version'])}.",
+                f"Source: {_text(source_label(source))}, {_text(source['version'])}.",
                 "",
                 "**Catalog population key criteria**",
                 "",

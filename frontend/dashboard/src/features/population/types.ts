@@ -29,6 +29,8 @@ export interface CatalogInfo {
   id: string;
   disease: string;
   title: string;
+  /** What the views show: the title, or "Derived from PDQ®: <title>" for a PDQ-derived catalog. */
+  label: string;
   version: string;
   spaces: number;
   updated: string;

@@ -22,6 +22,26 @@ def test_only_completed_catalogs_are_exposed(tmp_path):
     assert [r["disease"] for r in Catalogs(tmp_path).list()] == ["ready"]
 
 
+def test_pdq_derived_catalogs_are_labeled_by_their_recorded_source(tmp_path):
+    """NCI's reuse terms: a catalog built from PDQ summaries (source_kind nci_pdq) is shown as "Derived from PDQ®",
+    never as the summary itself; any other catalog keeps its title."""
+    import json
+
+    import pandas as pd
+
+    pdq = catalog(tmp_path, "pdq-cervical")
+    (pdq / "sources.json").write_text(json.dumps({"disease": "pdq-cervical", "title": "Cervical (PDQ®)",
+                                                  "version": "snapshot-1", "source_kind": "nci_pdq"}))
+    catalog(tmp_path, "nccn-cervical")
+    labels = {r["disease"]: r["label"] for r in Catalogs(tmp_path).list()}
+    assert labels == {"pdq-cervical": "Derived from PDQ®: Cervical (PDQ®)", "nccn-cervical": "Nccn-Cervical"}
+    spaces = pd.DataFrame([{"source": {"title": "Cervical (PDQ®)", "source_kind": "nci_pdq"},
+                            "diagnostic_workup": [], "treatment_options": []},
+                           {"source": {"title": "NCCN Cervical"}, "diagnostic_workup": [], "treatment_options": []}])
+    shown = display_considerations(spaces)
+    assert [s["label"] for s in shown.source] == ["Derived from PDQ®: Cervical (PDQ®)", "NCCN Cervical"]
+
+
 def test_category_display_clarifies_absence_without_rewriting_evidence():
     import pandas as pd
 

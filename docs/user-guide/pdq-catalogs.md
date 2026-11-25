@@ -265,5 +265,7 @@ the recorded errors before retrying a failed run.
 recommendation categories. [NCI's reuse policy](https://www.cancer.gov/policies/copyright-reuse) permits reuse of
 much of its text with attribution, with page-specific exceptions for third-party material; tables and reproduced
 material can carry such notices. Do not present a derived catalog as an unchanged official PDQ product or as
-endorsed by NCI. Source snapshots and generated catalogs are not bundled with this package; review the relevant
+endorsed by NCI. The dashboard, the considerations report and the concordance results therefore name a catalog whose
+source is NCI PDQ (`source_kind` `nci_pdq`) "Derived from PDQ®: <summary title>"
+(`trials.guideline_catalog.source_label`); other catalogs keep their titles. Source snapshots and generated catalogs are not bundled with this package; review the relevant
 notices before redistributing them.

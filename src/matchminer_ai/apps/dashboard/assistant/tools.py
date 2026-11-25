@@ -740,6 +740,9 @@ class Toolbox:
         for space in found.get("spaces") or []:
             entry = {k: short(space.get(k), 300) for k in ("catalog_title", "disease", "space", "space_name",
                                                            "clinical_space_summary") if space.get(k)}
+            source = space.get("source")
+            if isinstance(source, dict) and source.get("label"):  # e.g. "Derived from PDQ®: ..."
+                entry["source"] = short(source["label"], 300)
             for key in ("match_quality_score", "similarity"):
                 if isinstance(space.get(key), (int, float)):
                     entry[key] = round(float(space[key]), 3)

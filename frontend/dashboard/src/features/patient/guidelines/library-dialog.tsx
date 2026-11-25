@@ -92,7 +92,7 @@ export function LibraryDialog({
               {rows.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-medium text-gray-900">{r.title}</h3>
+                    <h3 className="text-sm font-medium text-gray-900">{r.label || r.title}</h3>
                     <p className="text-xs text-gray-600">
                       {r.version} · {r.spaces} spaces · Stored audit passed
                     </p>

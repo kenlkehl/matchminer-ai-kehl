@@ -85,7 +85,7 @@ function SearchScope() {
                   <option value="">All completed guidelines ({catalogs.length})</option>
                   {catalogs.map((row) => (
                     <option key={row.id} value={row.id}>
-                      {row.title} · {row.spaces} spaces
+                      {row.label || row.title} · {row.spaces} spaces
                     </option>
                   ))}
                 </>

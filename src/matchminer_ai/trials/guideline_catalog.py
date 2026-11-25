@@ -39,6 +39,20 @@ _CATALOG_CACHE_MAX_BYTES = 512 * 1024 * 1024
 # has them, else derived from its nine-field space (format_key_criteria).
 KEY_CRITERIA_COLUMN = "cohort_key_criteria"
 STORED_KEY_CRITERIA_FIELD = "key_criteria"
+# A catalog built from NCI PDQ summaries records this source kind (in sources.json and each record's source).
+PDQ_SOURCE_KIND = "nci_pdq"
+DERIVED_FROM_PDQ = "Derived from PDQ®"
+
+
+def source_label(source) -> str:
+    """How to name a catalog's source wherever it is shown: a catalog built from NCI PDQ summaries (its recorded
+    ``source_kind``) is "Derived from PDQ®: <title>", since NCI's reuse terms do not let derived content be
+    identified as a PDQ summary; any other catalog keeps its title."""
+    source = source if isinstance(source, dict) else {}
+    title = str(source.get("title") or "").strip()
+    if source.get("source_kind") == PDQ_SOURCE_KIND:
+        return f"{DERIVED_FROM_PDQ}: {title}" if title else DERIVED_FROM_PDQ
+    return title
 
 
 def _key_criteria(row):
@@ -463,7 +477,8 @@ def latest_guideline_catalogs(root: str | Path) -> list[dict]:
     ``paradigms.jsonl``; of several runs of one disease (``sources.json``'s
     ``disease``), the one updated last (``status.json``'s ``updated_utc``) is kept.
     Unreadable or in-progress folders are skipped. Each row has ``disease``,
-    ``title``, ``version``, ``spaces``, ``updated`` and ``path``; pass the paths to
+    ``title``, ``label`` (``source_label``), ``source_kind``, ``version``, ``spaces``,
+    ``updated`` and ``path``; pass the paths to
     :func:`load_guideline_catalog`, which verifies the export hashes.
     """
     root = Path(root)
@@ -481,6 +496,8 @@ def latest_guideline_catalogs(root: str | Path) -> list[dict]:
             row = dict(
                 disease=source["disease"],
                 title=source["title"],
+                label=source_label(source),
+                source_kind=source.get("source_kind"),
                 version=source["version"],
                 spaces=audit["paradigms"],
                 updated=status.get("updated_utc", ""),

@@ -63,7 +63,7 @@ export function SpaceCard({ space, index }: { space: GuidelineSpace; index: numb
           <span className="flex min-w-0 flex-col gap-1">
             <span className="text-base leading-snug font-semibold text-gray-900">{space.name}</span>
             <span className="text-xs font-normal text-gray-600">
-              {space.source.title} · {space.source.version}
+              {space.source.label || space.source.title} · {space.source.version}
             </span>
             <span className="flex flex-wrap items-center gap-2 text-xs font-normal">
               {space.llm_match !== undefined ? (

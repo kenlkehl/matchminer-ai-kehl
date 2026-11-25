@@ -227,7 +227,7 @@ export function buildExportReport(
     const lines = [
       `### ${markdownText(space.rank)}. ${markdownText(space.name)}`,
       "",
-      `**Guideline:** ${markdownText(space.source.title)} · ${markdownText(space.source.version)}`,
+      `**Source:** ${markdownText(space.source.label || space.source.title)} · ${markdownText(space.source.version)}`,
       "",
       `**Space ID:** ${markdownText(space.space_trial_id)}`,
       "",

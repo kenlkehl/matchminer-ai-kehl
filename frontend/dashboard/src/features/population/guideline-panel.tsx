@@ -117,7 +117,7 @@ export function GuidelinePanel({ pop }: { pop: PopulationController }) {
               </option>
               {listed.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} · {c.version} · {c.spaces} spaces
+                  {c.label || c.title} · {c.version} · {c.spaces} spaces
                 </option>
               ))}
             </select>

@@ -34,6 +34,8 @@ export interface Catalog {
   id: string;
   disease: string;
   title: string;
+  /** What the views show as its source: the title, or "Derived from PDQ®: <title>" for a PDQ-derived catalog. */
+  label: string;
   version: string;
   spaces: number;
   updated: string;
@@ -69,7 +71,8 @@ export interface Consideration {
 export interface GuidelineSpace {
   rank: number;
   name: string;
-  source: { title: string; version: string };
+  /** `label` is what the views show: the title, or "Derived from PDQ®: <title>" for a PDQ-derived catalog. */
+  source: { title: string; version: string; label?: string };
   space_trial_id: string;
   /** The decision model's ranking (absent when the LLM ranked the search: `llm_match`). */
   match_quality_score?: number;
