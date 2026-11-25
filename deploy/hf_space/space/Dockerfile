@@ -55,9 +55,10 @@ WORKDIR /src/frontend/dashboard
 RUN pnpm install --frozen-lockfile && pnpm build && rm -rf node_modules
 
 # ---------------------------------------------------------------------------------------------- the runtime
-# The runtime: the CUDA 12.8 runtime image (llama-server's libraries); torch and vLLM bring their own CUDA 13
-# libraries and nvcc (pip), which the local model server finds for vLLM's kernel builds. A C/C++ compiler is needed
-# at run time too: Triton, torch.compile and FlashInfer compile kernels when vLLM starts.
+# The runtime: the CUDA 12.8 runtime image (llama-server's libraries); torch and vLLM bring
+# their own CUDA 13 libraries and nvcc (pip, pinned to torch's 13.0 in constraints.txt), which the local model server
+# finds for vLLM's kernel builds. A C/C++ compiler is needed at run time too: Triton, torch.compile and any kernel
+# FlashInfer's precompiled ones lack are compiled when vLLM starts.
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-${UBUNTU}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl libgomp1 \
@@ -75,6 +76,13 @@ WORKDIR /home/user
 RUN uv venv --python 3.13 /home/user/venv
 COPY --chown=user constraints.txt /home/user/space/constraints.txt
 RUN uv pip install --python /home/user/venv/bin/python -r /home/user/space/constraints.txt
+# FlashInfer's precompiled kernels for flashinfer-python 0.7.2.post1 and CUDA 13.0, so vLLM loads them instead of
+# compiling FlashInfer's kernels when it starts: the cubins, and the AOT modules for SM 12.0 (the RTX PRO 6000), the
+# jit-cache shim with that one provider (FlashInfer's own "minimal" install). Other GPUs run llama.cpp (entrypoint.sh).
+RUN uv pip install --python /home/user/venv/bin/python --no-deps --index-url https://flashinfer.ai/whl/cu130 \
+        "flashinfer-jit-cache==0.7.2.post1+cu130" "flashinfer-jit-cache-sm120f==0.7.2.post1+cu130" \
+    && uv pip install --python /home/user/venv/bin/python --no-deps --index-url https://flashinfer.ai/whl \
+        "flashinfer-cubin==0.7.2.post1"
 COPY --from=llama --chown=user /llama.cpp/build/bin/llama-server /home/user/bin/llama-server
 # The package at MMAI_COMMIT, with its built frontend.
 COPY --from=frontend --chown=user /src /home/user/matchminer-ai-kehl
