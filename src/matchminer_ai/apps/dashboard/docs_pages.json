@@ -13,6 +13,7 @@
     {"id": "cohort-extraction", "title": "Cohort extraction", "source": "api/trials.md"},
     {"id": "structured-extraction", "title": "Structured extraction", "source": "api/extraction.md"},
     {"id": "extraction-data-model", "title": "Structured extraction: data model", "source": null},
-    {"id": "structured-criteria", "title": "Criteria screening on structured records", "source": "api/structured-criteria.md"}
+    {"id": "structured-criteria", "title": "Criteria screening on structured records", "source": "api/structured-criteria.md"},
+    {"id": "local-server", "title": "Local model server", "source": "api/local-server.md"}
   ]
 }

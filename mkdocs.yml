@@ -59,6 +59,7 @@ nav:
       - Criteria Check: api/criteria-check.md
       - Good Option Research and Scoring: api/good-options.md
       - LLM Server Helper: api/llm.md
+      - Local Model Server: api/local-server.md
 
 plugins:
   - search

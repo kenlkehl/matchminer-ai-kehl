@@ -9,7 +9,8 @@ patient-cohort pair. The section-by-section configuration keys are in [Configura
 LLM sections with `sampling_profile: auto` recognize the model by name and apply its publisher's sampling settings.
 Explicit sampling parameters in a request or section still override them, and `apply_model_profile` replaces a
 previous model's sampling settings rather than merging them. A served alias the package cannot recognize can name a
-profile explicitly: `gemma4`, `qwen3.5`, `qwen3.8`, `nemotron-3.5-super-vl` or `reflection-beam`.
+profile explicitly: `gemma4`, `qwen3.5`, `qwen3.8`, `nemotron-3.5-super-vl`, `nemotron-3.5-bolt` or
+`reflection-beam`.
 
 - **Sections without a profile** fix their own sampling, such as greedy extraction, and get no vendor settings.
   Nemotron is the exception: its profile replaces that fixed sampling, so every workflow it serves sends NVIDIA's
@@ -42,6 +43,17 @@ GoodOption checks), locally and remotely. Gemma 4 and the other profiles remain 
   `enable_thinking=true, medium_effort=true`. Reasoning and the answer share the output-token budget, so sections
   with long tasks leave room for 10-15k reasoning tokens: the LLM match and exclusion checks reserve the training
   teacher's 32,768 tokens.
+
+### NVIDIA Nemotron 3.5 Bolt
+
+Names containing `nemotron-3.5-bolt` (`nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB` and its GGUF, the
+[local model server](../apps/dashboard.md#local-model-server)'s default) get the
+[model card's](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB) sampling, temperature 1.0 and
+top-p 0.95 (checked 2026-11-24), with the same neutral top-k, min-p and penalties as Super. As for Super, the profile
+replaces a section's own fixed sampling. Thinking is `chat_template_kwargs.enable_thinking` (medium effort:
+`medium_effort=true`). vLLM's reasoning parser is the checkpoint's `ultra_v3` (registered by
+`ultra_v3_reasoning_parser.py` in the repository, a `deepseek_r1` parser that takes the whole output as the answer
+when thinking is off); local raw completions are split the same way. The tool parser is `qwen3_coder`.
 
 ### Gemma 4
 

@@ -70,6 +70,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `synthetic.population_split` | none (every patient) | The split the synthetic sample is drawn from, when the summaries have a `split` column; a sample with **Include training patients** draws from every split |
 | `synthetic.population_key` | `pseudo_mrn` | The synthetic tables' patient key; `patient_id` when it is the patient's own ID (the patient corpus's), not a generation-prompt ID |
 | `real.benchmark_roots`, `synthetic.benchmark_roots` | none | Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under `phi` |
+| `real.local_server`, `synthetic.local_server` | off | The [local model server](../apps/dashboard.md#local-model-server): `enabled`, `autostart` (a server spec, or a JSON or YAML file), `default` and `llama_server` (the binary), as `--local-server`, `--local-server-autostart`, `--local-server-default` and `--llama-server` |
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
 | `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
 | `grouping` | the bundled example rules | Trial-group rules per center |
