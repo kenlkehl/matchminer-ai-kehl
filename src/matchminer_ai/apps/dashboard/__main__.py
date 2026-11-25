@@ -77,7 +77,10 @@ def main(argv=None):
 
     atexit.register(state.local_server.shutdown)
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
-    if settings.local_server_only:
+    if settings.openrouter_only:
+        print("LLM tasks use only OpenRouter with each visitor's own API key (no local model server here); set it on "
+              "Data and models.", flush=True)
+    elif settings.local_server_only:
         print("LLM tasks use only this app's local model server (--local-server-only); start it on Data and models.",
               flush=True)
     if settings.local_server_autostart:

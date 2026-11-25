@@ -39,6 +39,8 @@ interface Status {
     why: string;
     device: string;
     loaded: boolean;
+    /** The last failed load ("Type: message"), null when none failed. */
+    load_error?: string | null;
     questions_sha256: string;
   };
   jobs: {
@@ -259,7 +261,11 @@ export function StatusPage() {
           </Row>
           <Row label="Decision model">
             {s.decision_model.model} on {s.decision_model.device} (
-            {s.decision_model.loaded ? "loaded" : "loading"}) — {s.decision_model.why}
+            {s.decision_model.loaded ? "loaded" : s.decision_model.load_error ? "failed to load" : "loading"}) —{" "}
+            {s.decision_model.why}
+            {!s.decision_model.loaded && s.decision_model.load_error ? (
+              <p className="text-red-700">{s.decision_model.load_error}</p>
+            ) : null}
           </Row>
           <Row label="Cached answers">{s.score_cache.toLocaleString()}</Row>
         </dl>

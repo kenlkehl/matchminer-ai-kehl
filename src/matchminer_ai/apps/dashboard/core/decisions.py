@@ -58,6 +58,7 @@ class DecisionService:
         self.lock = threading.Lock()
         self.loaded_at: float | None = None
         self.load_seconds: float | None = None
+        self.load_error: str | None = None  # the last failed load, shown on Data and models
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         (Path(cache_dir) / "effective_decision_model.json").write_text(
             json.dumps(self.config.raw["decision_model"], indent=2) + "\n")
@@ -118,7 +119,7 @@ class DecisionService:
                 "untrained_families": self.untrained_families(), "warnings": self.warnings(),
                 "device": self.device, "dtype": self.settings.dtype, "effective_dtype": self.effective_dtype(),
                 "threads": self.settings.threads,
-                "loaded": self.loaded_at is not None, "load_seconds": self.load_seconds,
+                "loaded": self.loaded_at is not None, "load_seconds": self.load_seconds, "load_error": self.load_error,
                 # match_quality: P(reasonable) for a pass (inference reasonableness_cutoff, since 2026-11-17).
                 "cutoffs": {"match_quality": self.config.raw.get("match_quality", {}).get("reasonableness_cutoff", 0.5),
                             "exclusion_criteria": self.config.raw.get("exclusion_criteria", {}).get("pass_cutoff"),
@@ -135,7 +136,12 @@ class DecisionService:
         from matchminer_ai.matching.decision_model import decision_settings, load_decision_model
 
         started = time.monotonic()
-        model = load_decision_model(decision_settings(self.config))
+        try:
+            model = load_decision_model(decision_settings(self.config))
+        except Exception as exc:
+            self.load_error = f"{type(exc).__name__}: {exc}"
+            raise
+        self.load_error = None
         self.device = str(model.get_input_embeddings().weight.device)
         self.load_seconds = round(time.monotonic() - started, 1)
         self.loaded_at = time.time()
