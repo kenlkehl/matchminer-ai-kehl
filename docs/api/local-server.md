@@ -2,8 +2,7 @@
 
 `matchminer_ai.llm.local_server` starts one OpenAI-compatible model server on this machine, with vLLM or llama.cpp's
 `llama-server`, and `matchminer_ai.llm.gpus` describes the machine's GPUs. The dashboard's Data and models tab uses
-them with `--local-server` ([Dashboard: local model server](../apps/dashboard.md#local-model-server)); they also
-work on their own.
+them ([Dashboard: local model server](../apps/dashboard.md#local-model-server)); they also work on their own.
 
 ```python
 from matchminer_ai.llm import gpus, local_server as ls

@@ -96,7 +96,7 @@ TrialSpace model and says so on Data and models if they differ.
   Three connectors: an OpenAI-compatible server
   (**Detect served model** reads its `/v1/models`), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8
   Flash or Gemma 4 26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's
-  Claude endpoints). With `--local-server` the tab also has the [local model server](#local-model-server).
+  Claude endpoints). The tab also has the [local model server](#local-model-server).
 
 ## Trial management
 
@@ -394,13 +394,14 @@ session; nothing patient-derived is logged or written to disk.
 
 ## Local model server
 
-For a machine that cannot reach a hosted endpoint, such as a Hugging Face Space with a GPU, the app can run its own
-model server. Start the app with `--local-server`, and Data and models gains a **Local model server** section above
-Models. It starts one vLLM or llama.cpp (`llama-server`) server on the app's own machine. Both engines serve the same
-OpenAI-compatible API on loopback (`127.0.0.1`, a free port), so every LLM task can use it.
+Every dashboard, in both modes, can run its own model server: Data and models has a **Local model server** section
+above Models. It starts one vLLM or llama.cpp (`llama-server`) server on the app's own machine. Both engines serve the
+same OpenAI-compatible API on loopback (`127.0.0.1`, a free port), so every LLM task can use it. A machine that cannot
+reach a hosted endpoint, such as a Hugging Face Space with a GPU, runs the app with `--local-server-only` (below).
 
-- **Who:** anyone using the app may start, stop and configure the server. That is why the feature exists only when
-  the app is started with `--local-server`.
+- **Who:** anyone using the app may start, stop and configure the server, on any GPU it finds (user, 2026-11-24).
+- **Nothing installed:** without a GPU the section says so (llama.cpp can still run a small model on the CPU); without
+  vLLM or llama-server it says which is missing and why, and Start stays off.
 - **GPUs:** the GPUs are found automatically (NVML, else `nvidia-smi`, else PyTorch) and refreshed every 5 seconds.
   Each shows its compute capability and a memory bar split into this dashboard, the local server and other
   processes. In a container the driver may list no processes, so all used memory shows as other.
@@ -447,21 +448,38 @@ cards (verified 2026-11-24), text only:
 On an L40S (48 GB) the GGUF, the decision model (about 5 GB) and TrialSpace (about 1 GB) fit on one GPU with llama.cpp.
 `Qwen/Qwen3-0.6B` is also known, as a small model for checking a setup.
 
-**Flags** (also `MMAI_DASH_LOCAL_SERVER`, `MMAI_DASH_LOCAL_SERVER_AUTOSTART`, `MMAI_DASH_LOCAL_SERVER_DEFAULT` and
-`MMAI_DASH_LLAMA_SERVER`, or the site config's `dashboard.<mode>.local_server` with `enabled`, `autostart`, `default`
+**Only the local server.** With `--local-server-only` every LLM task uses the app's own local server, and the
+server refuses every other model connection, wherever one is chosen or used:
+
+- **Refused:** the Databricks gateway, Vertex, Azure and any OpenAI-compatible URL, including other loopback
+  addresses. A session's or a task's connection, **Use for every task**, the connection check, the Assistant, the
+  **Scores from: LLM** checks, criteria classification and trial management's labeling all accept only the ready
+  local server (matched by endpoint and served name), and a refused one gets a 400 that says why.
+- **Defaults:** the ready server is every task's default (`--local-server-default` is implied). Before it is ready
+  there is no default connection: LLM tasks fail with a message pointing to Data and models, and nothing falls back
+  to a hosted endpoint the site config names. A connection saved for a server since stopped or restarted is dropped.
+- **Site config:** no gateway, Vertex or Azure settings are needed (the `--llm-*` options and the site's hosted
+  defaults are ignored).
+- **Frontend:** Data and models' connection forms offer only the local server. Benchmarking reads stored answers
+  and is unaffected.
+- **Other network use is unchanged:** Hugging Face model downloads (with `--allow-downloads`) and ClinicalTrials.gov
+  fetches.
+
+**Flags** (also `MMAI_DASH_LOCAL_SERVER_ONLY`, `MMAI_DASH_LOCAL_SERVER_AUTOSTART`, `MMAI_DASH_LOCAL_SERVER_DEFAULT`
+and `MMAI_DASH_LLAMA_SERVER`, or the site config's `dashboard.<mode>.local_server` with `only`, `autostart`, `default`
 and `llama_server`):
 
 | Flag | Effect |
 | --- | --- |
-| `--local-server` | Offer the local model server on Data and models |
+| `--local-server-only` | Every LLM task uses the app's local model server; every other connection is refused (implies `--local-server-default`) |
 | `--local-server-autostart JSON\|PATH` | Start a server spec (JSON, or a JSON or YAML file) once the decision model has loaded, so vLLM's memory profile sees it. The engine, model and GPUs are enough: the rest comes from the model's recipe, with the variant for the GPUs' free memory |
 | `--local-server-default` | Once ready, the server is the default connection of every task in sessions that chose none |
 | `--llama-server PATH` | The `llama-server` binary (default: `$MMAI_LLAMA_SERVER`, else `llama-server` on `PATH`) |
 
-For example, Bolt with llama.cpp on the first GPU, as every session's default:
+For example, a Space: Bolt with llama.cpp on the first GPU, the only model connection:
 
 ```bash
-mmai-dashboard --mode synthetic --allow-downloads --local-server --local-server-default \
+mmai-dashboard --mode synthetic --allow-downloads --local-server-only \
   --local-server-autostart '{"engine": "llama_cpp", "model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB", "gpus": [0]}'
 ```
 
