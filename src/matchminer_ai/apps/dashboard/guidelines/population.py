@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .services import InputError, without_history_and_physical
+from .services import InputError
+from matchminer_ai.patients.workup import without_history_and_physical
 from matchminer_ai.cancellation import check_cancelled
 from matchminer_ai.schema import SYNTHETIC_NOTES_TO_RUNTIME, TRAINING_TO_RUNTIME, note_columns
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from importlib import resources
 from typing import Callable
 
@@ -37,6 +38,35 @@ NOTICE = (
     "potentially irrelevant or conflicting passages; they are not individually selected "
     "supporting citations. The model does not generate quotes or citation IDs."
 )
+
+# A workup item that is a history and physical examination, however qualified ("with complete
+# skin examination", "surveillance", "including performance status"), and names nothing else.
+_HISTORY_PHYSICAL = re.compile(r"\bphysical\b|\bh\s*&\s*p\b", re.IGNORECASE)
+_OTHER_WORKUP = re.compile(
+    r"laborator|\blabs?\b|goals?[- ]of[- ](?:care|therapy)|shared decision|endoscop|imaging|\b(?:ct|mri|pet|ecg)\b|"
+    r"ultrasound|biops|photograph|family history|genetic|counsel|\btests?\b|\bblood\b|"
+    r"marker|\bscan\b|x-?ray|echocardio|transfusion|medication|\bcbc\b|metabolic|chemistr|"
+    r"microglobulin|distress|\bpsa\b|patholog|smear|marrow|cytopenia|fiberoptic|"
+    r"laryngoscop", re.IGNORECASE)
+
+
+def is_history_and_physical(item: dict) -> bool:
+    """Whether a workup item only asks for a history and physical examination.
+
+    Such items are always done and are left out of workup checks (user instruction,
+    2026-11-17). An item that also names another step ("history, physical and laboratory
+    evaluation") stays; the reviews ignore its history and physical part.
+    """
+    name = str(item.get("name") or "")
+    return bool(_HISTORY_PHYSICAL.search(name)) and not _OTHER_WORKUP.search(name)
+
+
+def without_history_and_physical(space):
+    """A copy of ``space`` whose diagnostic_workup leaves out history-and-physical items."""
+    if not space or not space.get("diagnostic_workup"):
+        return space
+    return {**space, "diagnostic_workup": [
+        item for item in space["diagnostic_workup"] if not is_history_and_physical(item)]}
 
 
 def _schema(size):
