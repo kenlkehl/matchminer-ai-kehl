@@ -14,7 +14,7 @@
         <link rel="prev" href="../note-search-qa/">
       
       
-        <link rel="next" href="../../training/">
+        <link rel="next" href="../population-concordance/">
       
       
         
@@ -480,6 +480,8 @@
       
         
       
+        
+      
     
     
     
@@ -857,6 +859,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../population-concordance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Anchored guideline concordance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1466,6 +1496,8 @@
       
         
       
+        
+      
     
     
     
@@ -1987,6 +2019,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/local-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Model Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2161,7 +2221,9 @@ population:</p>
 </ol>
 <p>Nothing here samples patients, chooses data paths or writes files except an explicit <code>save_patient_cohort</code>. The
 <a href="../../apps/dashboard/">dashboard</a>'s Population tab runs the same steps, and leaves workup items
-that ask only for a history and physical out of every check.</p>
+that ask only for a history and physical out of every check (<code>patients.workup.is_history_and_physical</code>).</p>
+<p>To review each patient against their own most relevant guideline space instead, anchored at a note by their
+provider and aggregated by provider and department, see <a href="../population-concordance/">Anchored guideline concordance</a>.</p>
 <h2 id="retrieve-a-cohort">Retrieve a cohort<a class="headerlink" href="#retrieve-a-cohort" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">matchminer_ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_default_preset</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">matchminer_ai.matching</span><span class="w"> </span><span class="kn">import</span> <span class="n">retrieve_guideline_patients</span>

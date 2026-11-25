@@ -478,6 +478,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     Population workup review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/population-concordance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Anchored guideline concordance
   
 
     
@@ -1130,6 +1160,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#local-model-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local model server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#real-patients" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1436,6 +1477,8 @@
   
     
     
+      
+        
       
         
       
@@ -1992,6 +2035,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/local-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Model Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2107,6 +2178,17 @@
     <span class="md-ellipsis">
       
         Decision model or LLM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-model-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local model server
       
     </span>
   </a>
@@ -2269,7 +2351,7 @@ TrialSpace model and says so on Data and models if they differ.</p>
   Three connectors: an OpenAI-compatible server
   (<strong>Detect served model</strong> reads its <code>/v1/models</code>), Google Vertex / Agent Platform (Gemini 4 Hydrogen, Gemini 3.8
   Flash or Gemma 4 26B, with the server's Application Default Credentials), and the Databricks AI Gateway (the site's
-  Claude endpoints).</li>
+  Claude endpoints). The tab also has the <a href="#local-model-server">local model server</a>.</li>
 </ul>
 <h2 id="trial-management">Trial management<a class="headerlink" href="#trial-management" title="Permanent link">&para;</a></h2>
 <p><strong>Trial management</strong> (Clinical trial management) tracks enrollment slots and the criteria the center actually enrolls
@@ -2651,6 +2733,113 @@ connection saved under the old name serves the new task.</p>
 <p><strong>Data.</strong> The patient's summary sections and the cohort's criteria go to the task's connection, so use an endpoint
 authorized for the data, as for every LLM task. Answers and reasoning stay in the server's memory, visible only to the
 session; nothing patient-derived is logged or written to disk.</p>
+<h2 id="local-model-server">Local model server<a class="headerlink" href="#local-model-server" title="Permanent link">&para;</a></h2>
+<p>Every dashboard, in both modes, can run its own model server: Data and models has a <strong>Local model server</strong> section
+above Models. It starts one vLLM or llama.cpp (<code>llama-server</code>) server on the app's own machine. Both engines serve the
+same OpenAI-compatible API on loopback (<code>127.0.0.1</code>, a free port), so every LLM task can use it. A machine that cannot
+reach a hosted endpoint, such as a Hugging Face Space with a GPU, runs the app with <code>--local-server-only</code> (below).</p>
+<ul>
+<li><strong>Who:</strong> anyone using the app may start, stop and configure the server, on any GPU it finds (user, 2026-11-24).</li>
+<li><strong>Nothing installed:</strong> without a GPU the section says so (llama.cpp can still run a small model on the CPU); without
+  vLLM or llama-server it says which is missing and why, and Start stays off.</li>
+<li><strong>GPUs:</strong> the GPUs are found automatically (NVML, else <code>nvidia-smi</code>, else PyTorch) and refreshed every 5 seconds.
+  Each shows its compute capability and a memory bar split into this dashboard, the local server and other
+  processes. In a container the driver may list no processes, so all used memory shows as other.</li>
+<li><strong>Form:</strong> the engine (one that is not installed is disabled, with the reason), the model (a Hugging Face
+  repository; default Nemotron 3.5 Bolt), the GGUF file (llama.cpp), the GPUs (default: the one with the most free
+  memory), the engine parameters with <strong>Reset to recommended</strong>, and under Advanced extra flags, environment variables
+  and vLLM's speculative decoding config. Below the form are the command and the fit warnings: weights against free
+  memory, vLLM's memory share against each GPU's free memory, the recipe's hardware limits and the cache's free disk.</li>
+<li><strong>Recipes:</strong> a known model (<code>presets/local_servers.yaml</code>) brings its model card's settings for each engine, and the
+  form proposes an engine for the chosen GPUs and says why. Other models get generic settings: vLLM's tensor
+  parallelism is the number of GPUs and its memory share is the tightest GPU's (free - 1 GB) / total (vLLM counts the
+  dashboard's own models against its share); llama.cpp puts every layer on the GPUs, with four slots sharing one
+  unified KV cache.</li>
+<li><strong>Start:</strong> the files the engine needs are downloaded into the Hugging Face cache first, after a free-space check;
+  the status line shows "Downloading 12.3 of 22.0 GB", then the phase (loading weights, allocating the KV cache,
+  capturing CUDA graphs) and "Ready" once <code>/v1/models</code> lists the served name, with the elapsed time. An engine that
+  ends on its own shows "Exited" and its code. The log tail (the command line, then the engine's messages; request
+  logging is off) is under <strong>Log</strong>. An app without <code>--allow-downloads</code> uses only what the cache already holds.</li>
+<li><strong>Use:</strong> once ready, <strong>Use for every task</strong> points this browser session's tasks at the server, with its endpoint,
+  model and tokenizer, and the <strong>Reasoning</strong> switch beside it. On a task's own form the OpenAI-compatible connector
+  has <strong>Use the local server</strong>. With <code>--local-server-default</code>, the ready server also becomes the default connection
+  of every task in sessions that chose none, until it stops.</li>
+<li><strong>Stop:</strong> <strong>Stop</strong> ends the engine's whole process group (SIGTERM, then SIGKILL after 45 seconds), so no engine
+  worker keeps a GPU. The app stops its server when it exits, on Ctrl-C or SIGTERM; on Linux the engine also gets
+  SIGTERM if the app is killed or crashes.</li>
+</ul>
+<p><strong>The default model, Nemotron 3.5 Bolt 74B-A9B (2-bit, about 22 GB).</strong> Its settings are copied from NVIDIA's model
+cards (verified 2026-11-24), text only:</p>
+<ul>
+<li><strong>vLLM</strong> (<code>nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB</code>): the card's recipe needs a vLLM nightly with the b12x
+  kernels, which run on Blackwell (SM 12.0 and 12.1) only, so on other GPUs the form proposes llama.cpp. The card's
+  flags are kept (fp8 KV cache, b12x and FlashInfer backends, the Mamba cache settings, the LiLiCorr DFlash drafter as
+  <code>speculative_config</code>, <code>VLLM_USE_V2_MODEL_RUNNER=1</code>). The card registers its reasoning parser, <code>ultra_v3</code>, from a file
+  in the model repository; the spec's <code>reasoning_parser_plugin</code> names it, and the download includes it. Left out:
+  <code>--allowed-local-media-path /</code>, which would let a request read any file on the machine.</li>
+<li><strong>llama.cpp</strong> (<code>nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF</code>): the card's GGUF, every layer on the GPU, one
+  unified KV cache and its DFlash drafter (<code>nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr-GGUF</code>). The card's
+  two recipes are variants chosen by the chosen GPUs' free memory: the 32GB recipe (the full 262,144-token context)
+  when 32 GB are free, else the 28GB recipe (65,536 tokens, a q8_0 KV cache). The vision projector (<code>mmproj</code>) is left
+  out. The app downloads the files itself and starts <code>llama-server --model &lt;path&gt;</code>, so the engine never downloads.</li>
+<li><strong>Requests:</strong> the app sends Bolt NVIDIA's sampling (temperature 1.0, top_p 0.95) in every task, in place of a task's
+  own fixed sampling, as for Nemotron 3.5 Super; its thinking switch follows the <strong>Reasoning</strong> setting.</li>
+</ul>
+<p>On an L40S (48 GB) the GGUF, the decision model (about 5 GB) and TrialSpace (about 1 GB) fit on one GPU with llama.cpp.
+<code>Qwen/Qwen3-0.6B</code> is also known, as a small model for checking a setup.</p>
+<p><strong>Only the local server.</strong> With <code>--local-server-only</code> every LLM task uses the app's own local server, and the
+server refuses every other model connection, wherever one is chosen or used:</p>
+<ul>
+<li><strong>Refused:</strong> the Databricks gateway, Vertex, Azure and any OpenAI-compatible URL, including other loopback
+  addresses. A session's or a task's connection, <strong>Use for every task</strong>, the connection check, the Assistant, the
+  <strong>Scores from: LLM</strong> checks, criteria classification and trial management's labeling all accept only the ready
+  local server (matched by endpoint and served name), and a refused one gets a 400 that says why. The package's
+  connection builders apply the same rule (<code>llm.connections.set_connection_policy</code>), so no preset section the app
+  builds can point anywhere else.</li>
+<li><strong>Defaults:</strong> the ready server is every task's default (<code>--local-server-default</code> is implied). Before it is ready
+  there is no default connection: LLM tasks fail with a message pointing to Data and models, and nothing falls back
+  to a hosted endpoint the site config names. A connection saved for a server since stopped or restarted is dropped.</li>
+<li><strong>Site config:</strong> no gateway, Vertex or Azure settings are needed (the <code>--llm-*</code> options and the site's hosted
+  defaults are ignored).</li>
+<li><strong>Frontend:</strong> Data and models' connection forms offer only the local server. Benchmarking reads stored answers
+  and is unaffected.</li>
+<li><strong>Other network use is unchanged:</strong> Hugging Face model downloads (with <code>--allow-downloads</code>) and ClinicalTrials.gov
+  fetches.</li>
+</ul>
+<p><strong>Flags</strong> (also <code>MMAI_DASH_LOCAL_SERVER_ONLY</code>, <code>MMAI_DASH_LOCAL_SERVER_AUTOSTART</code>, <code>MMAI_DASH_LOCAL_SERVER_DEFAULT</code>
+and <code>MMAI_DASH_LLAMA_SERVER</code>, or the site config's <code>dashboard.&lt;mode&gt;.local_server</code> with <code>only</code>, <code>autostart</code>, <code>default</code>
+and <code>llama_server</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--local-server-only</code></td>
+<td>Every LLM task uses the app's local model server; every other connection is refused (implies <code>--local-server-default</code>)</td>
+</tr>
+<tr>
+<td><code>--local-server-autostart JSON\|PATH</code></td>
+<td>Start a server spec (JSON, or a JSON or YAML file) once the decision model has loaded, so vLLM's memory profile sees it. The engine, model and GPUs are enough: the rest comes from the model's recipe, with the variant for the GPUs' free memory</td>
+</tr>
+<tr>
+<td><code>--local-server-default</code></td>
+<td>Once ready, the server is the default connection of every task in sessions that chose none</td>
+</tr>
+<tr>
+<td><code>--llama-server PATH</code></td>
+<td>The <code>llama-server</code> binary (default: <code>$MMAI_LLAMA_SERVER</code>, else <code>llama-server</code> on <code>PATH</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>For example, a Space: Bolt with llama.cpp on the first GPU, the only model connection:</p>
+<div class="highlight"><pre><span></span><code>mmai-dashboard<span class="w"> </span>--mode<span class="w"> </span>synthetic<span class="w"> </span>--allow-downloads<span class="w"> </span>--local-server-only<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--local-server-autostart<span class="w"> </span><span class="s1">'{"engine": "llama_cpp", "model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB", "gpus": [0]}'</span>
+</code></pre></div>
+<p>The package API is described in <a href="../../api/local-server/">Local model server</a>.</p>
 <h2 id="real-patients">Real patients<a class="headerlink" href="#real-patients" title="Permanent link">&para;</a></h2>
 <p>Real mode's patients are a preprocessed population cache: summaries with precomputed TrialSpace vectors, and the
 source notes, read on demand. It is built offline from a population DuckDB database (<code>dashboard.real.population_duckdb</code>)

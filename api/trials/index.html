@@ -478,6 +478,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     Population workup review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/population-concordance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Anchored guideline concordance
   
 
     
@@ -1325,6 +1355,8 @@
       
         
       
+        
+      
     
     
     
@@ -1790,6 +1822,17 @@
     <span class="md-ellipsis">
       
         load_guideline_catalog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matchminer_ai.trials.latest_guideline_catalogs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        latest_guideline_catalogs
       
     </span>
   </a>
@@ -2335,6 +2378,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../local-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Model Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2666,6 +2737,17 @@
     <span class="md-ellipsis">
       
         load_guideline_catalog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matchminer_ai.trials.latest_guideline_catalogs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        latest_guideline_catalogs
       
     </span>
   </a>
@@ -3452,9 +3534,7 @@ as for the extractors. <code>(rows, metadata)</code> with <code>return_metadata<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/__init__.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">135</span>
-<span class="normal">136</span>
-<span class="normal">137</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">137</span>
 <span class="normal">138</span>
 <span class="normal">139</span>
 <span class="normal">140</span>
@@ -3537,7 +3617,9 @@ as for the extractors. <code>(rows, metadata)</code> with <code>return_metadata<
 <span class="normal">217</span>
 <span class="normal">218</span>
 <span class="normal">219</span>
-<span class="normal">220</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">process_trials</span><span class="p">(</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">process_trials</span><span class="p">(</span>
     <span class="n">trials</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"ctgov"</span><span class="p">,</span>
@@ -3778,9 +3860,7 @@ metadata.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/__init__.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 38</span>
-<span class="normal"> 39</span>
-<span class="normal"> 40</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 40</span>
 <span class="normal"> 41</span>
 <span class="normal"> 42</span>
 <span class="normal"> 43</span>
@@ -3872,7 +3952,9 @@ metadata.</p>
 <span class="normal">129</span>
 <span class="normal">130</span>
 <span class="normal">131</span>
-<span class="normal">132</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_cohorts</span><span class="p">(</span>
+<span class="normal">132</span>
+<span class="normal">133</span>
+<span class="normal">134</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">extract_cohorts</span><span class="p">(</span>
     <span class="n">trials</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MMAIConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -7320,37 +7402,30 @@ records are independent copies, including nested menus and evidence.</p>
 <div class="doc doc-object doc-function">
 
 
-<h3 id="matchminer_ai.trials.get_guideline_considerations" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">get_guideline_considerations</span>
+<h3 id="matchminer_ai.trials.latest_guideline_catalogs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">latest_guideline_catalogs</span>
 
 
-<a href="#matchminer_ai.trials.get_guideline_considerations" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_guideline_considerations</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">space_trial_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">clinical_space_summary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">return_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]</span>
+<a href="#matchminer_ai.trials.latest_guideline_catalogs" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">latest_guideline_catalogs</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Return the stored diagnostic/treatment considerations for an exact space.</p>
-<p>Select by <code>space_trial_id</code>, exact <code>clinical_space_summary</code> text, or both.
-No fuzzy lookup, model generation, or inferred menu applicability is used.
-An unknown ID/text or a mismatched ID/text pair raises <code>KeyError</code>. If the
-exact definition occurs in multiple supplied source editions, text lookup
-returns all matching records with their provenance; use an ID to select one.
-Return conventions match <code>load_guideline_catalog</code>.</p>
+        <p>The latest complete, audited catalog of each disease under <code>root</code>, sorted by title.</p>
+<p>The supported layouts are <code>root/&lt;run&gt;/&lt;disease&gt;/</code> and <code>root/&lt;disease&gt;/</code>;
+checkpoints are never traversed. A catalog folder qualifies when its
+<code>validation.json</code> audit passed, its <code>status.json</code> says complete and it has
+<code>paradigms.jsonl</code>; of several runs of one disease (<code>sources.json</code>'s
+<code>disease</code>), the one updated last (<code>status.json</code>'s <code>updated_utc</code>) is kept.
+Unreadable or in-progress folders are skipped. Each row has <code>disease</code>,
+<code>title</code>, <code>version</code>, <code>spaces</code>, <code>updated</code> and <code>path</code>; pass the paths to
+:func:<code>load_guideline_catalog</code>, which verifies the export hashes.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/guideline_catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">448</span>
-<span class="normal">449</span>
-<span class="normal">450</span>
-<span class="normal">451</span>
-<span class="normal">452</span>
-<span class="normal">453</span>
-<span class="normal">454</span>
-<span class="normal">455</span>
-<span class="normal">456</span>
-<span class="normal">457</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">457</span>
 <span class="normal">458</span>
 <span class="normal">459</span>
 <span class="normal">460</span>
@@ -7373,7 +7448,121 @@ Return conventions match <code>load_guideline_catalog</code>.</p>
 <span class="normal">477</span>
 <span class="normal">478</span>
 <span class="normal">479</span>
-<span class="normal">480</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_guideline_considerations</span><span class="p">(</span>
+<span class="normal">480</span>
+<span class="normal">481</span>
+<span class="normal">482</span>
+<span class="normal">483</span>
+<span class="normal">484</span>
+<span class="normal">485</span>
+<span class="normal">486</span>
+<span class="normal">487</span>
+<span class="normal">488</span>
+<span class="normal">489</span>
+<span class="normal">490</span>
+<span class="normal">491</span>
+<span class="normal">492</span>
+<span class="normal">493</span>
+<span class="normal">494</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">latest_guideline_catalogs</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The latest complete, audited catalog of each disease under ``root``, sorted by title.</span>
+
+<span class="sd">    The supported layouts are ``root/&lt;run&gt;/&lt;disease&gt;/`` and ``root/&lt;disease&gt;/``;</span>
+<span class="sd">    checkpoints are never traversed. A catalog folder qualifies when its</span>
+<span class="sd">    ``validation.json`` audit passed, its ``status.json`` says complete and it has</span>
+<span class="sd">    ``paradigms.jsonl``; of several runs of one disease (``sources.json``'s</span>
+<span class="sd">    ``disease``), the one updated last (``status.json``'s ``updated_utc``) is kept.</span>
+<span class="sd">    Unreadable or in-progress folders are skipped. Each row has ``disease``,</span>
+<span class="sd">    ``title``, ``version``, ``spaces``, ``updated`` and ``path``; pass the paths to</span>
+<span class="sd">    :func:`load_guideline_catalog`, which verifies the export hashes.</span>
+<span class="sd">    """</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+    <span class="n">candidates</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">audit_file</span> <span class="ow">in</span> <span class="p">[</span><span class="o">*</span><span class="n">root</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*/*/validation.json"</span><span class="p">),</span> <span class="o">*</span><span class="n">root</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*/validation.json"</span><span class="p">)]:</span>
+        <span class="n">folder</span> <span class="o">=</span> <span class="n">audit_file</span><span class="o">.</span><span class="n">parent</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">audit</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">audit_file</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">folder</span> <span class="o">/</span> <span class="s2">"status.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">folder</span> <span class="o">/</span> <span class="s2">"sources.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">audit</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"status"</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">"passed"</span> <span class="ow">or</span> <span class="n">status</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"status"</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">"complete"</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">folder</span> <span class="o">/</span> <span class="s2">"paradigms.jsonl"</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+                <span class="k">continue</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+                <span class="n">disease</span><span class="o">=</span><span class="n">source</span><span class="p">[</span><span class="s2">"disease"</span><span class="p">],</span>
+                <span class="n">title</span><span class="o">=</span><span class="n">source</span><span class="p">[</span><span class="s2">"title"</span><span class="p">],</span>
+                <span class="n">version</span><span class="o">=</span><span class="n">source</span><span class="p">[</span><span class="s2">"version"</span><span class="p">],</span>
+                <span class="n">spaces</span><span class="o">=</span><span class="n">audit</span><span class="p">[</span><span class="s2">"paradigms"</span><span class="p">],</span>
+                <span class="n">updated</span><span class="o">=</span><span class="n">status</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"updated_utc"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span>
+                <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">folder</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">old</span> <span class="o">=</span> <span class="n">candidates</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">"disease"</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">old</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">row</span><span class="p">[</span><span class="s2">"updated"</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">old</span><span class="p">[</span><span class="s2">"updated"</span><span class="p">]:</span>
+                <span class="n">candidates</span><span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s2">"disease"</span><span class="p">]]</span> <span class="o">=</span> <span class="n">row</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+            <span class="k">continue</span>  <span class="c1"># A copying/in-progress artifact is not a catalog.</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">candidates</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"title"</span><span class="p">]</span><span class="o">.</span><span class="n">casefold</span><span class="p">())</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="matchminer_ai.trials.get_guideline_considerations" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_guideline_considerations</span>
+
+
+<a href="#matchminer_ai.trials.get_guideline_considerations" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_guideline_considerations</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">space_trial_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">clinical_space_summary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">return_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the stored diagnostic/treatment considerations for an exact space.</p>
+<p>Select by <code>space_trial_id</code>, exact <code>clinical_space_summary</code> text, or both.
+No fuzzy lookup, model generation, or inferred menu applicability is used.
+An unknown ID/text or a mismatched ID/text pair raises <code>KeyError</code>. If the
+exact definition occurs in multiple supplied source editions, text lookup
+returns all matching records with their provenance; use an ID to select one.
+Return conventions match <code>load_guideline_catalog</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/matchminer_ai/trials/guideline_catalog.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">497</span>
+<span class="normal">498</span>
+<span class="normal">499</span>
+<span class="normal">500</span>
+<span class="normal">501</span>
+<span class="normal">502</span>
+<span class="normal">503</span>
+<span class="normal">504</span>
+<span class="normal">505</span>
+<span class="normal">506</span>
+<span class="normal">507</span>
+<span class="normal">508</span>
+<span class="normal">509</span>
+<span class="normal">510</span>
+<span class="normal">511</span>
+<span class="normal">512</span>
+<span class="normal">513</span>
+<span class="normal">514</span>
+<span class="normal">515</span>
+<span class="normal">516</span>
+<span class="normal">517</span>
+<span class="normal">518</span>
+<span class="normal">519</span>
+<span class="normal">520</span>
+<span class="normal">521</span>
+<span class="normal">522</span>
+<span class="normal">523</span>
+<span class="normal">524</span>
+<span class="normal">525</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_guideline_considerations</span><span class="p">(</span>
     <span class="n">catalog</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">space_trial_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>

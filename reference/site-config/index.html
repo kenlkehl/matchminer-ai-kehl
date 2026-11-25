@@ -478,6 +478,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     Population workup review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/population-concordance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Anchored guideline concordance
   
 
     
@@ -1433,6 +1463,8 @@
       
         
       
+        
+      
     
     
     
@@ -1954,6 +1986,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/local-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Model Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2132,8 +2192,8 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>paths.phi_roots</code></td>
-<td><code>evaluation.retro_cohorts.build_note_level_dataset</code></td>
-<td>Directories besides <code>&lt;data root&gt;/phi</code> where note text may be written</td>
+<td><code>evaluation.retro_cohorts.build_note_level_dataset</code>, <code>population.review</code></td>
+<td>Directories besides <code>&lt;data root&gt;/phi</code> where note text (and other patient data) may be written</td>
 </tr>
 <tr>
 <td><code>endpoints.teacher.url</code></td>
@@ -2152,7 +2212,7 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>databricks.host</code></td>
-<td>the dashboard's model connections, <code>provider: databricks_anthropic</code>, <code>evaluation.dual_judge.judge_worker --judge databricks</code></td>
+<td>the dashboard's model connections, <code>population.review</code>, <code>provider: databricks_anthropic</code>, <code>evaluation.dual_judge.judge_worker --judge databricks</code></td>
 <td>Workspace URL whose AI Gateway serves Claude</td>
 </tr>
 <tr>
@@ -2162,7 +2222,7 @@ its command line.</p>
 </tr>
 <tr>
 <td><code>databricks.endpoints.&lt;name&gt;</code></td>
-<td>the dashboard (<code>haiku</code>: its default model for every LLM task, except query writing, <code>sonnet</code>, and the chat assistant, <code>opus</code>; the others selectable), the Databricks judge (<code>opus</code>)</td>
+<td>the dashboard (<code>haiku</code>: its default model for every LLM task, except query writing, <code>sonnet</code>, and the chat assistant, <code>opus</code>; the others selectable), <code>population.review</code> (<code>haiku</code> and <code>sonnet</code>), the Databricks judge (<code>opus</code>)</td>
 <td>Full three-part gateway endpoint names of the Claude models (<code>haiku</code>, <code>sonnet</code>, <code>opus</code>)</td>
 </tr>
 </tbody>
@@ -2243,6 +2303,11 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <td>Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under <code>phi</code></td>
 </tr>
 <tr>
+<td><code>real.local_server</code>, <code>synthetic.local_server</code></td>
+<td>none</td>
+<td>The <a href="../../apps/dashboard/#local-model-server">local model server</a>: <code>only</code> (the local server is the only model connection), <code>autostart</code> (a server spec, or a JSON or YAML file), <code>default</code> and <code>llama_server</code> (the binary), as <code>--local-server-only</code>, <code>--local-server-autostart</code>, <code>--local-server-default</code> and <code>--llama-server</code></td>
+</tr>
+<tr>
 <td><code>synthetic_run</code></td>
 <td><code>&lt;data root&gt;/no_phi/synthetic_run</code></td>
 <td>TrialSpace rounds, the decision model, synthetic mode's trials and patients</td>
@@ -2250,7 +2315,7 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <tr>
 <td><code>guideline_catalogs</code></td>
 <td><code>&lt;data root&gt;/no_phi/space_paradigms_nccn</code></td>
-<td>Finalized guideline catalogs</td>
+<td>Finalized guideline catalogs (also <code>population.review</code>'s default)</td>
 </tr>
 <tr>
 <td><code>grouping</code></td>

@@ -478,6 +478,8 @@
       
         
       
+        
+      
     
     
     
@@ -706,6 +708,34 @@
     
   
     Population workup review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/population-concordance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Anchored guideline concordance
   
 
     
@@ -1218,6 +1248,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#nvidia-nemotron-35-bolt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NVIDIA Nemotron 3.5 Bolt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#gemma-4" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1464,6 +1505,8 @@
   
     
     
+      
+        
       
         
       
@@ -2020,6 +2063,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/local-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Model Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2070,6 +2141,17 @@
     <span class="md-ellipsis">
       
         NVIDIA Nemotron 3.5 Super VL (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nvidia-nemotron-35-bolt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NVIDIA Nemotron 3.5 Bolt
       
     </span>
   </a>
@@ -2208,7 +2290,8 @@ patient-cohort pair. The section-by-section configuration keys are in <a href=".
 <p>LLM sections with <code>sampling_profile: auto</code> recognize the model by name and apply its publisher's sampling settings.
 Explicit sampling parameters in a request or section still override them, and <code>apply_model_profile</code> replaces a
 previous model's sampling settings rather than merging them. A served alias the package cannot recognize can name a
-profile explicitly: <code>gemma4</code>, <code>qwen3.5</code>, <code>qwen3.8</code>, <code>nemotron-3.5-super-vl</code> or <code>reflection-beam</code>.</p>
+profile explicitly: <code>gemma4</code>, <code>qwen3.5</code>, <code>qwen3.8</code>, <code>nemotron-3.5-super-vl</code>, <code>nemotron-3.5-bolt</code> or
+<code>reflection-beam</code>.</p>
 <ul>
 <li><strong>Sections without a profile</strong> fix their own sampling, such as greedy extraction, and get no vendor settings.
   Nemotron is the exception: its profile replaces that fixed sampling, so every workflow it serves sends NVIDIA's
@@ -2241,6 +2324,15 @@ GoodOption checks), locally and remotely. Gemma 4 and the other profiles remain 
   with long tasks leave room for 10-15k reasoning tokens: the LLM match and exclusion checks reserve the training
   teacher's 32,768 tokens.</li>
 </ul>
+<h3 id="nvidia-nemotron-35-bolt">NVIDIA Nemotron 3.5 Bolt<a class="headerlink" href="#nvidia-nemotron-35-bolt" title="Permanent link">&para;</a></h3>
+<p>Names containing <code>nemotron-3.5-bolt</code> (<code>nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB</code> and its GGUF, the
+<a href="../../apps/dashboard/#local-model-server">local model server</a>'s default) get the
+<a href="https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB">model card's</a> sampling, temperature 1.0 and
+top-p 0.95 (checked 2026-11-24), with the same neutral top-k, min-p and penalties as Super. As for Super, the profile
+replaces a section's own fixed sampling. Thinking is <code>chat_template_kwargs.enable_thinking</code> (medium effort:
+<code>medium_effort=true</code>). vLLM's reasoning parser is the checkpoint's <code>ultra_v3</code> (registered by
+<code>ultra_v3_reasoning_parser.py</code> in the repository, a <code>deepseek_r1</code> parser that takes the whole output as the answer
+when thinking is off); local raw completions are split the same way. The tool parser is <code>qwen3_coder</code>.</p>
 <h3 id="gemma-4">Gemma 4<a class="headerlink" href="#gemma-4" title="Permanent link">&para;</a></h3>
 <p>Names containing <code>gemma-4</code> (for example <code>google/gemma-4-31B-it</code> or an NVFP4 re-upload) get Google's
 <a href="https://ai.google.dev/gemma/docs/core/model_card_4">model-card</a> defaults: temperature 1.0, top-p 0.95 and top-k 64.
