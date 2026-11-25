@@ -27,42 +27,29 @@ records and compiled queries live for the app:
   the requirement, the space's key criteria and that database. Each query then runs
   once over the cohort being checked.
 
-Store layout::
-
-  manifest.json             format, version, mode, source, levels, counts, contract
-  document_records.parquet  patient_id, note_id, note_date, note_type,
-                            extraction_status, error, item_count, record_json
-  patient_records.parquet   patient_id, extraction_status, error, failed_chunks_json,
-                            item_count, note_ids_json, record_json
+The store format (layout, writer and reader) is the package's
+``matchminer_ai.patients.extraction.store``.
 """
 
 import copy
 import hashlib
 import json
 import math
-import os
-import re
-import secrets
-import shutil
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
+from matchminer_ai._storage import QueryCache
+from matchminer_ai.patients.extraction.store import (
+    read_store_manifest, read_store_records, write_extraction_store,
+)
+
 from .services import InputError
 from .settings import data_path, mode_side_error
 
-FORMAT = "guideline-fetcher extraction records"
-VERSION = 1
-# Stores built by the former guideline fetcher record its mode names, for the same sides of data/.
-FORMER_MODES = {"phi": "real", "standard": "synthetic"}
-DOCUMENT_FILE = "document_records.parquet"
-PATIENT_FILE = "patient_records.parquet"
-ROW_GROUP = 2000
 LEVELS = {"document": ("document",), "document_and_patient": ("document", "patient")}
 SQL_METHODS = ("extraction_queries", "extraction_sql")
 SQL_EXPLORATION_NOTICE = (
@@ -79,45 +66,6 @@ EXTRACTION_NOTICE = (
 # ---------------------------------------------------------------------------
 # Compiled-query cache (guideline text only)
 # ---------------------------------------------------------------------------
-
-
-class QueryCache:
-    """Compiled workup queries as one JSON file per cache key, written atomically."""
-
-    def __init__(self, folder):
-        self.folder = Path(folder)
-
-    def _path(self, key):
-        if not re.fullmatch(r"[0-9a-f]{64}", str(key)):
-            raise KeyError(key)
-        return self.folder / f"{key}.json"
-
-    def get(self, key, default=None):
-        try:
-            return json.loads(self._path(key).read_text())
-        except (OSError, ValueError, KeyError):
-            return default
-
-    def __getitem__(self, key):
-        value = self.get(key)
-        if value is None:
-            raise KeyError(key)
-        return value
-
-    def __contains__(self, key):
-        return self.get(key) is not None
-
-    def __setitem__(self, key, value):
-        path = self._path(key)
-        self.folder.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=".query-", dir=self.folder)
-        try:
-            with os.fdopen(fd, "w") as handle:
-                json.dump(value, handle, ensure_ascii=False)
-            os.replace(temporary, path)
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
 
 
 def query_cache(settings, config=None):
@@ -225,17 +173,9 @@ def resolve_store(settings, value=None, *, must_exist=True):
 
 def _manifest(path, settings):
     try:
-        manifest = json.loads((path / "manifest.json").read_text())
-    except (OSError, ValueError):
-        raise InputError("This extraction record manifest cannot be read.") from None
-    if manifest.get("format") != FORMAT or manifest.get("version") != VERSION:
-        raise InputError("Unsupported extraction record format. Rebuild the records.")
-    if FORMER_MODES.get(manifest.get("mode"), manifest.get("mode")) != settings.mode:
-        raise InputError("These extraction records were built for the other app mode.")
-    for name, size in manifest["files"].items():
-        if not (path / name).is_file() or (path / name).stat().st_size != size:
-            raise InputError("These extraction records are incomplete or changed. Rebuild them.")
-    return manifest
+        return read_store_manifest(path, mode=settings.mode)
+    except ValueError as exc:
+        raise InputError(str(exc)) from None
 
 
 def inspect_store(settings, value=None):
@@ -259,34 +199,12 @@ class ExtractionStore:
     path: Path
     manifest: dict
 
-    def _read(self, name, patient_ids):
-        import pyarrow.dataset as ds
-
-        file = self.path / name
-        if not file.is_file():
-            return None
-        table = ds.dataset(file, format="parquet").to_table(
-            filter=ds.field("patient_id").isin([str(p) for p in patient_ids]))
-        return table.to_pandas()
-
     def all_records(self):
         """(document records, patient records) of every patient in the store."""
-        import pyarrow.parquet as pq
-
-        frames = []
-        for name in (DOCUMENT_FILE, PATIENT_FILE):
-            file = self.path / name
-            if not file.is_file():
-                frames.append(None)
-                continue
-            frame = pq.read_table(file).to_pandas()
-            frame["record"] = [json.loads(r) if isinstance(r, str) else None
-                               for r in frame.pop("record_json")]
-            if "failed_chunks_json" in frame:
-                frame["failed_chunks"] = [json.loads(v) for v in frame.pop("failed_chunks_json")]
-                frame.pop("note_ids_json")
-            frames.append(frame)
-        return frames[0], frames[1]
+        documents, patients = read_store_records(self.path)
+        if patients is not None:
+            patients = patients.drop(columns="note_ids")
+        return documents, patients
 
     @property
     def fingerprint(self):
@@ -295,17 +213,7 @@ class ExtractionStore:
 
     def records(self, patient_ids):
         """(document records, patient records) of these patients, with record dicts."""
-        documents = self._read(DOCUMENT_FILE, patient_ids)
-        if documents is not None:
-            documents["record"] = [json.loads(r) if isinstance(r, str) else None
-                                   for r in documents.pop("record_json")]
-        patients = self._read(PATIENT_FILE, patient_ids)
-        if patients is not None:
-            patients["record"] = [json.loads(r) if isinstance(r, str) else None
-                                  for r in patients.pop("record_json")]
-            patients["failed_chunks"] = [json.loads(v) for v in patients.pop("failed_chunks_json")]
-            patients["note_ids"] = [json.loads(v) for v in patients.pop("note_ids_json")]
-        return documents, patients
+        return read_store_records(self.path, patient_ids)
 
 
 def open_store(settings, value=None):
@@ -313,26 +221,10 @@ def open_store(settings, value=None):
     return ExtractionStore(path, _manifest(path, settings))
 
 
-def _private(path):
-    os.chmod(path, 0o600)
-
-
-def _clean(value):
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return None
-    return str(value)
-
-
 def write_store(settings, output, documents=None, patients=None, *, source, extraction,
                 overwrite=False):
-    """Write a store atomically from extraction output DataFrames.
-
-    ``patients`` may carry ``note_ids`` (the ids of the notes each patient record
-    was built from). PHI-mode stores are private (0700 directory, 0600 files).
-    """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
+    """Write a store atomically from extraction output DataFrames (``write_extraction_store``) on this mode's side
+    of the data root. PHI-mode stores are private (0700 directory, 0600 files)."""
     output = Path(output).expanduser()
     if not output.is_absolute():
         raise InputError("Use an absolute output folder.")
@@ -340,110 +232,11 @@ def write_store(settings, output, documents=None, patients=None, *, source, extr
     error = mode_side_error(settings.phi, output)
     if error:
         raise InputError(error)
-    if output.exists() and not overwrite:
-        raise InputError(f"{output} exists. Pass --overwrite to replace it.")
-    output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    partial = output.parent / f".{output.name}.partial-{secrets.token_hex(4)}"
-    partial.mkdir(mode=0o700)
     try:
-        files, counts, levels = {}, {}, []
-        if documents is not None:
-            levels.append("document")
-            frame = documents.sort_values(["patient_id", "note_date", "note_id"],
-                                          na_position="last", kind="stable")
-            table = pa.table({
-                "patient_id": [str(p) for p in frame.patient_id],
-                "note_id": [str(n) for n in frame.note_id],
-                "note_date": [_clean(d) for d in frame.note_date],
-                "note_type": [_clean(t) for t in frame.note_type],
-                "extraction_status": list(frame.extraction_status),
-                "error": [_clean(e) for e in frame.error],
-                "item_count": [int(c) for c in frame.item_count],
-                "record_json": [json.dumps(r, ensure_ascii=False) if isinstance(r, dict) else None
-                                for r in frame.record],
-            })
-            pq.write_table(table, partial / DOCUMENT_FILE, row_group_size=ROW_GROUP,
-                           compression="zstd")
-            counts["documents"] = {s: int((frame.extraction_status == s).sum())
-                                   for s in ("complete", "partial", "failed")}
-        if patients is not None:
-            levels.append("patient")
-            frame = patients.sort_values("patient_id", kind="stable")
-            note_ids = frame["note_ids"] if "note_ids" in frame else [[]] * len(frame)
-            table = pa.table({
-                "patient_id": [str(p) for p in frame.patient_id],
-                "extraction_status": list(frame.extraction_status),
-                "error": [_clean(e) for e in frame.error],
-                "failed_chunks_json": [json.dumps(list(c or [])) for c in frame.failed_chunks],
-                "item_count": [int(c) for c in frame.item_count],
-                "note_ids_json": [json.dumps(list(n)) for n in note_ids],
-                "record_json": [json.dumps(r, ensure_ascii=False) if isinstance(r, dict) else None
-                                for r in frame.record],
-            })
-            pq.write_table(table, partial / PATIENT_FILE, row_group_size=ROW_GROUP,
-                           compression="zstd")
-            counts["patient_records"] = {s: int((frame.extraction_status == s).sum())
-                                         for s in ("complete", "partial", "failed")}
-        if not levels:
-            raise InputError("No extraction records to write.")
-        ids = set()
-        for frame in (documents, patients):
-            if frame is not None:
-                ids |= set(map(str, frame.patient_id))
-        counts["patients"] = len(ids)
-        for name in (DOCUMENT_FILE, PATIENT_FILE):
-            if (partial / name).exists():
-                files[name] = (partial / name).stat().st_size
-        manifest = {
-            "format": FORMAT,
-            "version": VERSION,
-            "mode": settings.mode,
-            "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "source": source,
-            "levels": levels,
-            "counts": counts,
-            "extraction": extraction,
-            "files": files,
-        }
-        (partial / "manifest.json").write_text(json.dumps(manifest, indent=1, default=str))
-        if settings.phi:
-            for name in (*files, "manifest.json"):
-                _private(partial / name)
-        if output.exists():
-            retired = output.parent / f".{output.name}.retired-{secrets.token_hex(4)}"
-            output.rename(retired)
-            partial.rename(output)
-            shutil.rmtree(retired)
-        else:
-            partial.rename(output)
-    except BaseException:
-        shutil.rmtree(partial, ignore_errors=True)
-        raise
-    return manifest
-
-
-def extraction_metadata(document_metadata=None, patient_metadata=None, model=None, *,
-                        servers=None):
-    """The contract facts of a build, without per-note attempts or patient text.
-
-    ``servers``: the build's servers and the model each served, when it used several.
-    """
-    def part(metadata):
-        if metadata is None:
-            return None
-        return {k: metadata.get(k) for k in ("schema_version", "contract_sha256", "prompt_sha256",
-                                             "response_schema_sha256", "extensions",
-                                             "structured_outputs", "linking", "counts")}
-
-    first = document_metadata or patient_metadata or {}
-    return {
-        "schema_version": first.get("schema_version"),
-        "model": model,
-        "document": part(document_metadata),
-        "patient": part(patient_metadata),
-        "package": first.get("package"),
-        **({"servers": [dict(s) for s in servers]} if servers else {}),
-    }
+        return write_extraction_store(output, documents, patients, mode=settings.mode, source=source,
+                                      extraction=extraction, private=settings.phi, overwrite=overwrite)
+    except ValueError as exc:
+        raise InputError(str(exc)) from None
 
 
 # ---------------------------------------------------------------------------
@@ -853,7 +646,6 @@ __all__ = [
     "compile_space_sql",
     "estimate_cost",
     "exploration_database",
-    "extraction_metadata",
     "inspect_store",
     "open_store",
     "patient_review",

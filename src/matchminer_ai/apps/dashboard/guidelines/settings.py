@@ -40,8 +40,9 @@ POPULATION_ARCHIVE_LIMIT = 8 * 1024**3
 
 def default_catalog_root():
     """The finalized NCCN catalogs both modes use (site config ``dashboard.guideline_catalogs``)."""
-    value = load_site_config().get("dashboard.guideline_catalogs")
-    return (Path(value).expanduser() if value else data_path("no_phi/space_paradigms_nccn")).resolve()
+    from matchminer_ai.trials.guideline_catalog import default_guideline_catalog_root
+
+    return default_guideline_catalog_root()
 
 
 def default_population_duckdb():
@@ -84,7 +85,7 @@ VERTEX_LABELS = connections.VERTEX_LABELS
 GEMINI_BACKENDS = connections.GEMINI_BACKENDS
 VERTEX_BACKENDS = frozenset(connections.VERTEX_MODELS)  # Gemini and Gemma MaaS
 DEFAULT_BACKEND = "gemini4_vertex"
-LOCAL = "local"  # an OpenAI-compatible server (vLLM)
+LOCAL = connections.LOCAL_BACKEND  # an OpenAI-compatible server (vLLM)
 
 
 def vertex_project():
@@ -99,52 +100,33 @@ def vertex_profiles():
 # every LLM task since 2026-11-21 (user instruction; before, the SQL agent only). The server fixes the gateway URL (the
 # site config's databricks.host). The model is the full three-part endpoint name from the site config's
 # databricks.endpoints (Haiku 5.5 is the app's default, user 2026-11-21). Access tokens come from the Databricks CLI
-# login profile (`databricks auth login --host <host> --profile <profile>`).
-CLAUDE_LABELS = {"claude_databricks": "Claude · Databricks AI Gateway"}
-# The SQL agent: Sonnet 5.5's default effort. On two colon items (2026-11-19) medium took the same time (~25 s per
-# item) but skipped reference-date bounds and planned-only reasons that high effort checked.
-CLAUDE_SQL_EFFORT = "high"
-# Every other task: Haiku 5.5's default effort (the OA summarization test of 2026-11-20 ran at it).
-CLAUDE_EFFORT = "medium"
+# login profile (`databricks auth login --host <host> --profile <profile>`). How a connection sets a preset section
+# (efforts, prompt budgets) is the package's (matchminer_ai.llm.connections.connect_section).
+CLAUDE_LABELS = {connections.CLAUDE_BACKEND: "Claude · Databricks AI Gateway"}
+CLAUDE_EFFORT = connections.CLAUDE_EFFORT
 # The chat assistant (Opus 5.5 by default): Opus 5.5's default effort, so a chat turn's several requests stay quick.
 CLAUDE_ASSISTANT_EFFORT = "medium"
 CLAUDE_CONTEXT = connections.CLAUDE_CONTEXT_TOKENS
-#: Patient-level extraction prompts through Claude: their budget and Claude's tokens per chunk-tokenizer token.
-CLAUDE_PATIENT_PROMPT_TOKENS = 85_000
-CLAUDE_TOKEN_RATIO = 1.6
 CLAUDE_ENDPOINT_NAME = connections.CLAUDE_ENDPOINT_NAME
 CLAUDE_BACKENDS = frozenset(CLAUDE_LABELS)
 # The task whose connection writes the workup queries: extraction queries' compile step and the SQL agent.
 SQL_TASK = "workup_sql"
 # The Assistant tab's chat agent (``apps.dashboard.assistant``).
 ASSISTANT_TASK = "assistant"
-QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
+QUERY_WRITERS = connections.QUERY_WRITERS
 
 
 def databricks_profile():
     return connections.databricks_profile()
 
 
-def claude_models() -> dict[str, str]:
-    """The gateway's Claude endpoint names by model (site config ``databricks.endpoints``: haiku, sonnet, opus)."""
-    endpoints = load_site_config().get("databricks.endpoints") or {}
-    if not isinstance(endpoints, dict):
-        return {}
-    return {str(k): str(v).strip() for k, v in endpoints.items() if str(v or "").strip()}
+claude_models = connections.claude_models
 
 
 def claude_backends():
     """{backend: {endpoint, model, models, tokenizer}}: the gateway URL from the site config; Haiku's endpoint name
     offered first, and every endpoint the site names."""
-    host = connections.databricks_host().rstrip("/")
-    models = claude_models()
-    return {"claude_databricks": {
-        "endpoint": connections.claude_gateway_endpoint(host),
-        "model": models.get("haiku") or next(iter(models.values()), ""),
-        "models": models,
-        # Unused: hosted prompt budgets use conservative UTF-8 bytes.
-        "tokenizer": connections.VERTEX_TOKENIZER,
-    }}
+    return {connections.CLAUDE_BACKEND: connections.claude_profile()}
 
 
 def default_task_connections() -> dict:
@@ -320,67 +302,19 @@ class Settings:
             writer._connect_section(getattr(c, name), name, own_connection=True)
         return c
 
+    @property
+    def llm_connection(self):
+        """This connection for the package's section builders (``matchminer_ai.llm.connections``)."""
+        return connections.Connection(self.llm_backend, self.model, self.endpoint, self.tokenizer,
+                                      self.reasoning if self.thinking_supported else None)
+
     def _connect_section(self, section, name, *, own_connection=False):
-        """Point one preset section at this connection.
+        """Point one preset section at this connection (``connections.connect_section``).
 
         ``own_connection``: the section names its endpoint and provider itself, so it
         can differ from the shared ``remote`` the other sections use.
         """
-        remote = dict(section["remote"])
-        local = dict(section.get("local", {}))
-        if self.llm_backend in CLAUDE_BACKENDS:
-            profile = claude_backends()[self.llm_backend]
-            effort = CLAUDE_SQL_EFFORT if name in QUERY_WRITERS else CLAUDE_EFFORT
-            remote.update(
-                provider="databricks_anthropic", server_urls=[profile["endpoint"]],
-                databricks_profile=databricks_profile(), model_name=self.model,
-                tokenizer_name=profile["tokenizer"], extra_body={},
-                request_params={"max_tokens": min(
-                    65536, remote.get("request_params", {}).get("max_tokens", 32768)),
-                    "reasoning_effort": effort},
-            )
-            local["chat_template_kwargs"] = {}
-            local["engine"] = {**local.get("engine", {}), "max_model_len": CLAUDE_CONTEXT}
-            local["chat_template_kwargs"] = {}
-            # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
-            section.update(structured_outputs=True, reasoning_effort=effort, sampling_profile="none")
-            if name == "patient_extraction":
-                # Haiku 5.5 bills a prompt over 100,000 tokens at five times the rate (user, 2026-11-21: keep
-                # patient-level prompts under it): 85,000 for the notes and record, leaving room for the response
-                # schema (input too, about 8,000), at about 1.6 Claude tokens per chunk-tokenizer token (measured).
-                section.update(prompt_tokens=CLAUDE_PATIENT_PROMPT_TOKENS, prompt_token_ratio=CLAUDE_TOKEN_RATIO)
-        elif self.llm_backend in VERTEX_BACKENDS:
-            backend = self.llm_backend
-            profile = vertex_profiles()[backend]
-            remote.update(
-                model_name=profile["model"], tokenizer_name=profile["tokenizer"],
-                request_params=connections.vertex_request_params(
-                    backend, remote.get("request_params", {}).get("max_tokens", 32768)),
-                extra_body=connections.vertex_extra_body(backend, self.reasoning),
-            )
-            if own_connection:
-                remote.update({k: v for k, v in connections.vertex_remote(backend).items()
-                               if k in ("provider", "google_project_id", "server_urls")})
-            local["chat_template_kwargs"] = connections.vertex_chat_template(backend, self.reasoning)
-            local["engine"] = {**local.get("engine", {}),
-                               "max_model_len": connections.vertex_context_tokens(backend)}
-            section.update(structured_outputs=name == "workup_sql_agent",
-                           reasoning_effort="high",
-                           sampling_profile=connections.vertex_sampling_profile(backend))
-        else:
-            remote.update(model_name=self.model, tokenizer_name=self.tokenizer)
-            if own_connection:
-                remote.update(provider="openai", server_urls=[self.endpoint])
-            if name == "workup_sql_agent":
-                # Read the served context from /v1/models rather than assume the preset's.
-                local["engine"] = {k: v for k, v in local.get("engine", {}).items()
-                                   if k != "max_model_len"}
-            if self.thinking_supported:
-                template = {"enable_thinking": self.reasoning}
-                remote["extra_body"] = {**remote.get("extra_body", {}),
-                                        "chat_template_kwargs": template.copy()}
-                local["chat_template_kwargs"] = template.copy()
-        section.update(remote=remote, local=local)
+        connections.connect_section(section, name, self.llm_connection, own_connection=own_connection)
 
     def for_task(self, task):
         if task not in LLM_TASKS:
@@ -410,55 +344,7 @@ class Settings:
         c.embedding["device"] = self.device
         c.raw["decision_model"].update(self.decision_model)
         c.raw["decision_model"]["device"] = self.decision_model.get("device", self.device)
-        c.remote.update(
-            enabled=True,
-            server_urls=[self.endpoint],
-            max_concurrent_requests=1,
-            request_timeout=7200,
-        )
-        c.patient["remote"].update(model_name=self.model, tokenizer_name=self.tokenizer)
-        c.patient["sampling_profile"] = "auto"
-        c.patient["reasoning_effort"] = "xhigh"
+        c.remote.update(max_concurrent_requests=1, request_timeout=7200)
+        connections.connect_patient_section(c, self.llm_connection)
         c.patient["prompt_build_workers"] = 1
-        # Only send model-specific thinking controls for models with a known
-        # switch. Unknown models retain their own defaults.
-        template = {"enable_thinking": self.reasoning} if self.thinking_supported else {}
-        c.patient.setdefault("local", {})["chat_template_kwargs"] = template.copy()
-        c.patient["remote"]["extra_body"] = (
-            {"chat_template_kwargs": template.copy()} if template else {}
-        )
-        if self.llm_backend in VERTEX_BACKENDS:
-            backend = self.llm_backend
-            profile = vertex_profiles()[backend]
-            context_window = connections.vertex_context_tokens(backend)
-            # Provider, project, endpoint and, for Gemma MaaS, its request pacing.
-            c.remote.update(connections.vertex_remote(backend))
-            c.patient.update(
-                sampling_profile=connections.vertex_sampling_profile(backend), reasoning_effort="high",
-                context_window=context_window, tokenizer_mode="bytes",
-            )
-            c.patient["local"]["engine"]["max_model_len"] = context_window
-            c.patient["local"]["chat_template_kwargs"] = connections.vertex_chat_template(backend, self.reasoning)
-            c.patient["remote"].update(
-                model_name=profile["model"],
-                tokenizer_name=profile["tokenizer"],
-                request_params=connections.vertex_request_params(backend, connections.VERTEX_MAX_OUTPUT_TOKENS),
-                extra_body=connections.vertex_extra_body(backend, self.reasoning),
-            )
-        elif self.llm_backend in CLAUDE_BACKENDS:
-            profile = claude_backends()[self.llm_backend]
-            # The gateway's Messages route with this server's Databricks CLI profile; hosted prompt budgets count
-            # conservative UTF-8 bytes; no sampling settings.
-            c.remote.update(provider="databricks_anthropic", server_urls=[profile["endpoint"]],
-                            databricks_profile=databricks_profile())
-            c.patient.update(sampling_profile="none", reasoning_effort=CLAUDE_EFFORT, context_window=CLAUDE_CONTEXT,
-                             tokenizer_mode="bytes")
-            c.patient["local"]["engine"]["max_model_len"] = CLAUDE_CONTEXT
-            c.patient["local"]["chat_template_kwargs"] = {}
-            c.patient["remote"].update(
-                model_name=self.model, tokenizer_name=profile["tokenizer"], extra_body={},
-                request_params={"max_tokens": connections.VERTEX_MAX_OUTPUT_TOKENS, "reasoning_effort": CLAUDE_EFFORT},
-            )
-        elif self.llm_backend != LOCAL:
-            raise ValueError("Unsupported LLM backend")
         return c

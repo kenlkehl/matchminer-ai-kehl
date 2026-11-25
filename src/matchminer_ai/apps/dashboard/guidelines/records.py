@@ -82,7 +82,7 @@ class StoreHandle:
         """The patients the store holds (read once per manifest)."""
         import pyarrow.dataset as ds
 
-        from .extraction_workup import DOCUMENT_FILE, PATIENT_FILE
+        from matchminer_ai.patients.extraction.store import DOCUMENT_FILE, PATIENT_FILE
 
         store = self.get()
         if store is None:

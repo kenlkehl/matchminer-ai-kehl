@@ -4,13 +4,15 @@ import copy
 import hashlib
 import io
 import json
-import re
 import threading
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pandas as pd
+
+from matchminer_ai.patients.workup import is_history_and_physical
+from matchminer_ai.trials.guideline_catalog import latest_guideline_catalogs
 
 from ..core.errors import InputError  # noqa: F401  (raised here; imported from here by the routes)
 
@@ -28,37 +30,12 @@ class Catalogs:
         with self.lock:
             if not refresh and time.monotonic() < self.expires:
                 return list(self.rows)
-            candidates = {}
-            # The supported layout is ROOT/run/disease. Never traverse checkpoints.
-            folders = list(self.root.glob("*/*/validation.json"))
-            folders += list(self.root.glob("*/validation.json"))
-            for audit_file in folders:
-                folder = audit_file.parent
-                try:
-                    audit = json.loads(audit_file.read_text())
-                    status = json.loads((folder / "status.json").read_text())
-                    source = json.loads((folder / "sources.json").read_text())
-                    if audit.get("status") != "passed" or status.get("status") != "complete":
-                        continue
-                    if not (folder / "paradigms.jsonl").is_file():
-                        continue
-                    relative = str(folder.relative_to(self.root))
-                    row = dict(
-                        id=hashlib.sha256(relative.encode()).hexdigest()[:20],
-                        disease=source["disease"],
-                        title=source["title"],
-                        version=source["version"],
-                        spaces=audit["paradigms"],
-                        updated=status.get("updated_utc", ""),
-                        path=str(folder),
-                    )
-                    # One completed catalog per disease; keep the latest completed run.
-                    old = candidates.get(row["disease"])
-                    if old is None or row["updated"] > old["updated"]:
-                        candidates[row["disease"]] = row
-                except (OSError, ValueError, KeyError):
-                    continue  # A copying/in-progress artifact is not a selectable catalog.
-            self.rows = sorted(candidates.values(), key=lambda row: row["title"].casefold())
+            # One completed catalog per disease, the latest run (the package's discovery rule).
+            self.rows = [
+                {"id": hashlib.sha256(str(Path(row["path"]).relative_to(self.root)).encode()).hexdigest()[:20],
+                 **row}
+                for row in latest_guideline_catalogs(self.root)
+            ]
             self.expires = time.monotonic() + 60
             return list(self.rows)
 
@@ -161,36 +138,6 @@ def parse_upload(name, content):
         "notes": records,
         "notice": f"{len(records)} notes imported in date order. Undated notes follow dated notes.",
     }
-
-
-# A workup item that is a history and physical examination, however qualified ("with complete
-# skin examination", "surveillance", "including performance status"), and names nothing else.
-_HISTORY_PHYSICAL = re.compile(r"\bphysical\b|\bh\s*&\s*p\b", re.IGNORECASE)
-_OTHER_WORKUP = re.compile(
-    r"laborator|\blabs?\b|goals?[- ]of[- ](?:care|therapy)|shared decision|endoscop|imaging|\b(?:ct|mri|pet|ecg)\b|"
-    r"ultrasound|biops|photograph|family history|genetic|counsel|\btests?\b|\bblood\b|"
-    r"marker|\bscan\b|x-?ray|echocardio|transfusion|medication|\bcbc\b|metabolic|chemistr|"
-    r"microglobulin|distress|\bpsa\b|patholog|smear|marrow|cytopenia|fiberoptic|"
-    r"laryngoscop", re.IGNORECASE)
-
-
-def is_history_and_physical(item):
-    """Whether a workup item only asks for a history and physical examination.
-
-    Such items are always done and are left out of workup checks (user instruction,
-    2026-11-17). An item that also names another step ("history, physical and laboratory
-    evaluation") stays; the reviews ignore its history and physical part.
-    """
-    name = str(item.get("name") or "")
-    return bool(_HISTORY_PHYSICAL.search(name)) and not _OTHER_WORKUP.search(name)
-
-
-def without_history_and_physical(space):
-    """A copy of ``space`` whose diagnostic_workup leaves out history-and-physical items."""
-    if not space or not space.get("diagnostic_workup"):
-        return space
-    return {**space, "diagnostic_workup": [
-        item for item in space["diagnostic_workup"] if not is_history_and_physical(item)]}
 
 
 def display_considerations(frame):

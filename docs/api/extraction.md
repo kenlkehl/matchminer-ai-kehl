@@ -275,6 +275,23 @@ item types must not reuse a core name, list key or id prefix.
         - Field
         - Vocabulary
 
+## Extraction record stores
+
+A store is a folder of one population's document and patient records with a `manifest.json`: the dashboard's
+extraction-based checks read stores, and its `preprocess_extractions` command and the
+[anchored concordance review](../user-guide/population-concordance.md) write them
+(`matchminer_ai.patients.extraction.store`). `write_extraction_store` writes one atomically (`private=True`: folder
+0700, files 0600), `read_store_manifest` checks its format, mode and file sizes, and `read_store_records` returns the
+records as the extractors return them. A store holds patient-derived text: keep it where the notes may be kept.
+
+::: matchminer_ai.patients.extraction.store
+    options:
+      members:
+        - write_extraction_store
+        - read_store_manifest
+        - read_store_records
+        - extraction_metadata
+
 ## Schema versions
 
 - **v2 (2026-11-17):** added lab tests and counseling.
@@ -287,4 +304,3 @@ item types must not reuse a core name, list key or id prefix.
   - The document prompt asks every imaging report read for cancer, and every oncology clinic or hospital note that
     assesses it, for an assessment of each cancer.
   - Records of earlier versions have neither, so a query on them reads `site_groups` as not stated.
-

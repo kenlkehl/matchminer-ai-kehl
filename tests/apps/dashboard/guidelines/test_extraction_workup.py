@@ -632,7 +632,8 @@ def test_extraction_config_maps_the_sql_agent_section(tmp_path):
 
 def test_history_and_physical_items_are_left_out_of_workup_checks(population_app, agent,
                                                                   monkeypatch):
-    from matchminer_ai.apps.dashboard.guidelines.services import display_considerations, is_history_and_physical
+    from matchminer_ai.apps.dashboard.guidelines.services import display_considerations
+    from matchminer_ai.patients.workup import is_history_and_physical
 
     for name in ("History and physical examination", "History and physical (H&P)",
                  "Physical examination and performance status",

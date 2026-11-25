@@ -1,8 +1,11 @@
-"""Opt-in population workup review and explicit, portable cohort archives.
+"""Opt-in population workup review, explicit portable cohort archives, and the anchored concordance review.
 
-No sampling policy, patient paths, or endpoint defaults are defined here. Source
-notes stay attached to their patient IDs. Compression and encoding are separate
-caller-controlled stages. Archives contain sensitive data; writes are explicit.
+The cohort functions here define no sampling policy, patient paths, or endpoint
+defaults. Source notes stay attached to their patient IDs. Compression and encoding
+are separate caller-controlled stages. Archives contain sensitive data; writes are
+explicit. The anchored guideline-concordance review (seeded anchor notes, part 1
+``prepare``, part 2 ``concordance``, the ``report`` files and the ``review`` command
+line) is in the submodules.
 """
 
 from __future__ import annotations
@@ -649,3 +652,11 @@ def load_patient_cohort(path, *, max_uncompressed_bytes=16 * 1024**3):
                 )
             cohort = replace(cohort, report={**cohort.report, "aggregate": aggregate})
     return cohort
+
+
+# The anchored guideline-concordance review (anchors, part 1 and part 2; the command line is ``population.review``).
+from .anchors import choose_anchor_notes, notes_through_anchor  # noqa: E402, F401
+from .concordance import assess_concordance, concordance_category  # noqa: E402, F401
+from .prepare import (  # noqa: E402, F401
+    PreparedPopulation, load_prepared_population, prepare_anchored_population,
+)

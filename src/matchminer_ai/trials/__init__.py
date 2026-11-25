@@ -26,7 +26,9 @@ from .guidelines import (
     add_guideline_cohort_criteria, audit_guideline_catalog, list_guidelines, summarize_guidelines,
     review_guideline_citations,
 )
-from .guideline_catalog import load_guideline_catalog, get_guideline_considerations
+from .guideline_catalog import (
+    get_guideline_considerations, latest_guideline_catalogs, load_guideline_catalog,
+)
 from .pdq import prepare_pdq_library, summarize_pdq, summarize_pdq_collection
 
 if TYPE_CHECKING:
@@ -236,6 +238,7 @@ __all__ = [
     "list_guidelines",
     "audit_guideline_catalog",
     "load_guideline_catalog",
+    "latest_guideline_catalogs",
     "prepare_pdq_library",
     "summarize_pdq",
     "summarize_pdq_collection",
