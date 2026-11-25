@@ -3,6 +3,9 @@
 # change them together. The full variant adds constraints-engines.txt. torch 2.14's CUDA 13.0 wheels carry SM 7.5
 # (the lite Space's T4) through SM 12.0 kernels.
 torch==2.14.0
+# MatchEval-1226 ships its base model's image and video processors, which import torchvision; transformers checks
+# every import of a model's remote code before loading it. 0.29.0 is the release built for torch 2.14.0.
+torchvision==0.29.0
 transformers==5.20.2
 sentence-transformers==6.1.0
 huggingface_hub==1.33.0
