@@ -135,7 +135,7 @@ class DashState:
         # The package's connection builders (llm.connections) apply the same rule, wherever the app reaches them.
         from matchminer_ai.llm import connections
 
-        connections.set_connection_policy(self.local_server.connection_policy if self.local_server.only else None)
+        connections.set_connection_policy(self.local_server.connection_policy if self.local_server.restricts else None)
         self.custom: dict[str, dict] = {}
         self.seed_cohort_vectors()
         # ---- benchmarks: evaluation runs under the mode's roots (Benchmarking tab)

@@ -16,6 +16,8 @@ GOOGLE_AGENT_PLATFORM_PROVIDER = "google_agent_platform"
 #: profile: structured requests (``StructuredClient``) and the remote path
 #: (:class:`~matchminer_ai.llm.anthropic_messages.GatewayChatClient`).
 DATABRICKS_ANTHROPIC_PROVIDER = "databricks_anthropic"
+#: OpenRouter (``matchminer_ai.llm.openrouter``) with a user's own key, held in memory and named by ``api_key_ref``.
+OPENROUTER_PROVIDER = "openrouter"
 GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
 AsyncAPIKey = str | Callable[[], Awaitable[str]]
@@ -38,13 +40,14 @@ def remote_provider_name(remote_config: Mapping[str, Any]) -> str:
         "google_agent_platform": GOOGLE_AGENT_PLATFORM_PROVIDER,
         "databricks": DATABRICKS_ANTHROPIC_PROVIDER,
         "databricks_anthropic": DATABRICKS_ANTHROPIC_PROVIDER,
+        "openrouter": OPENROUTER_PROVIDER,
     }
     try:
         return aliases[normalized]
     except KeyError as exc:
         allowed = ", ".join(
             (OPENAI_COMPATIBLE_PROVIDER, GOOGLE_AGENT_PLATFORM_PROVIDER,
-             DATABRICKS_ANTHROPIC_PROVIDER)
+             DATABRICKS_ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER)
         )
         raise ValueError(
             f"Unsupported remote provider {raw_provider!r}. Use one of: {allowed}."
@@ -174,6 +177,11 @@ def remote_api_key(remote_config: Mapping[str, Any]) -> AsyncAPIKey:
     if provider == GOOGLE_AGENT_PLATFORM_PROVIDER:
         project_id = str(remote_config.get("google_project_id") or "").strip()
         return _google_adc_token_provider(project_id).async_token
+    if provider == OPENROUTER_PROVIDER:
+        # The user's key, from this process's memory (never the environment's OpenAI key).
+        from .openrouter import api_key
+
+        return api_key(remote_config.get("api_key_ref"))
     return str(os.environ.get("OPENAI_API_KEY", "not-needed")).strip() or "not-needed"
 
 
@@ -188,6 +196,10 @@ def remote_bearer_token(
     if remote_provider_name(remote_config) == GOOGLE_AGENT_PLATFORM_PROVIDER:
         project_id = str(remote_config.get("google_project_id") or "").strip()
         return _google_adc_token_provider(project_id).token()
+    if remote_provider_name(remote_config) == OPENROUTER_PROVIDER:
+        from .openrouter import api_key
+
+        return api_key(remote_config.get("api_key_ref"))
     return (
         str(explicit_api_key or "").strip()
         or str(os.environ.get("OPENAI_API_KEY", "not-needed")).strip()
@@ -247,6 +259,7 @@ __all__ = [
     "GOOGLE_AGENT_PLATFORM_PROVIDER",
     "GOOGLE_CLOUD_SCOPE",
     "OPENAI_COMPATIBLE_PROVIDER",
+    "OPENROUTER_PROVIDER",
     "GoogleADCAccessTokenProvider",
     "clear_google_adc_credential_cache",
     "databricks_token_provider",

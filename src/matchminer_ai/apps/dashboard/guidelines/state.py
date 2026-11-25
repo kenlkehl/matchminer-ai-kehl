@@ -3,6 +3,10 @@
 - **Model connections:** the app's default connection (``Settings``) and, per session, the connection the user
   chose for each LLM task (``LLM_TASKS``). A job takes a snapshot of its task's connection when it is submitted,
   so a later change cannot redirect a running or queued job's patient text to another endpoint.
+- **OpenRouter keys** (synthetic mode only): a session's pasted key, kept by ``matchminer_ai.llm.openrouter`` in this
+  process's memory; the session holds only its reference (``Settings.api_key_ref``). It is never written, logged or
+  sent back to the browser (``config_view`` shows only that a key is set and its last four characters), and it is
+  forgotten when the session expires or the user removes it.
 - **The patient workspace:** a session's guideline jobs (summaries, guideline searches, workup reviews) and its
   extraction records.
 - **Populations:** a session's population and its guideline-space cohort (``population.PopulationSessions``).
@@ -15,19 +19,25 @@ from dataclasses import replace
 import threading
 import time
 
+from matchminer_ai.llm import openrouter
+
 from ..core.errors import InputError
 from ..core.jobs import JobManager
 from .extraction_workup import SessionExtractions
 from .population import PopulationSessions
 from .services import Catalogs, Inference, synthetic_note_sources
 from .settings import (
-    CLAUDE_BACKENDS, CLAUDE_LABELS, GEMINI_BACKENDS, LLM_TASKS, VERTEX_BACKENDS, VERTEX_LABELS,
+    CLAUDE_BACKENDS, CLAUDE_LABELS, GEMINI_BACKENDS, LLM_TASKS, OPENROUTER, VERTEX_BACKENDS, VERTEX_LABELS,
     Settings, claude_backends, databricks_profile, vertex_profiles, vertex_project,
 )
 
 
 # The values of a saved connection that name where its requests go.
 CONNECTION_KEYS = ("llm_backend", "endpoint", "model", "tokenizer")
+OPENROUTER_REAL = "OpenRouter is offered in synthetic mode only; real mode never sends patient data to it."
+OPENROUTER_NOTICE = ("At your own risk: the key and the synthetic data the tasks send go to OpenRouter (openrouter.ai) "
+                     "under your own account, which is billed for them. The app keeps the key only in its memory for "
+                     "this browser session, never on disk, and never shows it again.")
 
 
 class GuidelineState:
@@ -50,6 +60,8 @@ class GuidelineState:
         # --local-server-only its ``refusal`` decides which connections are allowed.
         self.local_server = None
         self.workspace_settings: dict[str, dict] = {}
+        # Each session's OpenRouter key reference ({"ref", "updated"}); the key is in llm.openrouter's memory.
+        self.openrouter_keys: dict[str, dict] = {}
         self.lock = threading.RLock()
 
     # ------------------------------------------------------------------ expiry
@@ -61,6 +73,9 @@ class GuidelineState:
                        if time.monotonic() - entry["updated"] > self.settings.ttl]
             for owner in expired:
                 del self.workspace_settings[owner]
+            for owner in [o for o, e in self.openrouter_keys.items()
+                          if time.monotonic() - e["updated"] > self.settings.ttl]:
+                openrouter.forget_key(self.openrouter_keys.pop(owner)["ref"])
         self.jobs.clean()
         self.session_extractions.clean()
         self.population_sessions.clean(active_owners if active_owners is not None else self.jobs.active_owners())
@@ -76,19 +91,47 @@ class GuidelineState:
     def current_settings(self, owner: str) -> Settings:
         with self.lock:
             entry = self.workspace_settings.get(owner)
+            key = self.openrouter_keys.get(owner)
+            if key is not None:
+                key["updated"] = time.monotonic()
             if entry is None:
-                return self.settings
+                return self.settings if key is None else replace(self.settings, api_key_ref=key["ref"])
             entry["updated"] = time.monotonic()
-            return replace(self.settings, **self.allowed(entry["values"]))
+            return replace(self.settings, **self.allowed(entry["values"]), api_key_ref=key["ref"] if key else "")
 
     def refusal(self, values: dict) -> str | None:
-        """Why a connection is refused (``--local-server-only``: anything but the app's ready local server)."""
-        return self.local_server.refusal(values) if self.local_server is not None else None
+        """Why a connection is refused (``--local-server-only``: anything but the app's ready local server, and
+        OpenRouter unless allowed; real mode: OpenRouter)."""
+        if self.local_server is not None:
+            return self.local_server.refusal(values)
+        return OPENROUTER_REAL if values.get("llm_backend") == OPENROUTER and self.settings.phi else None
+
+    def openrouter_refusal(self) -> str | None:
+        """Why this app does not offer OpenRouter (None when it does)."""
+        return self.refusal({"llm_backend": OPENROUTER})
+
+    def set_openrouter_key(self, owner: str, key: str) -> None:
+        """Keep a session's OpenRouter key in memory (``ValueError`` with a fixed text when it is not a key)."""
+        reason = self.openrouter_refusal()
+        if reason:
+            raise InputError(reason)
+        ref = openrouter.register_key(key)
+        with self.lock:
+            previous = self.openrouter_keys.get(owner)
+            self.openrouter_keys[owner] = {"ref": ref, "updated": time.monotonic()}
+        if previous:
+            openrouter.forget_key(previous["ref"])
+
+    def forget_openrouter_key(self, owner: str) -> None:
+        with self.lock:
+            previous = self.openrouter_keys.pop(owner, None)
+        if previous:
+            openrouter.forget_key(previous["ref"])
 
     def allowed(self, values: dict) -> dict:
         """A session's saved values without the connections now refused (a local server since stopped or restarted
         on another port), so those tasks fall back to the app's default."""
-        if self.local_server is None or not self.local_server.only:
+        if self.local_server is None or not self.local_server.restricts:
             return values
         kept = dict(values)
         if any(k in kept for k in CONNECTION_KEYS) and self.refusal(kept):
@@ -165,6 +208,7 @@ class GuidelineState:
         settings = self.settings
         only = self.local_server is not None and self.local_server.only
         project = vertex_project() if not only else ""
+        offered = self.openrouter_refusal() is None
         return dict(
             **connection_view(selected),
             tasks={task: {"label": label, **connection_view(selected.for_task(task))}
@@ -178,6 +222,16 @@ class GuidelineState:
             local_defaults={"endpoint": settings.endpoint, "model": settings.model, "tokenizer": settings.tokenizer},
             local_server=(self.local_server.connection_view() if self.local_server is not None else
                           {"only": False, "state": None, "endpoint": None, "model": None, "tokenizer": None}),
+            # The key itself is never sent back: only whether one is set and its last four characters.
+            openrouter=({"offered": True, "endpoint": openrouter.ENDPOINT, "notice": OPENROUTER_NOTICE,
+                         "key_set": openrouter.has_key(selected.api_key_ref),
+                         "key_hint": openrouter.key_hint(selected.api_key_ref),
+                         "default_model": openrouter.presets()["default"],
+                         "models": [{"id": key, "label": entry.get("label") or key,
+                                     "reasoning": bool(entry.get("reasoning", False)),
+                                     "claude": openrouter.is_claude(key)}
+                                    for key, entry in openrouter.presets()["models"].items()]}
+                        if offered else {"offered": False}),
             device=settings.device,
             ttl_minutes=settings.ttl // 60,
             max_upload_mb=settings.max_upload // 1024**2,
@@ -193,9 +247,12 @@ def connection_view(selected: Settings) -> dict:
         connection = vertex_profiles()[selected.llm_backend]
     elif selected.llm_backend in CLAUDE_BACKENDS:
         connection = {**claude_backends()[selected.llm_backend], "model": selected.model}
+    elif selected.llm_backend == OPENROUTER:
+        connection = {"endpoint": openrouter.ENDPOINT, "model": selected.model, "tokenizer": selected.tokenizer}
     else:
         connection = {"endpoint": selected.endpoint, "model": selected.model, "tokenizer": selected.tokenizer}
-    managed = selected.llm_backend in GEMINI_BACKENDS or selected.llm_backend in CLAUDE_BACKENDS
+    managed = (selected.llm_backend in GEMINI_BACKENDS or selected.llm_backend in CLAUDE_BACKENDS
+               or (selected.llm_backend == OPENROUTER and openrouter.is_claude(selected.model)))
     sampling, _ = (vendor_defaults(connection["model"], template={"enable_thinking": selected.reasoning})
                    if not managed else ({}, {}))
     return {"llm_backend": selected.llm_backend, **connection, "reasoning": selected.reasoning,

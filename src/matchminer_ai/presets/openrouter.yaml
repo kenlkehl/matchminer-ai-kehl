@@ -1,0 +1,51 @@
+# Models offered for OpenRouter connections (matchminer_ai.llm.openrouter; the dashboard's Data and models tab, in
+# synthetic mode only). A user pastes their own OpenRouter API key and may type any other model ID.
+# IDs are OpenRouter's, from https://openrouter.ai/api/v1/models (checked 2026-11-25); each offers JSON-schema
+# structured outputs (supported_parameters: response_format, structured_outputs) and reasoning. Per model:
+# - label: the name Data and models shows;
+# - context: the prompt budget the app plans with (tokens; at most the model's own context);
+# - tokenizer: a Hugging Face repository with the model's tokenizer for the app's prompt budgets (default
+#   Qwen/Qwen3-0.6B, as for the other hosted models: local chunk boundaries only);
+# - reasoning: whether the form turns reasoning on by default.
+# Claude models (anthropic/...) get no sampling parameters and their effort through OpenRouter's reasoning and
+# verbosity parameters (matchminer_ai.llm.openrouter.request_body).
+default: nvidia/nemotron-3.5-super-vl
+models:
+  nvidia/nemotron-3.5-super-vl:
+    label: Nemotron 3.5 Super (the model the training data was generated and labeled with)
+    context: 262144
+    tokenizer: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+    reasoning: true
+  nvidia/nemotron-3.5-super-vl:free:
+    label: Nemotron 3.5 Super, free tier (rate-limited; see its providers' data policies)
+    context: 131072
+    tokenizer: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+    reasoning: true
+  anthropic/claude-haiku-5.5:
+    label: Claude Haiku 5.5
+    context: 1000000
+    reasoning: true
+  anthropic/claude-sonnet-5.5:
+    label: Claude Sonnet 5.5
+    context: 1000000
+    reasoning: true
+  anthropic/claude-opus-5.5:
+    label: Claude Opus 5.5
+    context: 1000000
+    reasoning: true
+  qwen/qwen3.8-flash:
+    label: Qwen3.8 Flash
+    context: 262144
+    reasoning: true
+  deepseek/deepseek-v4.1-flash:
+    label: DeepSeek V4.1 Flash
+    context: 262144
+    reasoning: true
+  z-ai/glm-5.3:
+    label: GLM 5.3
+    context: 262144
+    reasoning: true
+  moonshotai/kimi-k3:
+    label: Kimi K3
+    context: 262144
+    reasoning: true

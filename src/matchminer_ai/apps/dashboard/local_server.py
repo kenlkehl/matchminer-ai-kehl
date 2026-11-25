@@ -6,7 +6,10 @@ LLM tasks (``matchminer_ai.llm.local_server``).
 - **Only the local server** (``--local-server-only``): no other connection is accepted (``refusal``), wherever one
   is chosen (``GuidelineState.update``, the connection check) or read back (``GuidelineState.current_settings``
   drops a saved one that is not the ready server); the ready server is every task's default, and until it is ready
-  LLM tasks have no connection and say so.
+  LLM tasks have no connection and say so. ``--allow-openrouter`` (synthetic mode) also accepts OpenRouter with a
+  session's own key, e.g. while the server loads or on a machine without a GPU (a Hugging Face Space).
+- **OpenRouter** is refused in real mode, always (``refusal``), by the same policy the package's connection builders
+  apply (``connection_policy``).
 - **GPUs:** discovered with ``llm.gpus``; each GPU's memory is split into this app (its process and its children),
   the local server (its process group) and other processes. Process IDs are not sent to the page.
 - **Use:** once the server is ready, a session's tasks can use it (``use``), as an OpenAI-compatible connection with
@@ -35,6 +38,10 @@ from .llm import Connection
 ENGINE_CACHE_SECONDS = 60
 ONLY = ("This dashboard uses only its own local model server (--local-server-only); other model connections are "
         "refused. Use the local server on Data and models.")
+ONLY_OR_OPENROUTER = ("This dashboard uses only its own local model server (--local-server-only) or OpenRouter with "
+                      "your own key; other model connections are refused.")
+OPENROUTER_BACKEND = "openrouter"
+OPENROUTER_REAL = "OpenRouter is offered in synthetic mode only; real mode never sends patient data to it."
 NOT_READY = ("This dashboard uses only its own local model server (--local-server-only), which is not ready: start it "
              "on Data and models.")
 
@@ -85,6 +92,9 @@ class LocalServerControl:
     def __init__(self, settings, guidelines, llm_checks=None, log=print, gpus=discover_gpus):
         self.only = bool(getattr(settings, "local_server_only", False))
         self.make_default = self.only or bool(getattr(settings, "local_server_default", False))
+        self.real = str(getattr(settings, "mode", "synthetic")) == "real"
+        # With --local-server-only: also OpenRouter with a session's own key (never in real mode).
+        self.allow_openrouter = bool(getattr(settings, "allow_openrouter", False)) and not self.real
         self.llama_server = getattr(settings, "llama_server", None)
         self.allow_downloads = bool(getattr(settings, "allow_downloads", False))
         self.device = str(getattr(settings, "device", "") or "")
@@ -199,7 +209,12 @@ class LocalServerControl:
         connection = self.connection() or {}
         return {"only": self.only, "state": server.state if server else None,
                 "endpoint": connection.get("endpoint"), "model": connection.get("model"),
-                "tokenizer": connection.get("tokenizer")}
+                "tokenizer": connection.get("tokenizer"), "allow_openrouter": self.allow_openrouter}
+
+    @property
+    def restricts(self) -> bool:
+        """Whether ``refusal`` refuses anything: with --local-server-only, and in real mode (OpenRouter)."""
+        return self.only or self.real
 
     def connection_policy(self, connection) -> str | None:
         """``llm.connections``' policy with ``--local-server-only`` (``set_connection_policy``): every builder refuses
@@ -212,19 +227,25 @@ class LocalServerControl:
 
     def refusal(self, values) -> str | None:
         """Why a connection (``llm_backend``, ``endpoint``, ``model``) is refused: with ``--local-server-only``,
-        anything but this app's own ready local server (by endpoint and served name); None when it is allowed."""
+        anything but this app's own ready local server (by endpoint and served name) and, with --allow-openrouter,
+        OpenRouter; in real mode, OpenRouter. None when it is allowed."""
+        if (values.get("llm_backend") or "local") == OPENROUTER_BACKEND:
+            if self.real:
+                return OPENROUTER_REAL
+            return ONLY if self.only and not self.allow_openrouter else None
         if not self.only:
             return None
         server = self.server
+        refused = ONLY_OR_OPENROUTER if self.allow_openrouter else ONLY
         if server is None or server.state != "ready":
-            return NOT_READY
+            return NOT_READY + (" Or use OpenRouter with your own key." if self.allow_openrouter else "")
         try:
             endpoint = normalize_endpoint(str(values.get("endpoint") or ""))
         except ValueError:
-            return ONLY
+            return refused
         if (values.get("llm_backend") or "local") != "local" or endpoint != server.endpoint \
                 or values.get("model") != server.spec.name:
-            return ONLY
+            return refused
         return None
 
     # ------------------------------------------------------------------ control

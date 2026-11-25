@@ -125,6 +125,10 @@ class DashSettings(Settings):
     # Every LLM task uses this app's own local model server, and no other connection is accepted (no gateway, Vertex
     # or other OpenAI-compatible endpoint); implies local_server_default.
     local_server_only: bool = False
+    # Synthetic mode, with local_server_only: also accept OpenRouter connections with a browser session's own key (a
+    # Space whose local server is loading or which has no GPU). Without local_server_only, synthetic mode always
+    # offers OpenRouter; real mode never does.
+    allow_openrouter: bool = False
     # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
     llama_server: str | None = None
     # Synthetic mode only: another trial set than the synthetic run's (site config dashboard.synthetic.trial_cohorts
@@ -156,6 +160,11 @@ class DashSettings(Settings):
                 raise ValueError(f"A frame ancestor is an https origin such as https://huggingface.co, not {origin!r}")
         if self.local_server_only:
             self.local_server_default = True
+        if self.allow_openrouter and real:
+            raise ValueError("OpenRouter is for synthetic mode only (allow_openrouter); real mode never offers it.")
+        if self.llm_backend == "openrouter":
+            raise ValueError("OpenRouter needs each browser session's own key, so it cannot be the default connection; "
+                             "choose it on Data and models.")
         if self.device in (None, "", AUTO_DEVICE):
             self.device, self.device_notice = default_device()
         if self.trial_data is None and real:
@@ -231,8 +240,8 @@ def _flag(name: str) -> bool:
 
 def local_server_settings(args, mode: str) -> dict:
     """The local model server's settings: the command line, then MMAI_DASH_* variables (LOCAL_SERVER_ONLY,
-    LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER), then the site config's
-    ``dashboard.<mode>.local_server`` (``only``, ``autostart``, ``default``, ``llama_server``)."""
+    LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER, ALLOW_OPENROUTER), then the site config's
+    ``dashboard.<mode>.local_server`` (``only``, ``autostart``, ``default``, ``llama_server``, ``allow_openrouter``)."""
     import json
 
     site = load_site_config().get(f"dashboard.{mode}.local_server") or {}
@@ -245,7 +254,9 @@ def local_server_settings(args, mode: str) -> dict:
     return {"local_server_only": only, "local_server_autostart": autostart or None,
             "local_server_default": bool(only or args.local_server_default or _flag("local_server_default")
                                          or site.get("default")),
-            "llama_server": args.llama_server or _env("llama_server") or site.get("llama_server") or None}
+            "llama_server": args.llama_server or _env("llama_server") or site.get("llama_server") or None,
+            "allow_openrouter": bool(getattr(args, "allow_openrouter", False) or _flag("allow_openrouter")
+                                     or site.get("allow_openrouter"))}
 
 
 def default_device() -> tuple[str, str | None]:
@@ -339,6 +350,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
                         "are enough")
     parser.add_argument("--local-server-default", action="store_true", help="once the local model server is ready, "
                         "make it the default connection of every task in sessions that chose none")
+    parser.add_argument("--allow-openrouter", action="store_true", help="synthetic mode, with --local-server-only: "
+                        "also accept OpenRouter connections with each browser session's own key (synthetic mode "
+                        "offers OpenRouter anyway without --local-server-only; real mode never does)")
     parser.add_argument("--llama-server", help="the llama-server binary (default: $MMAI_LLAMA_SERVER, else "
                         "llama-server on PATH)")
     parser.add_argument("--frame-ancestors", help="synthetic mode: comma-separated https origins whose pages may show "

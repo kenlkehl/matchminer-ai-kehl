@@ -17,6 +17,7 @@ from matchminer_ai.llm.remote_auth import (
     AsyncAPIKey,
     DATABRICKS_ANTHROPIC_PROVIDER,
     GOOGLE_AGENT_PLATFORM_PROVIDER,
+    OPENROUTER_PROVIDER,
     prepare_messages_for_provider,
     remote_provider_name,
 )
@@ -89,6 +90,11 @@ def build_remote_request_config(
         if "reasoning_effort" not in kept and llm_config.get("reasoning_effort"):
             kept["reasoning_effort"] = llm_config["reasoning_effort"]
         return kept, {}
+    if remote_provider_name(llm_config) == OPENROUTER_PROVIDER:
+        # OpenRouter's parameters: JSON-schema output with require_parameters, its reasoning object, no vLLM fields.
+        from .openrouter import split_request
+
+        return split_request(request_params, extra_body, str(llm_config.get("model_name") or ""))
     if remote_provider_name(llm_config) == GOOGLE_AGENT_PLATFORM_PROVIDER:
         model = str(llm_config.get("model_name", "")).removeprefix("google/")
         if model == "gemma-4-26b-a4b-it-maas":
@@ -187,6 +193,16 @@ def connect_to_remote_servers(
         profile = str(remote_config.get("databricks_profile") or load_site_config().get("databricks.profile") or "")
         logger.info("Using %d Databricks gateway endpoint(s) for Claude.", len(server_urls))
         return [(GatewayChatClient(url, profile=profile, timeout=request_timeout + 60), 443) for url in server_urls]
+    if remote_config is not None and remote_provider_name(remote_config) == OPENROUTER_PROVIDER:
+        from . import openrouter
+
+        for url in server_urls:
+            error = openrouter.destination_error(url)
+            if error:
+                raise ValueError(error)
+        logger.info("Using OpenRouter.")
+        return [(openrouter.ChatClient(remote_config.get("api_key_ref"), timeout=request_timeout + 60,
+                                       max_connections=max_connections), 443) for url in server_urls]
     from openai import AsyncOpenAI
 
     logger.info("Using %d external server(s): %s", len(server_urls), server_urls)
@@ -298,7 +314,8 @@ async def single_inference_request(
 
         except Exception as exc:
             wait_time = min((2**attempt) * 5, 120)
-            if attempt < max_retries - 1:
+            # A failure retrying cannot fix (an OpenRouter key or credit error) ends the request now.
+            if attempt < max_retries - 1 and getattr(exc, "retryable", True) is not False:
                 logger.info(
                     "  Row %d: error '%s' (attempt %d/%d), retrying in %.1fs.",
                     row_idx,
@@ -418,8 +435,10 @@ class RemoteRequestSession:
         self.preparation = BackgroundWork(workers=4, pending=8, name='mmai-request-preparation')
         self.pool = None
         claude = remote_provider_name(self.config) == DATABRICKS_ANTHROPIC_PROVIDER
-        # The endpoint pool speaks OpenAI to vLLM servers; Claude goes through GatewayChatClient.
-        if isinstance(self.api_key, str) and not claude and (
+        hosted = claude or remote_provider_name(self.config) == OPENROUTER_PROVIDER
+        # The endpoint pool speaks OpenAI to vLLM servers; Claude goes through GatewayChatClient, OpenRouter through
+        # openrouter.ChatClient.
+        if isinstance(self.api_key, str) and not hosted and (
                 self.config.get('adaptive_concurrency', {}).get('enabled')
                 or self.config.get('server_urls_file') or self.config.get('use_endpoint_pool')):
             from .endpoint_pool import shared_pool, MAX_POOL_WORKERS

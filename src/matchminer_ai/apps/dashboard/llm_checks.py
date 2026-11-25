@@ -108,7 +108,7 @@ class LLMChecks:
         connection = connection or self.connection
         if not connection.configured:
             return "No LLM connection is ready: start the local model server or choose a connection on Data and models."
-        return vertex_credentials_error() if connection.vertex else None
+        return vertex_credentials_error() if connection.vertex else connection.credentials_error()
 
     def good_option_unavailable(self, connection: Connection | None = None) -> str | None:
         if reason := self.connection_unavailable(connection):

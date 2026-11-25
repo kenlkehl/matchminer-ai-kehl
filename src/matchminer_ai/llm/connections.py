@@ -1,7 +1,7 @@
-"""Connection profiles shared by the apps: an OpenAI-compatible server, the Vertex (Agent Platform) profiles and
-Claude through a Databricks AI Gateway.
+"""Connection profiles shared by the apps: an OpenAI-compatible server, the Vertex (Agent Platform) profiles,
+Claude through a Databricks AI Gateway and OpenRouter with a user's own key.
 
-A connection names where a preset section's requests go. Three kinds:
+A connection names where a preset section's requests go. Four kinds:
 
 - **an OpenAI-compatible server** (vLLM): an address normalized by ``normalize_endpoint`` and a model chosen from
   the server's ``/v1/models`` (``served_models``);
@@ -11,7 +11,11 @@ A connection names where a preset section's requests go. Three kinds:
   thinking (``GEMINI_BACKENDS``); Gemma MaaS takes a thinking switch and needs request pacing (``GEMMA_PACING``);
 - **Claude through a Databricks AI Gateway** (``claude_gateway_endpoint``): the gateway of the site config's
   ``databricks.host``, its Anthropic Messages route, a three-part endpoint name (``CLAUDE_ENDPOINT_NAME``) and the
-  Databricks CLI login profile.
+  Databricks CLI login profile;
+- **OpenRouter** (``matchminer_ai.llm.openrouter``): any OpenRouter model ID (``presets/openrouter.yaml`` lists
+  some), always at ``openrouter.ENDPOINT``, with the key a user pasted, held in this process's memory and named by
+  the connection's ``api_key_ref``. Claude models there are treated as through the gateway (JSON-schema answers,
+  the same efforts, no sampling settings); other models get their model profile's sampling.
 
 The ``vertex_*`` helpers give the parts of a preset section that a Vertex profile fixes (request parameters, extra
 body, chat-template switches, context window, sampling profile). ``connect_section`` and ``connect_patient_section``
@@ -26,10 +30,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-from .remote_auth import GOOGLE_AGENT_PLATFORM_PROVIDER
+from . import openrouter
+from .remote_auth import GOOGLE_AGENT_PLATFORM_PROVIDER, OPENROUTER_PROVIDER
 from .remote_inference import normalize_openai_base_url
 
 # ---------------------------------------------------------------------------------------- OpenAI-compatible
@@ -288,6 +293,7 @@ def claude_profile() -> dict:
 
 LOCAL_BACKEND = "local"  # an OpenAI-compatible server (vLLM)
 CLAUDE_BACKEND = "claude_databricks"  # Claude through the site config's Databricks gateway
+OPENROUTER_BACKEND = "openrouter"  # OpenRouter with a user's own key (matchminer_ai.llm.openrouter)
 #: The sections that write queries: the compile steps of workup and trial-criteria queries, and the SQL agent.
 QUERY_WRITERS = ("workup_query_compile", "criteria_query_compile", "workup_sql_agent")
 # The query writers through Claude: Sonnet 5.5's default effort. On two colon items (2026-11-19) medium took the same
@@ -310,8 +316,10 @@ class Connection:
     - ``model``: the served model id, or the gateway's endpoint name (``CLAUDE_ENDPOINT_NAME``); a Vertex profile
       names its own.
     - ``tokenizer``: the local tokenizer for prompt budgets (default: ``model``).
-    - ``thinking``: the chat-template thinking switch of a local model or Gemma MaaS that takes one; None sends none,
-      so the model keeps its own default.
+    - ``thinking``: the chat-template thinking switch of a local model or Gemma MaaS that takes one (for OpenRouter,
+      its reasoning switch); None sends none, so the model keeps its own default.
+    - ``api_key_ref``: OpenRouter only, the reference of the key in this process's memory
+      (``openrouter.register_key``).
     """
 
     backend: str = LOCAL_BACKEND
@@ -319,6 +327,7 @@ class Connection:
     endpoint: str = ""
     tokenizer: str = ""
     thinking: bool | None = None
+    api_key_ref: str = field(default="", repr=False)
 
 
 class ConnectionRefused(ValueError):
@@ -407,6 +416,33 @@ def connect_section(section: dict, name: str, connection: Connection, *, own_con
         local["engine"] = {**local.get("engine", {}), "max_model_len": vertex_context_tokens(backend)}
         section.update(structured_outputs=name == "workup_sql_agent", reasoning_effort="high",
                        sampling_profile=vertex_sampling_profile(backend))
+    elif connection.backend == OPENROUTER_BACKEND:
+        settings = openrouter.model_settings(connection.model)
+        remote.update(model_name=connection.model, tokenizer_name=connection.tokenizer or settings["tokenizer"])
+        if own_connection:
+            remote.update(openrouter_remote(connection))
+        local["engine"] = {**local.get("engine", {}), "max_model_len": settings["context"]}
+        params = dict(remote.get("request_params") or {})
+        params["max_tokens"] = min(openrouter.MAX_OUTPUT_TOKENS, params.get("max_tokens", 32768))
+        if openrouter.is_claude(connection.model):
+            # As through the gateway: JSON-schema answers at the same efforts, no sampling settings.
+            effort = CLAUDE_QUERY_WRITER_EFFORT if name in QUERY_WRITERS else CLAUDE_EFFORT
+            remote.update(extra_body={}, request_params={"max_tokens": params["max_tokens"], "reasoning_effort": effort})
+            local["chat_template_kwargs"] = {}
+            section.update(structured_outputs=True, reasoning_effort=effort, sampling_profile="none")
+            if name == "patient_extraction":
+                section.update(prompt_tokens=CLAUDE_PATIENT_PROMPT_TOKENS, prompt_token_ratio=CLAUDE_TOKEN_RATIO)
+        else:
+            remote["request_params"] = params
+            # JSON-schema answers (OpenRouter's require_parameters keeps to providers that honour them) and the
+            # model profile's sampling. The request carries a reasoning switch, not an effort, so the section's
+            # effort goes too (the profile's default then applies; Qwen 3.8's profile refuses "high").
+            section.update(structured_outputs=True, sampling_profile="auto")
+            section.pop("reasoning_effort", None)
+            if connection.thinking is not None:
+                template = {"enable_thinking": connection.thinking}
+                remote["extra_body"] = {**remote.get("extra_body", {}), "chat_template_kwargs": template.copy()}
+                local["chat_template_kwargs"] = template.copy()
     elif connection.backend == LOCAL_BACKEND:
         remote.update(model_name=connection.model, tokenizer_name=connection.tokenizer or connection.model)
         if own_connection:
@@ -423,6 +459,12 @@ def connect_section(section: dict, name: str, connection: Connection, *, own_con
     section.update(remote=remote, local=local)
 
 
+def openrouter_remote(connection: Connection) -> dict:
+    """The ``remote`` settings of an OpenRouter connection: provider, the fixed endpoint and the key's reference."""
+    return {"provider": OPENROUTER_PROVIDER, "server_urls": [openrouter.ENDPOINT],
+            "api_key_ref": connection.api_key_ref}
+
+
 def connect_remote(config, connection: Connection) -> None:
     """Point the shared ``remote`` (the endpoint, provider and credentials scope every section uses but the SQL
     agent's own) at ``connection`` and enable it, in place. Concurrency and timeouts stay the caller's."""
@@ -437,6 +479,10 @@ def connect_remote(config, connection: Connection) -> None:
         # The gateway's Messages route with this server's Databricks CLI profile.
         config.remote.update(provider="databricks_anthropic", server_urls=[claude_profile()["endpoint"]],
                              databricks_profile=databricks_profile())
+    elif connection.backend == OPENROUTER_BACKEND:
+        config.remote.update(openrouter_remote(connection))
+        # One fixed endpoint: no endpoint pool or adaptive concurrency (those are for vLLM servers).
+        config.remote.setdefault("adaptive_concurrency", {})["enabled"] = False
     else:
         raise ValueError("Unsupported LLM backend")
 
@@ -469,6 +515,20 @@ def connect_patient_section(config, connection: Connection) -> None:
             request_params=vertex_request_params(backend, VERTEX_MAX_OUTPUT_TOKENS),
             extra_body=vertex_extra_body(backend, thinking),
         )
+    elif connection.backend == OPENROUTER_BACKEND:
+        settings = openrouter.model_settings(connection.model)
+        claude = openrouter.is_claude(connection.model)
+        # Hosted prompt budgets count conservative UTF-8 bytes; Claude gets no sampling settings.
+        patient.update(sampling_profile="none" if claude else "auto", context_window=settings["context"],
+                       tokenizer_mode="bytes", **({"reasoning_effort": CLAUDE_EFFORT} if claude else {}))
+        patient["local"]["engine"]["max_model_len"] = settings["context"]
+        params = {**patient["remote"].get("request_params", {}), "max_tokens": openrouter.MAX_OUTPUT_TOKENS}
+        if claude:
+            patient["local"]["chat_template_kwargs"] = {}
+            params = {"max_tokens": openrouter.MAX_OUTPUT_TOKENS, "reasoning_effort": CLAUDE_EFFORT}
+        patient["remote"].update(model_name=connection.model,
+                                 tokenizer_name=connection.tokenizer or settings["tokenizer"],
+                                 request_params=params, **({"extra_body": {}} if claude else {}))
     elif connection.backend == CLAUDE_BACKEND:
         profile = claude_profile()
         # Hosted prompt budgets count conservative UTF-8 bytes; no sampling settings.

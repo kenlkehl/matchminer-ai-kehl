@@ -42,7 +42,9 @@ engine, and nothing it shows is medical advice.
   [Nemotron 3.5 Super](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4) (NVFP4, text only),
   the model that labeled the training data, in vLLM on this Space's GPU (on a smaller GPU,
   [Nemotron 3.5 Bolt](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF) in llama.cpp). The
-  Space reaches no other model service.
+  only other model service it uses is [OpenRouter](https://openrouter.ai), if you choose it on Data and models with
+  your own API key, at your own risk: the key and the synthetic data the tasks send then go to OpenRouter under your
+  account. The Space keeps the key only in memory for your browser session.
 - **Data:** [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), downloaded at
   startup, with its guideline catalogs (NCI PDQ) when it has them.
 

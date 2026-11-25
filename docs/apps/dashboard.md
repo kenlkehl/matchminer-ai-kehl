@@ -334,9 +334,9 @@ when the site config names the gateway (`databricks.host`, `databricks.profile`)
 (`databricks.endpoints.haiku`), else the Vertex profile Gemini 4 Hydrogen (in the site's `vertex.project`). Claude
 serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
 endpoints the site names (`sonnet`, `opus`) can be chosen per task. An OpenAI-compatible endpoint is also offered
-(`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`). Each session can change the
-connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
-endpoints authorized for the data.
+(`--llm-backend openai`, `--llm-endpoint`, default the site's `endpoints.teacher.url`), and in synthetic mode
+[OpenRouter](#openrouter) with a user's own key. Each session can change the connection per task on Data and models.
+Patient text and cohort criteria go to the selected endpoints, so use only endpoints authorized for the data.
 
 ## Decision model or LLM
 
@@ -481,12 +481,15 @@ server refuses every other model connection, wherever one is chosen or used:
   defaults are ignored).
 - **Frontend:** Data and models' connection forms offer only the local server. Benchmarking reads stored answers
   and is unaffected.
+- **OpenRouter:** with `--allow-openrouter` (synthetic mode), [OpenRouter](#openrouter) with a session's own key is
+  accepted too, for example while the server loads or on a machine without a suitable GPU. The forms then offer the
+  local server and OpenRouter; nothing else.
 - **Other network use is unchanged:** Hugging Face model downloads (with `--allow-downloads`) and ClinicalTrials.gov
   fetches.
 
-**Flags** (also `MMAI_DASH_LOCAL_SERVER_ONLY`, `MMAI_DASH_LOCAL_SERVER_AUTOSTART`, `MMAI_DASH_LOCAL_SERVER_DEFAULT`
-and `MMAI_DASH_LLAMA_SERVER`, or the site config's `dashboard.<mode>.local_server` with `only`, `autostart`, `default`
-and `llama_server`):
+**Flags** (also `MMAI_DASH_LOCAL_SERVER_ONLY`, `MMAI_DASH_LOCAL_SERVER_AUTOSTART`, `MMAI_DASH_LOCAL_SERVER_DEFAULT`,
+`MMAI_DASH_LLAMA_SERVER` and `MMAI_DASH_ALLOW_OPENROUTER`, or the site config's `dashboard.<mode>.local_server` with
+`only`, `autostart`, `default`, `llama_server` and `allow_openrouter`):
 
 | Flag | Effect |
 | --- | --- |
@@ -494,6 +497,7 @@ and `llama_server`):
 | `--local-server-autostart JSON\|PATH` | Start a server spec (JSON, or a JSON or YAML file) once the decision model has loaded, so vLLM's memory profile sees it. The engine, model and GPUs are enough: the rest comes from the model's recipe, with the variant for the GPUs' free memory |
 | `--local-server-default` | Once ready, the server is the default connection of every task in sessions that chose none |
 | `--llama-server PATH` | The `llama-server` binary (default: `$MMAI_LLAMA_SERVER`, else `llama-server` on `PATH`) |
+| `--allow-openrouter` | Synthetic mode, with `--local-server-only`: also accept OpenRouter with a session's own key |
 
 For example, a Space (the [Hugging Face Space](hf-space.md) sets the same in its site config): Bolt with llama.cpp
 on the first GPU, the only model connection:
@@ -504,6 +508,36 @@ mmai-dashboard --mode synthetic --allow-downloads --local-server-only \
 ```
 
 The package API is described in [Local model server](../api/local-server.md).
+
+## OpenRouter
+
+In synthetic mode Data and models also offers **OpenRouter (your own API key)** for any task or **Use for every
+task**: an OpenRouter model ID and the user's own OpenRouter API key, at the user's own risk. It needs no site
+config and no GPU, so it also serves when no local model server can run.
+
+- **Models:** any OpenRouter model ID may be typed; the form suggests some (`presets/openrouter.yaml`, IDs from
+  OpenRouter's model list): Nemotron 3.5 Super (the model the synthetic training data was generated and labeled
+  with; the default) and its free tier, Claude Haiku, Sonnet and Opus 5.5, and open models with JSON-schema output
+  (Qwen3.8 Flash, DeepSeek V4.1 Flash, GLM 5.3, Kimi K3).
+- **The key:** pasted once per browser session and kept only in the app's memory for that session: never written
+  to disk, logged, put in an error or an export, or sent back to the browser (the form shows only "key set" and its
+  last four characters). It is sent only to `https://openrouter.ai/api/v1`, and forgotten when the session expires
+  or the user removes it. The key and the synthetic data the tasks send go to OpenRouter under the user's own
+  account, which is billed for them.
+- **Requests** (`matchminer_ai.llm.openrouter`): every task answers in its JSON schema (`response_format`), with
+  `provider.require_parameters` so that only providers honouring every parameter serve it. Reasoning goes through
+  OpenRouter's `reasoning` parameter: Claude gets the same efforts as through the gateway (medium, high for the query
+  writers) as `reasoning.effort` and `verbosity`, and no temperature, top_p or top_k; other models get their model
+  profile's sampling (Nemotron 3.5 Super: NVIDIA's) and the **Reasoning** switch as `reasoning.enabled`. Outputs are
+  capped at 65,536 tokens; prompt budgets count UTF-8 bytes.
+- **Errors:** fixed texts for a refused key (401), too few credits (402), a refused model or input (403), no
+  provider for the parameters (404) and rate limits (429); response bodies are not kept.
+- **Connection check:** reads the key's own record and the public model list, and checks that the model offers
+  JSON-schema output; it sends no prompt.
+- **Real mode never offers OpenRouter.** Its routes, the connection checks and the package's connection builders
+  (`llm.connections.set_connection_policy`, the mechanism `--local-server-only` uses) refuse it, and
+  `allow_openrouter` is an error there. OpenRouter cannot be the app's default connection (`--llm-backend`), since
+  the key is per session.
 
 ## Real patients
 

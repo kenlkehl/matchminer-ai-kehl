@@ -78,7 +78,7 @@ to these endpoints instead of loading a model in-process. Model names and reques
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Use remote endpoints for every LLM section |
-| `provider` | `openai` | Authentication and message profile: `openai`, `google_agent_platform` or `databricks_anthropic` (below) |
+| `provider` | `openai` | Authentication and message profile: `openai`, `google_agent_platform`, `databricks_anthropic` or `openrouter` (below) |
 | `server_urls` | `["http://localhost:8000/v1"]` | Endpoint base URLs, as a list or a comma-separated string. `http://` and `/v1` are added when missing |
 | `server_urls_file` | unset | A JSON server registry re-read during a run ([LLM runtime](llm-runtime.md#remote-endpoint-pool)) |
 | `max_concurrent_requests` | `32` | Requests in flight per server; the ceiling of adaptive concurrency |
@@ -92,6 +92,7 @@ to these endpoints instead of loading a model in-process. Model names and reques
 | `trace_dir` | unset | Directory for complete response archives ([LLM runtime](llm-runtime.md#reasoning-trace-archives)) |
 | `google_project_id` | unset | Google Cloud quota project for `google_agent_platform` |
 | `databricks_profile` | unset | Databricks CLI profile for `databricks_anthropic` |
+| `api_key_ref` | unset | For `openrouter`: the reference of a key held in the process's memory (`llm.openrouter.register_key`), never the key |
 | `request_start_interval_seconds`, `capacity_retry_initial_seconds`, `capacity_retry_max_seconds` | `0`, `0`, `60` | Pacing of structured requests ([LLM runtime](llm-runtime.md#request-pacing)) |
 
 The `openai` provider reads the API key from `OPENAI_API_KEY`; keys and credentials are never stored in configuration
@@ -198,6 +199,15 @@ gateway's three-part endpoint name.
   example the preset's Nemotron); Claude counts tokens somewhat differently.
 - **Monitoring:** with `MMAI_GATEWAY_REQUEST_LOG` set to a file, every request appends one line of metadata (times,
   HTTP status, stop reason, served model, token counts; never content), for watching rate limits.
+
+`provider: openrouter` sends requests to [OpenRouter](https://openrouter.ai) (`matchminer_ai.llm.openrouter`), with
+a user's own key held only in the process's memory: `register_key(key)` returns the reference that `api_key_ref`
+carries, and the key goes only to `server_urls: ["https://openrouter.ai/api/v1"]`, in a header. A section's
+`model_name` is an OpenRouter model ID. Requests keep a JSON-schema `response_format` and add
+`provider.require_parameters`; reasoning goes through OpenRouter's `reasoning` parameter (Claude: its effort, also as
+`verbosity`, and no sampling fields; other models: the thinking switch as `reasoning.enabled`). vLLM-only fields are
+dropped. Structured requests need `tokenizer_mode: bytes` and an explicit `context_window`. The dashboard offers it in
+synthetic mode only ([OpenRouter](../apps/dashboard.md#openrouter)).
 
 ## LLM sections
 

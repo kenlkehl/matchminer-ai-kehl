@@ -187,7 +187,7 @@ def agent_limits(config: MMAIConfig | None = None) -> WorkupSQLLimits:
 
 #: Connection keys the section's ``remote`` may set for the agent alone, overriding
 #: ``config.remote`` (the other sections, such as extraction, keep that connection).
-_CONNECTION_KEYS = ("server_urls", "provider", "google_project_id", "databricks_profile")
+_CONNECTION_KEYS = ("server_urls", "provider", "google_project_id", "databricks_profile", "api_key_ref")
 
 
 def resolve_agent_llm(config: MMAIConfig) -> StructuredConfig:
@@ -212,6 +212,7 @@ def resolve_agent_llm(config: MMAIConfig) -> StructuredConfig:
         # A provider of the agent's own: drop the shared connection's credentials scope.
         runtime.pop("google_project_id", None)
         runtime.pop("databricks_profile", None)
+        runtime.pop("api_key_ref", None)
     for key in _CONNECTION_KEYS:
         if key in connection:
             runtime[key] = copy.deepcopy(connection[key])

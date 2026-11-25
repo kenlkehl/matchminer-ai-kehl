@@ -44,14 +44,17 @@ dashboard:
     # The Space page shows the app in a frame.
     frame_ancestors: [https://huggingface.co]
     # Every LLM task uses the app's own model server on the Space's GPU, started once the decision model has loaded;
-    # no other model connection is accepted. On the RTX PRO 6000 (96 GB): vLLM serving Nemotron 3.5 Super NVFP4, text
-    # only, as NVIDIA's model card serves it on one GPU and as the production servers do (the package's Super profile
-    # gives the reasoning and tool parsers and the sampling). Memory: about 70 GiB of weights, then the KV and Mamba
-    # caches inside 84% of the GPU; the remaining ~15 GiB hold the decision model and TrialSpace, which the app loads
-    # on the same GPU. On a GPU under 90 GB, entrypoint.sh starts Bolt's GGUF with llama.cpp instead.
+    # the only other model connection accepted is OpenRouter with a visitor's own API key (allow_openrouter: while
+    # the server loads, or on hardware without a suitable GPU). On the RTX PRO 6000 (96 GB): vLLM serving Nemotron
+    # 3.5 Super NVFP4, text only, as NVIDIA's model card serves it on one GPU and as the production servers do (the
+    # package's Super profile gives the reasoning and tool parsers and the sampling). Memory: about 70 GiB of
+    # weights, then the KV and Mamba caches inside 84% of the GPU; the remaining ~15 GiB hold the decision model and
+    # TrialSpace, which the app loads on the same GPU. On a GPU under 90 GB, entrypoint.sh starts Bolt's GGUF with
+    # llama.cpp instead.
     local_server:
       only: true
       default: true
+      allow_openrouter: true
       autostart:
         engine: vllm
         model: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4

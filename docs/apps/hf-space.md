@@ -6,8 +6,9 @@ sleeps after five hours without visitors. Everything it shows comes from the Hub
 guideline catalogs of [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226),
 TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Super NVFP4 (the
 training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GPU under 90 GB (an L40S, say) the
-same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. It reaches no other model service, needs no
-sign-in and has no Benchmarking tab.
+same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
+[OpenRouter](dashboard.md#openrouter) with a visitor's own API key (`allow_openrouter`), at the visitor's own risk:
+while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
 
 ## Files
 
@@ -76,6 +77,10 @@ by everyone using the Space.
 
 ## The LLM server
 
+Until the local server is ready (or on hardware without a GPU), Data and models offers OpenRouter: a visitor pastes
+their own key, which the app keeps only in memory for that browser session and sends only to OpenRouter, and picks a
+model (by default `nvidia/nemotron-3.5-super-vl`, the same Nemotron 3.5 Super). Nothing else is accepted.
+
 `site.yaml`'s `local_server.autostart` is a full vLLM spec, so it needs no recipe in the package:
 - **Model:** `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4` at a pinned revision, text only
   (`--language-model-only`), served under its own ID. So the package's Super profile applies: the `nemotron_v3`
@@ -97,8 +102,11 @@ by everyone using the Space.
   per token (2.25 GiB for one 262,144-token context), and each sequence's Mamba state is about 80 MiB. So
   `max_model_len` 262,144 and `max_num_seqs` 8 fit, with the default (bf16) KV cache.
 - **Engine:** vLLM 0.33.0, whose wheels carry SM 12.0 kernels (the card lists vLLM on one RTX PRO 6000), with torch
-  2.14 (CUDA 13: host driver 580 or later; `entrypoint.sh` logs torch's view of the GPU). vLLM compiles some kernels
-  at start with the pip CUDA toolkit, which the local server finds by itself.
+  2.14 (CUDA 13: host driver 580 or later; `entrypoint.sh` logs torch's view of the GPU). FlashInfer's precompiled
+  kernels for SM 12.0 are installed (`flashinfer-cubin`, and `flashinfer-jit-cache` with its `sm120f` provider), so
+  vLLM loads them instead of compiling them. What it still compiles at start uses the pip CUDA toolkit, which the
+  local server finds by itself; `constraints.txt` pins its compiler to torch's CUDA 13.0, since a newer nvcc than
+  the 13.0 headers fails CCCL's check ("CUDA compiler and CUDA toolkit headers are incompatible").
 
 ## After a dataset update
 

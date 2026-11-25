@@ -11,7 +11,9 @@ The connection profiles are the package's (``matchminer_ai.llm.connections``, sh
   The Google destination is built here from the profile, never from browser input. The credentials are checked
   before a request (at most once a minute, bounded by a timeout), so their absence is reported, not waited on;
 - an OpenAI-compatible server (vLLM): a URL, by default the site config's ``endpoints.teacher.url`` (an on-prem
-  Nemotron 3.5 Super server), and a model chosen from the server's ``/v1/models``.
+  Nemotron 3.5 Super server), and a model chosen from the server's ``/v1/models``;
+- OpenRouter (synthetic mode only; ``matchminer_ai.llm.openrouter``): a model ID at OpenRouter's fixed endpoint, with
+  the key the browser session pasted, kept in the app's memory (``api_key_ref``).
 
 Sampling comes from the inference package's model profiles: each check's section gets ``sampling_profile: auto`` and
 loses the section's own fixed sampling keys (the GoodOption preset's greedy decoding), so the served model's profile
@@ -28,16 +30,17 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 
-from matchminer_ai.llm import connections
+from matchminer_ai.llm import connections, openrouter
 from matchminer_ai.llm.connections import normalize_endpoint, vertex_project
 
 NEMOTRON = "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
 OPENAI = "openai"  # an OpenAI-compatible server (vLLM)
 CLAUDE = "claude_databricks"  # Claude through the Databricks gateway (guidelines.settings.claude_backends)
+OPENROUTER = connections.OPENROUTER_BACKEND  # OpenRouter with the session's own key (synthetic mode only)
 VERTEX_MODELS = connections.VERTEX_MODELS
 VERTEX_LABELS = {key: f"{label} (Vertex)" for key, label in connections.VERTEX_LABELS.items()}
 GEMINI_BACKENDS = connections.GEMINI_BACKENDS  # manage their own sampling and thinking
-BACKENDS = (OPENAI, *VERTEX_MODELS, CLAUDE)
+BACKENDS = (OPENAI, *VERTEX_MODELS, CLAUDE, OPENROUTER)
 
 
 def claude_name(endpoint: str) -> str:
@@ -84,14 +87,23 @@ class Connection:
     endpoint: str = field(default_factory=default_endpoint)  # "" for none (the LLM checks are then disabled)
     model: str = NEMOTRON
     tokenizer: str = ""  # default: the model
+    # OpenRouter: the session's key in memory (matchminer_ai.llm.openrouter.register_key); not part of identity().
+    api_key_ref: str = field(default="", repr=False)
+    thinking: bool | None = None  # OpenRouter: the reasoning switch (None: the model's default)
 
     @classmethod
     def make(cls, backend: str = OPENAI, endpoint: str | None = None, model: str | None = None,
-             tokenizer: str | None = None) -> "Connection":
-        """A validated connection; a Vertex profile fixes its own endpoint, model and tokenizer."""
+             tokenizer: str | None = None, *, api_key_ref: str = "", thinking: bool | None = None) -> "Connection":
+        """A validated connection; a Vertex profile fixes its own endpoint, model and tokenizer, and OpenRouter its
+        endpoint."""
         backend = (backend or OPENAI).strip()
         if backend not in BACKENDS:
             raise ValueError(f"backend must be one of {', '.join(BACKENDS)}")
+        if backend == OPENROUTER:
+            model = openrouter.valid_model(model or "")
+            return cls(OPENROUTER, openrouter.ENDPOINT, model,
+                       (tokenizer or "").strip() or openrouter.model_settings(model)["tokenizer"],
+                       api_key_ref=api_key_ref, thinking=thinking)
         if backend in VERTEX_MODELS:
             profile = connections.vertex_profile(backend)
             return cls(backend, profile["endpoint"], profile["model"], profile["tokenizer"])
@@ -112,8 +124,10 @@ class Connection:
     def for_task(cls, settings) -> "Connection":
         """A session's connection for a check: its task's ``guidelines.settings.Settings`` (backend ``local`` is an
         OpenAI-compatible server)."""
-        backend = OPENAI if settings.llm_backend == "local" else settings.llm_backend  # Vertex and Claude keep theirs
-        return cls.make(backend, settings.endpoint, settings.model, settings.tokenizer)
+        backend = OPENAI if settings.llm_backend == "local" else settings.llm_backend  # the others keep theirs
+        return cls.make(backend, settings.endpoint, settings.model, settings.tokenizer,
+                        api_key_ref=getattr(settings, "api_key_ref", ""),
+                        thinking=bool(settings.reasoning) if backend == OPENROUTER else None)
 
     @property
     def configured(self) -> bool:
@@ -132,9 +146,30 @@ class Connection:
         return self.backend == CLAUDE
 
     @property
+    def openrouter(self) -> bool:
+        return self.backend == OPENROUTER
+
+    @property
+    def hosted_claude(self) -> bool:
+        """Claude, through the gateway or OpenRouter: JSON-schema answers, its effort, no sampling settings."""
+        return self.claude or (self.openrouter and openrouter.is_claude(self.model))
+
+    def credentials_error(self) -> str | None:
+        """Why this connection cannot send now (Vertex credentials, a missing OpenRouter key), else None."""
+        if self.vertex:
+            from matchminer_ai.llm.connections import vertex_credentials_error
+
+            return vertex_credentials_error()
+        if self.openrouter and not openrouter.has_key(self.api_key_ref):
+            return openrouter.NO_KEY
+        return None
+
+    @property
     def label(self) -> str:
         if self.claude:
             return f"{claude_name(self.model)} (Databricks gateway)"
+        if self.openrouter:
+            return f"{self.model} (OpenRouter)"
         if self.vertex:
             return VERTEX_LABELS[self.backend]
         return f"{self.model} at {self.endpoint}" if self.endpoint else "No connection"
@@ -144,7 +179,9 @@ class Connection:
         return {"backend": self.backend, "endpoint": self.endpoint, "model": self.model}
 
     def describe(self) -> dict:
-        return {**asdict(self), "configured": self.configured, "label": self.label, "vertex": self.vertex,
+        values = asdict(self)
+        values.pop("api_key_ref")
+        return {**values, "configured": self.configured, "label": self.label, "vertex": self.vertex,
                 "project": vertex_project() if self.vertex else None}
 
     # ------------------------------------------------------------------ the inference package's configuration
@@ -167,6 +204,12 @@ class Connection:
             from .guidelines.settings import CLAUDE_EFFORT, databricks_profile
 
             c.remote.update(provider="databricks_anthropic", databricks_profile=databricks_profile())
+        if self.openrouter:
+            from .guidelines.settings import CLAUDE_EFFORT
+
+            # The process's connection policy (real mode refuses OpenRouter), as for the package's builders.
+            connections.check_connection(connections.Connection(OPENROUTER, self.model, self.endpoint))
+            c.remote.update(provider="openrouter", api_key_ref=self.api_key_ref)
         for name in sections:
             section = getattr(c, name) if hasattr(c, name) else c.raw.get(name)
             if section is None:
@@ -177,10 +220,10 @@ class Connection:
             extra = {k: v for k, v in (remote.get("extra_body") or {}).items() if k not in SAMPLING_KEYS}
             local["generation"] = {k: v for k, v in (local.get("generation") or {}).items() if k not in SAMPLING_KEYS}
             remote.update(model_name=self.model, tokenizer_name=self.tokenizer or self.model)
-            if self.claude:
+            if self.hosted_claude:
                 # Claude answers in the section's JSON schema; no sampling settings (Haiku 5.5 rejects them).
                 params = {"max_tokens": min(65536, params.get("max_tokens", 32768)), "reasoning_effort": CLAUDE_EFFORT}
-                if thinking_summaries:
+                if thinking_summaries and self.claude:  # OpenRouter returns Claude's reasoning on its own
                     params["thinking"] = dict(CLAUDE_THINKING_SUMMARIES)
                 extra = {}
                 local["chat_template_kwargs"] = {}
@@ -196,6 +239,17 @@ class Connection:
                                    "max_model_len": connections.vertex_context_tokens(self.backend)}
                 section["sampling_profile"] = connections.vertex_sampling_profile(self.backend)
                 section["structured_outputs"] = False  # hosted models answer free JSON that the package validates
+            elif self.openrouter:
+                # JSON-schema answers, the model profile's sampling and the session's reasoning switch.
+                params["max_tokens"] = min(openrouter.MAX_OUTPUT_TOKENS, params.get("max_tokens", 32768))
+                if self.thinking is not None:
+                    extra["chat_template_kwargs"] = {"enable_thinking": self.thinking}
+                    local["chat_template_kwargs"] = {"enable_thinking": self.thinking}
+                local["engine"] = {**(local.get("engine") or {}),
+                                   "max_model_len": openrouter.model_settings(self.model)["context"]}
+                section["sampling_profile"] = "auto"
+                section["structured_outputs"] = True
+                section.pop("reasoning_effort", None)  # a reasoning switch, not an effort (connections.connect_section)
             else:
                 section["sampling_profile"] = "auto"
             remote.update(request_params=params, extra_body=extra)

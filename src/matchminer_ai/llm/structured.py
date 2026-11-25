@@ -19,6 +19,7 @@ from matchminer_ai.cancellation import cancel_sleep, check_cancelled, run_cancel
 from .remote_auth import (
     DATABRICKS_ANTHROPIC_PROVIDER,
     GOOGLE_AGENT_PLATFORM_PROVIDER,
+    OPENROUTER_PROVIDER,
     remote_bearer_token,
     remote_provider_name,
 )
@@ -56,6 +57,8 @@ class StructuredConfig:
     capacity_retry_max_seconds: float = 60.0
     # Explicit guideline migration keeps base_url as the original cache identity.
     transport_base_url: str | None = None
+    # Provider openrouter: the in-memory key's reference (matchminer_ai.llm.openrouter.register_key), never the key.
+    api_key_ref: str = field(default="", repr=False)
 
     def __post_init__(self):
         for name in (
@@ -73,6 +76,7 @@ class StructuredConfig:
 
     def public_dict(self):
         result = asdict(self)  # Contains only the key's environment-variable NAME.
+        result.pop("api_key_ref")  # a session's key reference: not part of a request's identity
         if self.transport_base_url is None:
             result.pop("transport_base_url")
         if not self.databricks_profile:
@@ -316,6 +320,14 @@ class StructuredClient:
             if config.tokenizer_mode != "bytes":
                 raise ValueError("Claude through Databricks has no tokenizer route; "
                                  "use tokenizer_mode='bytes'.")
+        if config.provider == OPENROUTER_PROVIDER:
+            from .openrouter import destination_error
+
+            error = destination_error(config.transport_base_url or config.base_url)
+            if error:
+                raise ValueError(error)
+            if config.tokenizer_mode != "bytes":
+                raise ValueError("OpenRouter has no tokenizer route; use tokenizer_mode='bytes'.")
 
     def normalize_result(self, value):
         """Normalize representation only; subclasses must not rewrite clinical content."""
@@ -358,7 +370,14 @@ class StructuredClient:
         base_url = self.config.transport_base_url or self.config.base_url
         headers = {"Content-Type": "application/json"}
         key = os.environ.get(self.config.api_key_env)
-        if self.config.provider == GOOGLE_AGENT_PLATFORM_PROVIDER:
+        openrouter = self.config.provider == OPENROUTER_PROVIDER
+        if openrouter:
+            from . import openrouter as router
+
+            # The user's key from memory, to OpenRouter only (raises for another destination); never the env key.
+            headers.update(router.headers(self.config.api_key_ref, base_url))
+            key = None
+        elif self.config.provider == GOOGLE_AGENT_PLATFORM_PROVIDER:
             parsed = urlsplit(base_url)
             if (
                 parsed.scheme != "https"
@@ -423,8 +442,11 @@ class StructuredClient:
                 return result
         except HTTPError as exc:
             # Deliberately don't persist server bodies (they may echo credentials).
+            if openrouter and exc.code in (401, 402, 403, 404):
+                # The key, credits, access or the model: retrying cannot fix them (fixed texts).
+                raise CredentialsError(router.status_message(exc.code), http_status=exc.code) from None
             raise EndpointError(
-                f"Endpoint HTTP {exc.code} for {endpoint}",
+                router.status_message(exc.code) if openrouter else f"Endpoint HTTP {exc.code} for {endpoint}",
                 http_status=exc.code,
                 retry_after=_retry_after_seconds(exc.headers.get("Retry-After")) if exc.headers else None,
                 thinking_unsupported=_thinking_control_rejected(exc, body),
@@ -542,6 +564,7 @@ class StructuredClient:
     def _complete_in_memory(self, body, messages, schema, validator):
         """Validate transient clinical requests without writing prompts or responses."""
         feedback = None
+        last_status = None  # OpenRouter: its last HTTP failure (a fixed text), reported if every attempt fails
         for attempt in range(self.config.attempts):
             request = dict(body)
             request["messages"] = messages + (
@@ -562,6 +585,8 @@ class StructuredClient:
             except CredentialsError:
                 raise
             except (ValueError, KeyError, TypeError, IndexError, EndpointError) as exc:
+                if isinstance(exc, EndpointError) and exc.http_status and self.config.provider == OPENROUTER_PROVIDER:
+                    last_status = exc
                 if self._capacity_retry(exc, attempt):
                     # Capacity rejection does not invalidate the prompt or add
                     # model feedback. The next HTTP attempt waits at dispatch.
@@ -572,6 +597,8 @@ class StructuredClient:
                 ).read_text(encoding="utf-8")
                 if attempt + 1 < self.config.attempts:
                     cancel_sleep(min(2 ** attempt, 8))
+        if last_status is not None:
+            raise EndpointError(str(last_status), http_status=last_status.http_status)
         raise EndpointError("Structured review failed validation after bounded retries.")
 
     def _capacity_retry(self, error, attempt):
@@ -667,6 +694,10 @@ class StructuredClient:
                 "chat_template_kwargs",
             ):
                 body.pop(name, None)
+        if self.config.provider == OPENROUTER_PROVIDER:
+            from .openrouter import request_body
+
+            body = request_body(body)
         if not self.fits(messages):
             raise ValueError(
                 f"{job}: prompt exceeds {self.prompt_budget} available input tokens "
@@ -1026,6 +1057,7 @@ def resolve_structured_config(
         tokenizer_mode=mode,
         stream=stream,
         api_key_env=runtime.get("api_key_env", "OPENAI_API_KEY"),
+        api_key_ref=str(runtime.get("api_key_ref") or ""),
         request_params=params,
         extra_body=extra,
     )

@@ -18,11 +18,7 @@ def unavailable(connection: Connection) -> str | None:
     if not connection.configured:
         return ("No LLM connection is ready for criteria classification: start the local model server or choose a "
                 "connection on Data and models.")
-    if connection.vertex:
-        from matchminer_ai.llm.connections import vertex_credentials_error
-
-        return vertex_credentials_error()
-    return None
+    return connection.credentials_error()
 
 
 def configure(connection: Connection, metadata_dir) -> object:

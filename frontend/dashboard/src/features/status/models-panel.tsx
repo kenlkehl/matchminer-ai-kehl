@@ -13,6 +13,7 @@ import {
   type ModelCheck,
   type ModelConfig,
   modelsOptions,
+  type OpenRouterView,
   type Task,
 } from "@/lib/models";
 import { llmOptions } from "@/lib/queries";
@@ -23,8 +24,9 @@ const VERTEX = "vertex";
 
 /**
  * Each LLM task's connection for this browser session: an OpenAI-compatible server (its models read
- * from /v1/models), a Vertex profile, or Claude through the Databricks gateway (the default). A job
- * keeps the connection it started with. The server's command line sets the default.
+ * from /v1/models), a Vertex profile, Claude through the Databricks gateway (the default) or, in
+ * synthetic mode, OpenRouter with the user's own key. A job keeps the connection it started with. The
+ * server's command line sets the default.
  */
 export function ModelsPanel() {
   const config = useQuery(modelsOptions());
@@ -99,11 +101,21 @@ export function ModelsPanel() {
 export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) {
   const client = useQueryClient();
   const current = config.tasks[task];
-  const [backend, setBackend] = useState<Backend>(current.llm_backend);
+  // The local model server (Data and models), once it is ready; with --local-server-only the only connection
+  // (and OpenRouter, when the app allows it).
+  const localServer = config.local_server;
+  const localReady = localServer.state === "ready" && Boolean(localServer.endpoint);
+  const only = localServer.only;
+  const openRouter = config.openrouter.offered ? config.openrouter : null;
+  const [backend, setBackend] = useState<Backend>(
+    only && current.llm_backend !== "openrouter" ? "local" : current.llm_backend,
+  );
   const local = current.llm_backend === "local" ? current : config.local_defaults;
   const [endpoint, setEndpoint] = useState(local.endpoint);
   const [model, setModel] = useState(
-    current.llm_backend === "local" || current.llm_backend === "claude_databricks"
+    current.llm_backend === "local" ||
+      current.llm_backend === "claude_databricks" ||
+      current.llm_backend === "openrouter"
       ? current.model
       : config.local_defaults.model,
   );
@@ -122,20 +134,41 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   const vertex = config.vertex_profiles[backend];
   const claude = backend === "claude_databricks" ? config.claude_profiles[backend] : undefined;
   useEffect(() => {
-    // Claude offers the site's endpoint name first (the chat assistant's: Opus).
-    if (claude && !model.includes("claude"))
+    // Claude offers the site's endpoint name first (the chat assistant's: Opus); an OpenRouter ID has a "/".
+    if (claude && (!model.includes("claude") || model.includes("/")))
       setModel((task === "assistant" ? claude.models.opus : undefined) ?? claude.model);
   }, [claude, model, task]);
+  const routed = backend === "openrouter" ? openRouter : null;
+  // Claude through OpenRouter takes an effort, not a thinking switch.
+  const routedClaude = Boolean(
+    routed?.models.find((m) => m.id === model)?.claude ?? model.startsWith("anthropic/"),
+  );
   const isBackup = BACKUP_TASKS.includes(task);
-  // The local model server (Data and models), once it is ready; with --local-server-only the only connection.
-  const localServer = config.local_server;
-  const localReady = localServer.state === "ready" && Boolean(localServer.endpoint);
-  const only = localServer.only;
+  const useLocal = only && !routed;
+  const chooseBackend = (value: Backend) => {
+    if (value === "openrouter" && openRouter && backend !== "openrouter") {
+      // OpenRouter offers its default model first, with its reasoning setting.
+      const first = openRouter.models.find((m) => m.id === openRouter.default_model);
+      setModel(openRouter.default_model);
+      setReasoning(first?.reasoning ?? true);
+    }
+    setBackend(value);
+  };
   const body = (applyToAll: boolean) => ({
-    llm_backend: only ? "local" : backend,
-    endpoint: only ? localServer.endpoint : (vertex?.endpoint ?? claude?.endpoint ?? endpoint),
-    model: only ? localServer.model : (vertex?.model ?? model),
-    tokenizer: only ? localServer.tokenizer : vertex ? vertex.tokenizer : tokenizer,
+    llm_backend: useLocal ? "local" : backend,
+    endpoint: useLocal
+      ? localServer.endpoint
+      : routed
+        ? routed.endpoint
+        : (vertex?.endpoint ?? claude?.endpoint ?? endpoint),
+    model: useLocal ? localServer.model : (vertex?.model ?? model),
+    tokenizer: useLocal
+      ? localServer.tokenizer
+      : vertex
+        ? vertex.tokenizer
+        : routed
+          ? ""
+          : tokenizer,
     task,
     apply_to_all: applyToAll,
     reasoning,
@@ -146,12 +179,12 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
     mutationFn: () =>
       api.post<ModelCheck>(
         "/api/models/check",
-        only
+        useLocal
           ? { task, llm_backend: "local", endpoint: localServer.endpoint, model: localServer.model }
           : {
               task,
               llm_backend: backend,
-              endpoint: vertex || claude ? null : endpoint,
+              endpoint: vertex || claude || routed ? null : endpoint,
               model: vertex ? null : model,
             },
       ),
@@ -176,7 +209,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   return (
     <section className="flex flex-col gap-3 rounded-md border border-gray-200 p-3">
       <h3 className="font-semibold">{current.label}</h3>
-      {only ? (
+      {only && !openRouter ? (
         <p className="text-gray-700">
           {localReady
             ? `Local model server: ${localServer.model ?? ""} at ${localServer.endpoint ?? ""}`
@@ -194,10 +227,14 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
                 if (value === VERTEX) {
                   const first = vertexKeys[0];
                   if (!vertex && first) setBackend(first as Backend);
-                } else setBackend(value as Backend);
+                } else chooseBackend(value as Backend);
               }}
             >
-              <option value="local">OpenAI-compatible server (vLLM, llama.cpp)</option>
+              <option value="local">
+                {only
+                  ? "This app's local model server"
+                  : "OpenAI-compatible server (vLLM, llama.cpp)"}
+              </option>
               {vertexKeys.length ? (
                 <option value={VERTEX}>Google Vertex / Agent Platform</option>
               ) : null}
@@ -206,9 +243,20 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
                   {p.label}
                 </option>
               ))}
+              {openRouter ? (
+                <option value="openrouter">OpenRouter (your own API key)</option>
+              ) : null}
             </select>
           </label>
-          {vertex ? (
+          {useLocal ? (
+            <p className="pb-2 text-gray-700">
+              {localReady
+                ? `Local model server: ${localServer.model ?? ""} at ${localServer.endpoint ?? ""}`
+                : "The local model server is not ready: start it above, or use OpenRouter with your own API key."}
+            </p>
+          ) : routed ? (
+            <OpenRouterModel view={routed} model={model} setModel={setModel} />
+          ) : vertex ? (
             <>
               <label className="flex min-w-72 flex-col gap-1">
                 <span className="text-xs text-gray-500">Model</span>
@@ -331,8 +379,9 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
           )}
         </div>
       )}
+      {routed ? <OpenRouterKey view={routed} /> : null}
       <div className="flex flex-wrap items-center gap-4">
-        {!claude ? (
+        {!claude && !(routed && routedClaude) ? (
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -376,7 +425,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"
-          disabled={check.isPending || (only && !localReady)}
+          disabled={check.isPending || (useLocal && !localReady)}
           onClick={() => {
             check.mutate();
           }}
@@ -385,7 +434,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
           Check connection
         </Button>
         <Button
-          disabled={save.isPending || (only && !localReady)}
+          disabled={save.isPending || (useLocal && !localReady)}
           onClick={() => {
             save.mutate(false);
           }}
@@ -394,7 +443,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
         </Button>
         <Button
           variant="outline"
-          disabled={save.isPending || (only && !localReady)}
+          disabled={save.isPending || (useLocal && !localReady)}
           onClick={() => {
             save.mutate(true);
           }}
@@ -413,5 +462,114 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       {save.isError ? <p className="text-red-700">{save.error.message}</p> : null}
       {save.isSuccess ? <p className="text-green-700">Saved for this browser session.</p> : null}
     </section>
+  );
+}
+
+type OfferedOpenRouter = Extract<OpenRouterView, { offered: true }>;
+
+/** An OpenRouter model ID: any, with the app's suggestions (presets/openrouter.yaml). */
+function OpenRouterModel({
+  view,
+  model,
+  setModel,
+}: {
+  view: OfferedOpenRouter;
+  model: string;
+  setModel: (value: string) => void;
+}) {
+  const list = useId();
+  const known = view.models.find((m) => m.id === model);
+  return (
+    <label className="flex min-w-96 flex-1 flex-col gap-1">
+      <span className="text-xs text-gray-500">
+        Model (an OpenRouter model ID{known ? `: ${known.label}` : ""})
+      </span>
+      <Input
+        list={list}
+        value={model}
+        onChange={(e) => {
+          setModel(e.target.value.trim());
+        }}
+      />
+      <datalist id={list}>
+        {view.models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+          </option>
+        ))}
+      </datalist>
+    </label>
+  );
+}
+
+/**
+ * The session's OpenRouter key. The server keeps it in memory and never sends it back: the form shows
+ * only that a key is set and its last four characters.
+ */
+function OpenRouterKey({ view }: { view: OfferedOpenRouter }) {
+  const client = useQueryClient();
+  const [key, setKey] = useState("");
+  const done = (next: ModelConfig) => {
+    setKey("");
+    client.setQueryData(["models"], next);
+    void client.invalidateQueries({ queryKey: ["llm"] });
+  };
+  const save = useMutation({
+    mutationFn: () => api.post<ModelConfig>("/api/models/openrouter-key", { key }),
+    onSuccess: done,
+    onError: () => {
+      setKey("");
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => api.delete<ModelConfig>("/api/models/openrouter-key"),
+    onSuccess: done,
+  });
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+      <p>{view.notice}</p>
+      {view.key_set ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>API key set ({view.key_hint ?? ""}) for this browser session.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={remove.isPending}
+            onClick={() => {
+              remove.mutate();
+            }}
+          >
+            Remove key
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <label className="flex min-w-72 flex-1 flex-col gap-1">
+            <span className="text-xs">OpenRouter API key</span>
+            <Input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="sk-or-..."
+              value={key}
+              onChange={(e) => {
+                setKey(e.target.value);
+              }}
+            />
+          </label>
+          <Button type="submit" disabled={!key.trim() || save.isPending}>
+            Set key
+          </Button>
+        </form>
+      )}
+      {save.isError ? <p className="text-red-700">{save.error.message}</p> : null}
+      {remove.isError ? <p className="text-red-700">{remove.error.message}</p> : null}
+    </div>
   );
 }

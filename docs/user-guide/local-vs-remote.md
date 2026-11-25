@@ -92,6 +92,8 @@ manages the GPUs and the server, which does not have to be vLLM.
       for the project in `remote.google_project_id`. vLLM-only `extra_body` fields are left out.
     - `databricks_anthropic`: Claude through a Databricks AI Gateway, with Databricks CLI login tokens; see the
       [configuration reference](../reference/configuration.md#remote).
+    - `openrouter`: OpenRouter with a user's own key, held in memory (`remote.api_key_ref`); see the
+      [configuration reference](../reference/configuration.md#remote).
 
 !!! warning
     Before sending clinical text to an endpoint outside your local environment, confirm that the endpoint is

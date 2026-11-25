@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from matchminer_ai.llm import connections
+from matchminer_ai.llm import connections, openrouter
 from matchminer_ai.site import data_root, load_site_config
 
 
@@ -86,6 +86,9 @@ GEMINI_BACKENDS = connections.GEMINI_BACKENDS
 VERTEX_BACKENDS = frozenset(connections.VERTEX_MODELS)  # Gemini and Gemma MaaS
 DEFAULT_BACKEND = "gemini4_vertex"
 LOCAL = connections.LOCAL_BACKEND  # an OpenAI-compatible server (vLLM, llama.cpp)
+# OpenRouter with the browser session's own key (synthetic mode only; ``matchminer_ai.llm.openrouter``): the server
+# fixes the endpoint, the session picks any model ID; the key stays in the app's memory (``GuidelineState``).
+OPENROUTER = connections.OPENROUTER_BACKEND
 NO_CONNECTION = ("No model connection is ready: this dashboard uses only its own local model server, which is not "
                  "ready. Start it on Data and models.")
 
@@ -253,6 +256,9 @@ class Settings:
     backup_enabled: bool = False
     failure_threshold: int = 3
     task_connections: dict = field(default_factory=dict)
+    # The browser session's OpenRouter key in the app's memory (``llm.openrouter.register_key``), for every task
+    # whose connection is OpenRouter; never the key itself.
+    api_key_ref: str = field(default="", repr=False)
 
     def __post_init__(self):
         self.task_connections = migrate_task_connections(self.task_connections)
@@ -310,7 +316,8 @@ class Settings:
     def llm_connection(self):
         """This connection for the package's section builders (``matchminer_ai.llm.connections``)."""
         return connections.Connection(self.llm_backend, self.model, self.endpoint, self.tokenizer,
-                                      self.reasoning if self.thinking_supported else None)
+                                      self.reasoning if self.thinking_supported else None,
+                                      api_key_ref=self.api_key_ref if self.llm_backend == OPENROUTER else "")
 
     def _connect_section(self, section, name, *, own_connection=False):
         """Point one preset section at this connection (``connections.connect_section``).
@@ -338,9 +345,15 @@ class Settings:
             from ..core.errors import InputError
 
             raise InputError(NO_CONNECTION)
+        if self.llm_backend == OPENROUTER and not openrouter.has_key(self.api_key_ref):
+            from ..core.errors import InputError
+
+            raise InputError(openrouter.NO_KEY)
 
     @property
     def thinking_supported(self):
+        if self.llm_backend == OPENROUTER:  # OpenRouter's reasoning switch; Claude takes an effort instead
+            return not openrouter.is_claude(self.model)
         return self.llm_backend == "gemma_vertex" or (
             self.llm_backend == LOCAL
             and bool(re.search(r"(?:qwen[-_ ]?3|gemma[-_ ]?4|nemotron-3\.5-bolt)", self.model, re.IGNORECASE))

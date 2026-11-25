@@ -6,6 +6,7 @@ Every backend the app offers works, as for the other LLM tasks (``guidelines.set
   Messages route, with the server's Databricks CLI profile), the default with the site config's Opus endpoint. The
   conversation so far is cached (``cache_control``), so each step of a turn reads the earlier steps from the cache;
 - a Vertex profile (the server's Application Default Credentials);
+- OpenRouter with the session's own key (synthetic mode only), Claude there at the same effort as through the gateway;
 - an OpenAI-compatible server (its context window read from ``/v1/models``).
 
 Every answer is one JSON object in the action schema (``actions``), constrained by the endpoint's JSON-schema
@@ -16,13 +17,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from matchminer_ai.llm import connections
-from matchminer_ai.llm.remote_auth import DATABRICKS_ANTHROPIC_PROVIDER
+from matchminer_ai.llm import connections, openrouter
+from matchminer_ai.llm.remote_auth import DATABRICKS_ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER
 from matchminer_ai.llm.structured import StructuredConfig, resolve_structured_config
 from matchminer_ai.patients.note_search_qa import _MeasuredClient
 
 from ..guidelines.settings import (
-    CLAUDE_ASSISTANT_EFFORT, CLAUDE_BACKENDS, CLAUDE_CONTEXT, VERTEX_BACKENDS, claude_backends, databricks_profile,
+    CLAUDE_ASSISTANT_EFFORT, CLAUDE_BACKENDS, CLAUDE_CONTEXT, OPENROUTER, VERTEX_BACKENDS, claude_backends,
+    databricks_profile,
 )
 
 #: Output tokens per step: the answer's Markdown and, for Claude, its thinking.
@@ -48,6 +50,17 @@ def structured_config(selected) -> StructuredConfig:
                        remote={"request_params": {"max_tokens": MAX_OUTPUT_TOKENS,
                                                   "reasoning_effort": CLAUDE_ASSISTANT_EFFORT},
                                "extra_body": {}})
+    elif backend == OPENROUTER:
+        # The server fixes OpenRouter's endpoint; the key stays in memory (the session's reference only).
+        claude = openrouter.is_claude(selected.model)
+        template = {} if claude else {"chat_template_kwargs": {"enable_thinking": bool(selected.reasoning)}}
+        runtime.update(provider=OPENROUTER_PROVIDER, server_urls=[openrouter.ENDPOINT],
+                       api_key_ref=selected.api_key_ref, model_name=selected.model,
+                       context_window=openrouter.model_settings(selected.model)["context"],
+                       sampling_profile="none" if claude else "auto",
+                       remote={"request_params": {"max_tokens": MAX_OUTPUT_TOKENS,
+                                                  **({"reasoning_effort": CLAUDE_ASSISTANT_EFFORT} if claude else {})},
+                               "extra_body": template})
     elif backend in VERTEX_BACKENDS:
         profile = connections.vertex_profile(backend)
         runtime.update(connections.vertex_remote(backend))
@@ -104,6 +117,8 @@ def connection_label(selected) -> str:
         return f"{claude_name(selected.model)} (Databricks gateway)"
     if selected.llm_backend in VERTEX_BACKENDS:
         return f"{connections.VERTEX_LABELS[selected.llm_backend]} (Google Vertex)"
+    if selected.llm_backend == OPENROUTER:
+        return f"{selected.model} (OpenRouter)"
     if not selected.endpoint:
         return "No connection"
     return f"{selected.model} at {selected.endpoint}"

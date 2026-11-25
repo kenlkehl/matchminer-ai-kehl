@@ -4,7 +4,12 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "./api";
 
 export type Backend =
-  "local" | "gemini4_vertex" | "gemini_vertex" | "gemma_vertex" | "claude_databricks";
+  | "local"
+  | "gemini4_vertex"
+  | "gemini_vertex"
+  | "gemma_vertex"
+  | "claude_databricks"
+  | "openrouter";
 export type Task =
   | "summarize"
   | "workup"
@@ -54,13 +59,29 @@ export interface ModelConfig extends TaskConnection {
     endpoint: string | null;
     model: string | null;
     tokenizer: string | null;
+    allow_openrouter?: boolean;
   };
+  /** OpenRouter with the session's own key (synthetic mode only). The key is never sent back: only whether one
+   * is set and its last four characters. */
+  openrouter: OpenRouterView;
   device: string;
   ttl_minutes: number;
   max_upload_mb: number;
   synthetic_note_sources: { id: string; label: string }[];
   notice: string;
 }
+
+export type OpenRouterView =
+  | { offered: false }
+  | {
+      offered: true;
+      endpoint: string;
+      notice: string;
+      key_set: boolean;
+      key_hint: string | null;
+      default_model: string;
+      models: { id: string; label: string; reasoning: boolean; claude: boolean }[];
+    };
 
 export interface ModelCheck {
   available: boolean;
@@ -85,6 +106,7 @@ export function connectionLabel(config: ModelConfig, c: TaskConnection): string 
   const vertex = config.vertex_profiles[c.llm_backend];
   if (vertex) return `${vertex.label} (Google Vertex)`;
   if (c.llm_backend === "claude_databricks") return `${claudeName(c.model)} (Databricks gateway)`;
+  if (c.llm_backend === "openrouter") return `${c.model} (OpenRouter)`;
   return `${c.model} at ${c.endpoint}`;
 }
 

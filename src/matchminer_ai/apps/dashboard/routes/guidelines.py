@@ -5,9 +5,12 @@
 - ``/api/guidelines/*``: the guideline library, guideline-space retrieval for a summary, and workup reviews
   (with an extraction-cost estimate that makes no model calls).
 - ``/api/models*``: the session's connection per LLM task (``guidelines.settings.LLM_TASKS``) and connection
-  checks. Vertex and Claude destinations are built on the server, never from browser input; Claude through
-  the Databricks gateway serves every task (since 2026-11-21). With ``--local-server-only`` both refuse every
-  connection but the app's ready local model server (``GuidelineState.refusal``).
+  checks. Vertex, Claude and OpenRouter destinations are built on the server, never from browser input; Claude
+  through the Databricks gateway serves every task (since 2026-11-21). With ``--local-server-only`` both refuse
+  every connection but the app's ready local model server (and OpenRouter with ``--allow-openrouter``;
+  ``GuidelineState.refusal``).
+- ``/api/models/openrouter-key``: a session's own OpenRouter key (synthetic mode only), kept in the app's memory;
+  no response ever contains it (``GuidelineState.set_openrouter_key``).
 
 Long work runs as session jobs (``guidelines.state.GuidelineState.jobs``) polled through ``/api/jobs/{id}``.
 """
@@ -22,7 +25,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from matchminer_ai.llm import connections
+from matchminer_ai.llm import connections, openrouter
 
 from ..core.errors import InputError
 from ..guidelines.services import parse_upload, synthetic_notes
@@ -34,7 +37,7 @@ from ..guidelines.state import GuidelineState
 from ..llm_decisions import search_connection
 from .common import owner as session_owner
 
-LLMBackend = Literal["local", "gemini4_vertex", "gemini_vertex", "gemma_vertex", "claude_databricks"]
+LLMBackend = Literal["local", "gemini4_vertex", "gemini_vertex", "gemma_vertex", "claude_databricks", "openrouter"]
 LLMTask = Literal["summarize", "workup", "workup_sql", "workup_full_backup", "workup_agent_backup", "good_option",
                   "llm_decisions", "assistant", "criteria_labels"]
 EXTRACTION_METHODS = {"extractions", "extraction_sql"}
@@ -67,6 +70,8 @@ class LLMSettings(BaseModel):
             raise ValueError("Enable backup only for a concordance backup task.")
         if self.llm_backend in CLAUDE_BACKENDS:
             claude_endpoint_name(self.model)
+        if self.llm_backend == "openrouter":
+            openrouter.valid_model(self.model)
         return self
 
     @field_validator("endpoint")
@@ -165,6 +170,10 @@ def router(g: GuidelineState) -> APIRouter:
             # gateway's endpoint name.
             profile = claude_backends()[body.llm_backend]
             values.update(endpoint=profile["endpoint"], tokenizer=profile["tokenizer"])
+        elif body.llm_backend == "openrouter":
+            # The server fixes OpenRouter's endpoint; the session's key goes nowhere else.
+            values.update(endpoint=openrouter.ENDPOINT,
+                          tokenizer=body.tokenizer or openrouter.model_settings(body.model)["tokenizer"])
         updated = g.update(session_owner(request), values, task=body.task, apply_to_all=body.apply_to_all)
         return g.config_view(updated)
 
@@ -179,6 +188,18 @@ def router(g: GuidelineState) -> APIRouter:
                             "model": body.model if body.model is not None else selected.model})
         if reason:
             raise InputError(reason)
+        if backend == "openrouter":
+            model = body.model if body.model is not None else selected.model
+            try:
+                model = openrouter.valid_model(model)
+            except ValueError as exc:
+                return {"available": False, "endpoint": openrouter.ENDPOINT, "models": [], "model": None,
+                        "error": str(exc)}
+            # The key's own record and the public model list; no prompt. Errors are fixed texts.
+            result = await asyncio.to_thread(openrouter.check, selected.api_key_ref, model)
+            return {"available": result["available"], "endpoint": openrouter.ENDPOINT,
+                    "models": [model] if result["available"] else [],
+                    "model": model if result["available"] else None, "error": result["error"]}
         if backend in CLAUDE_BACKENDS:
             from matchminer_ai.llm.anthropic_messages import check_gateway
 
@@ -219,6 +240,26 @@ def router(g: GuidelineState) -> APIRouter:
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             return {"available": False, "models": [], "endpoint": endpoint, "model": None,
                     "error": "Could not read the endpoint's model list. Check the address and server."}
+
+    @api.post("/api/models/openrouter-key")
+    async def set_openrouter_key(request: Request):
+        # Read by hand: a validation error would echo the body (the key) back.
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        key = payload.get("key") if isinstance(payload, dict) else None
+        if not isinstance(key, str):
+            raise InputError(openrouter.BAD_KEY)
+        owner = session_owner(request)
+        g.set_openrouter_key(owner, key)  # fixed texts only
+        return g.config_view(g.current_settings(owner))
+
+    @api.delete("/api/models/openrouter-key")
+    def forget_openrouter_key(request: Request):
+        owner = session_owner(request)
+        g.forget_openrouter_key(owner)
+        return g.config_view(g.current_settings(owner))
 
     # ------------------------------------------------------------------ the patient's notes
 

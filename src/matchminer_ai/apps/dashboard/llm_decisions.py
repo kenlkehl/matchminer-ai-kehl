@@ -98,6 +98,8 @@ def reasoning_note(connection: Connection) -> str:
     if connection.claude:
         return ("Claude's thinking summaries (requested through the gateway; Claude does not return its raw "
                 "thinking). An answer for which Claude did not think has none.")
+    if connection.openrouter:
+        return "The reasoning text OpenRouter returns for the model (Claude's: summaries), when it reasons."
     if connection.gemini:
         return "Hosted Gemini returns no reasoning text through this connection (thought summaries are not requested)."
     if connection.vertex:
@@ -206,11 +208,7 @@ class LLMDecisions:
         if not connection.configured:
             return ("No LLM connection is ready for the LLM decision checks: start the local model server or choose a "
                     "connection on Data and models.")
-        if connection.vertex:
-            from matchminer_ai.llm.connections import vertex_credentials_error
-
-            return vertex_credentials_error()
-        return None
+        return connection.credentials_error()
 
     def describe(self, connection: Connection, owner: str | None = None) -> dict:
         reason = self.unavailable(connection)
