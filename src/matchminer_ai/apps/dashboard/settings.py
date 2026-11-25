@@ -25,9 +25,11 @@ import argparse
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import re
 
 from matchminer_ai.apps.common.security import LOOPBACK_HOSTS
-from matchminer_ai.site import DATA_ROOT_ENV, SITE_CONFIG_ENV, data_root, load_site_config
+from matchminer_ai.site import (DATA_ROOT_ENV, SITE_CONFIG_ENV, allow_hub_downloads, data_root, is_hub_ref,
+                               load_site_config)
 
 from .core.settings import Settings
 from .llm import NEMOTRON, default_backend, default_endpoint, default_model
@@ -37,17 +39,21 @@ DEFAULT_GROUPING = Path(__file__).with_name("grouping.yaml")
 
 
 MODES = ("real", "synthetic")
+FRAME_ORIGIN = re.compile(r"^https://(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?$")
 # Where a mode's own folders sit under the data root when the site config names none.
 MODE_FOLDERS = {"real": Path("phi") / "real_time", "synthetic": Path("no_phi")}
 MODE_PORTS = {"real": 8781, "synthetic": 8034}
 ANY_HOST = "0.0.0.0"
 
 
-def site_default(mode: str, key: str, relative: str | None) -> Path | None:
+def site_default(mode: str, key: str, relative: str | None, *, writable: bool = False) -> Path | None:
     """A mode's own data path: the site config's ``dashboard.<mode>.<key>``, else ``relative`` under the mode's
     folder of the data root (None when the mode has no default). Shared values (``dashboard.grouping``,
-    ``dashboard.synthetic_run``, the branding and trial table) stay directly under ``dashboard``."""
-    value = load_site_config().get(f"dashboard.{mode}.{key}")
+    ``dashboard.synthetic_run``, the branding and trial table) stay directly under ``dashboard``. A Hub reference
+    (``hf://``, read-only) is refused where the app writes (``writable``)."""
+    value = load_site_config().get(f"dashboard.{mode}.{key}", resolve=not writable)
+    if writable and is_hub_ref(value):
+        raise ValueError(f"dashboard.{mode}.{key} is written by the app: name a local folder, not {value}")
     if value:
         return Path(value).expanduser()
     return data_root() / MODE_FOLDERS[mode] / relative if relative else None
@@ -121,6 +127,10 @@ class DashSettings(Settings):
     local_server_only: bool = False
     # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
     llama_server: str | None = None
+    # Synthetic mode only: origins whose pages may show the app in a frame (CSP frame-ancestors), e.g. a Hugging Face
+    # Space page (https://huggingface.co). Its session cookie is then a partitioned third-party cookie (SameSite=None,
+    # Secure), so a framed app keeps its session. Default: no framing.
+    frame_ancestors: tuple[str, ...] = ()
 
     def __post_init__(self):
         if self.mode not in MODES:
@@ -134,6 +144,12 @@ class DashSettings(Settings):
             self.allowed_hosts = tuple(LOOPBACK_HOSTS) if real else ("*",)
         if real:
             self.require_token = True
+        self.frame_ancestors = tuple(self.frame_ancestors or ())
+        if self.frame_ancestors and real:
+            raise ValueError("Real mode is never shown in another site's frame (frame ancestors: synthetic mode only).")
+        for origin in self.frame_ancestors:
+            if not FRAME_ORIGIN.match(origin):
+                raise ValueError(f"A frame ancestor is an https origin such as https://huggingface.co, not {origin!r}")
         if self.local_server_only:
             self.local_server_default = True
         if self.device in (None, "", AUTO_DEVICE):
@@ -143,14 +159,15 @@ class DashSettings(Settings):
         if self.oa_db is None and real:
             self.oa_db = site_default("real", "oa_db", "oa_db_*.duckdb")
         if self.store_dir is None:
-            self.store_dir = site_default(self.mode, "store_dir", "dashboard" if real else "dashboard_synthetic")
+            self.store_dir = site_default(self.mode, "store_dir", "dashboard" if real else "dashboard_synthetic",
+                                          writable=True)
         if self.good_options_catalog is None:
             self.good_options_catalog = site_default(self.mode, "good_options_catalog",
                                                      "good_options_catalog/catalog" if real else None)
         if self.trial_management is None:
             # Beside the store, not in it: the store folder is rebuildable, the users' edits are not.
             self.trial_management = site_default(self.mode, "trial_management",
-                                                  "dashboard_trial_management/trial_management.json")
+                                                  "dashboard_trial_management/trial_management.json", writable=True)
         self.trial_management = Path(self.trial_management).expanduser()
         self.trial_data = Path(self.trial_data).expanduser() if self.trial_data else None
         self.oa_db = Path(self.oa_db).expanduser() if self.oa_db else None
@@ -246,8 +263,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser = argparse.ArgumentParser(prog="mmai-dashboard",
                                      description="MatchMiner-AI dashboard: trials, populations, patients and "
                                                  "benchmarks (research use)")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "build"),
-                        help="serve (default) or build the dashboard store once and exit")
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "build", "prepare"),
+                        help="serve (default), build the dashboard store once and exit, or prepare the synthetic run "
+                             "from its published dataset (a site config naming hf://datasets/...) and exit")
     parser.add_argument("--mode", required=True, choices=MODES,
                         help="real: the OA trials and real patients, loopback only, with sign-in; synthetic: the "
                              "synthetic run's trials and patients only, may serve beyond loopback")
@@ -311,6 +329,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
                         "make it the default connection of every task in sessions that chose none")
     parser.add_argument("--llama-server", help="the llama-server binary (default: $MMAI_LLAMA_SERVER, else "
                         "llama-server on PATH)")
+    parser.add_argument("--frame-ancestors", help="synthetic mode: comma-separated https origins whose pages may show "
+                        "the app in a frame, e.g. https://huggingface.co for a Space page (default: none; site config "
+                        "dashboard.synthetic.frame_ancestors)")
     args = parser.parse_args(argv)
     # Before any default reads them.
     if args.site_config:
@@ -336,6 +357,13 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     values["allow_downloads"] = bool(args.allow_downloads or (_env("allow_downloads") or "").lower() in ("1", "true"))
     values["require_token"] = bool(args.require_token or (_env("require_token") or "").lower() in ("1", "true"))
     values.update(local_server_settings(args, args.mode))
+    frames = args.frame_ancestors or _env("frame_ancestors") or load_site_config().get(
+        f"dashboard.{args.mode}.frame_ancestors", resolve=False)
+    if frames:
+        listed = frames.split(",") if isinstance(frames, str) else frames
+        values["frame_ancestors"] = tuple(str(f).strip() for f in listed if str(f).strip())
+    # Hub references in the site config (hf://) download only with --allow-downloads; set before any default reads one.
+    allow_hub_downloads(values["allow_downloads"])
     hosts = args.allowed_hosts or _env("allowed_hosts")
     if hosts:
         values["allowed_hosts"] = tuple(h.strip() for h in hosts.split(",") if h.strip())

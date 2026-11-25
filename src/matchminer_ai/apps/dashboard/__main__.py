@@ -1,5 +1,6 @@
 """``mmai-dashboard --mode real|synthetic`` (``python -m matchminer_ai.apps.dashboard``): serve the app;
-``mmai-dashboard --mode ... build``: build its trial store once.
+``mmai-dashboard --mode ... build``: build its trial store once; ``mmai-dashboard --mode ... prepare``: only build the
+synthetic run from its published dataset (``hub_run``; ``serve`` and ``build`` do it first too).
 
 Real mode serves on loopback only and always asks for the access token; synthetic mode may serve beyond loopback
 and asks for a token only with ``--require-token`` (``settings``)."""
@@ -15,6 +16,19 @@ from .settings import parse_settings
 
 def main(argv=None):
     settings = parse_settings(argv)
+    if settings.command == "serve" and settings.real and not is_loopback(settings.host):
+        sys.exit(f"Refusing to serve on {settings.host}: real mode shows patient records and confidential protocol "
+                 "content and serves on 127.0.0.1 only (forward the port with ssh -L to reach it from another machine).")
+    if not settings.allow_downloads:  # before transformers or huggingface_hub is imported
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    # A published synthetic run (the site config's synthetic_run names hf://datasets/...): build its folder first.
+    from .hub_run import prepare
+
+    prepare(settings, log=lambda message: print(message, flush=True))
+    if settings.command == "prepare":
+        return
     if settings.command == "build":
         from .pipeline import write_store
         from .state import make_builder
@@ -23,13 +37,6 @@ def main(argv=None):
         write_store(store, settings.store_path)
         print(f"{store['counts']} -> {settings.store_path} ({store['build_seconds']} s)")
         return
-    if settings.real and not is_loopback(settings.host):
-        sys.exit(f"Refusing to serve on {settings.host}: real mode shows patient records and confidential protocol "
-                 "content and serves on 127.0.0.1 only (forward the port with ssh -L to reach it from another machine).")
-    if not settings.allow_downloads:  # before transformers or huggingface_hub is imported
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import uvicorn
 
     from .server import create_app

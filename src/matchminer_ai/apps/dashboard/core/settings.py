@@ -17,7 +17,13 @@ from matchminer_ai.site import data_root, load_site_config
 
 
 def default_synthetic_run() -> Path:
-    """The synthetic run the dashboard's patients, TrialSpace rounds and decision model come from."""
+    """The synthetic run the dashboard's patients, TrialSpace rounds and decision model come from: a local folder, or
+    the folder built from a published run (``hf://datasets/...``; ``apps.dashboard.hub_run``)."""
+    from ..hub_run import local_run, published_run
+
+    published = published_run()
+    if published is not None:
+        return local_run(published)
     value = load_site_config().get("dashboard.synthetic_run")
     return Path(value).expanduser() if value else data_root() / "no_phi" / "synthetic_run"
 

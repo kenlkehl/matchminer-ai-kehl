@@ -2,7 +2,8 @@
 
 - ``is_loopback``: an app that serves confidential content binds only to this machine.
 - ``LOOPBACK_HOSTS``: Host headers a loopback app accepts (rejecting DNS-rebinding requests from web pages).
-- ``content_security_policy`` and ``security_headers``: same-origin pages, no framing, no referrer, no sniffing.
+- ``content_security_policy`` and ``security_headers``: same-origin pages, no framing (unless the app names the
+  origins that may frame it), no referrer, no sniffing.
 - ``cross_origin_write``: why a state-changing request from another origin is refused (None when it is not).
 - ``load_access_token`` and ``SignIn``: an access token that keeps out other accounts on the same machine (which
   can reach a loopback port), from an environment variable or a private token file created on first use, checked
@@ -32,10 +33,13 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def content_security_policy(*, inline_styles: bool = False, form_action: str = "'self'") -> str:
+def content_security_policy(*, inline_styles: bool = False, form_action: str = "'self'",
+                            frame_ancestors: tuple[str, ...] = ()) -> str:
+    """Same-origin pages; framed by no page, or only by ``frame_ancestors`` (https origins) and the app itself."""
     styles = "'self' 'unsafe-inline'" if inline_styles else "'self'"
+    frames = " ".join(("'self'", *frame_ancestors)) if frame_ancestors else "'none'"
     return (f"default-src 'self'; script-src 'self'; style-src {styles}; img-src 'self' data:; connect-src 'self'; "
-            f"frame-ancestors 'none'; base-uri 'self'; form-action {form_action}")
+            f"frame-ancestors {frames}; base-uri 'self'; form-action {form_action}")
 
 
 def security_headers(csp: str) -> dict[str, str]:

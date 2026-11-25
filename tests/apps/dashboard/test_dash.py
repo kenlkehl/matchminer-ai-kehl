@@ -249,6 +249,30 @@ def test_loopback_host_cross_origin_writes_and_the_access_token(dash):
         assert client.get("/api/meta", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
+def test_only_named_origins_may_frame_the_app(dash, tmp_path):
+    """A Space page frames the app only when it is named (synthetic mode); the session cookie is then a
+    partitioned third-party cookie, which browsers send in a frame."""
+    from fastapi.testclient import TestClient
+
+    from matchminer_ai.apps.dashboard.server import create_app
+    from matchminer_ai.apps.dashboard.settings import DashSettings
+
+    with TestClient(create_app(dash), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/meta")
+        assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+        assert "samesite=strict" in response.headers["set-cookie"].lower()
+    dash.settings.frame_ancestors = ("https://huggingface.co",)
+    with TestClient(create_app(dash), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/meta")
+        assert "frame-ancestors 'self' https://huggingface.co;" in response.headers["content-security-policy"]
+        cookie = response.headers["set-cookie"].lower()
+        assert "samesite=none" in cookie and "secure" in cookie and "partitioned" in cookie
+    with pytest.raises(ValueError, match="Real mode"):
+        DashSettings(mode="real", store_dir=tmp_path / "s", device="cpu", frame_ancestors=("https://huggingface.co",))
+    with pytest.raises(ValueError, match="https origin"):
+        DashSettings(mode="synthetic", store_dir=tmp_path / "s", device="cpu", frame_ancestors=("*",))
+
+
 def test_store_versions_centers_and_groups(dash_client, dash):
     store = dash.store
     t1, t2 = store["trials"]["NCT90000001"], store["trials"]["NCT90000002"]

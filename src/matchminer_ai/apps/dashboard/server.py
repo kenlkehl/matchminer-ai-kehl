@@ -7,12 +7,16 @@
   assets needs the sign-in cookie or a bearer token.
 - **Sessions:** every response sets a random session cookie; jobs, model connections, the patient workspace and
   populations belong to it (``routes.common.owner``).
+- **Frames:** no other site may frame the app, except the origins of ``settings.frame_ancestors`` (synthetic mode,
+  e.g. a Hugging Face Space page); the session cookie is then partitioned (SameSite=None, Secure, Partitioned), the
+  form browsers send to a framed site.
 - **Errors:** bodies are ``{"error": message}``; ``InputError`` messages are written for the user (400),
   ``BusyError`` means a job is already running for the session (409).
 """
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import secrets
 
 from fastapi import FastAPI, Request
@@ -35,6 +39,7 @@ HEADERS = security.security_headers(CSP)
 AUTH_COOKIE = "mmai_dash_auth"
 SESSION_COOKIE = "mmai_dash_session"
 SESSION_LENGTH = 43  # secrets.token_urlsafe(32)
+SESSION_TOKEN = re.compile(rf"[A-Za-z0-9_-]{{{SESSION_LENGTH}}}")
 LOGIN_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Sign in · MatchMiner-AI dashboard</title></head>
 <body><main><h1>MatchMiner-AI dashboard</h1>{error}
@@ -55,6 +60,9 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
 
     app = FastAPI(title="MatchMiner-AI dashboard (research use)", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.mmai = state
+    framed = tuple(getattr(state.settings, "frame_ancestors", ()) or ())
+    headers_for_all = (security.security_headers(security.content_security_policy(
+        inline_styles=True, form_action="'self'", frame_ancestors=framed)) if framed else HEADERS)
     sign_in = security.SignIn(access_token, b"mmai-dashboard browser sign-in v1", AUTH_COOKIE) if access_token else None
 
     @app.middleware("http")
@@ -68,13 +76,20 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
                         if path.startswith("/api/") else RedirectResponse("/login", status_code=303))
         else:
             session = request.cookies.get(SESSION_COOKIE)
-            if not session or len(session) != SESSION_LENGTH:
+            if not session or not SESSION_TOKEN.fullmatch(session):
                 session = secrets.token_urlsafe(32)
             request.state.owner = session
             response = await call_next(request)
-            response.set_cookie(SESSION_COOKIE, session, httponly=True, samesite="strict",
-                                secure=request.url.scheme == "https")
-        response.headers.update(HEADERS)
+            if framed:
+                # In another site's frame this is a third-party cookie: browsers keep it only with SameSite=None,
+                # Secure and, increasingly, Partitioned (the framed page is https, even when a proxy forwards plain
+                # http). Written by hand: Python's cookie module knows Partitioned only from 3.14.
+                response.headers.append("set-cookie", f"{SESSION_COOKIE}={session}; HttpOnly; Path=/; SameSite=none; "
+                                                      "Secure; Partitioned")
+            else:
+                response.set_cookie(SESSION_COOKIE, session, httponly=True, samesite="strict",
+                                    secure=request.url.scheme == "https")
+        response.headers.update(headers_for_all)
         if path.startswith("/api/") or path == "/login":
             response.headers["Cache-Control"] = "no-store"
         elif path.startswith("/assets/"):

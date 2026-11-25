@@ -278,8 +278,14 @@ mmai-dashboard --mode synthetic --site-config site.yaml --device cuda:0
 ```
 
 `python -m matchminer_ai.apps.dashboard` is the same command. `mmai-dashboard --mode ... build` builds the trial
-store once and exits. `pnpm dev` serves the frontend on :5173 and proxies `/api` to a running server
+store once and exits; `mmai-dashboard --mode ... prepare` only builds the synthetic run from its published dataset
+(below) and exits. `pnpm dev` serves the frontend on :5173 and proxies `/api` to a running server
 (`MMAI_DASH_API_URL`, default `http://127.0.0.1:8781`).
+
+**Framing.** No other site may show the app in a frame, except, in synthetic mode, the https origins of
+`--frame-ancestors` (`MMAI_DASH_FRAME_ANCESTORS`, site config `dashboard.synthetic.frame_ancestors`), such as
+`https://huggingface.co` for a Space page. The session cookie is then a partitioned third-party cookie, which browsers
+keep in a frame.
 
 **Access.** Real mode serves on loopback only, because it shows patient records and confidential protocol content;
 forward the port with `ssh -L` to reach it from another machine. It accepts only loopback Host headers, refuses
@@ -303,9 +309,19 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `--good-options-catalog` (`dashboard.<mode>.good_options_catalog`) | both | real: `phi/real_time/good_options_catalog/catalog`; synthetic: none | Trials' drugs and mechanism classes; missing: no drugs |
 | `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
 | `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard_trial_management/trial_management.json`, `no_phi/dashboard_trial_management/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)); outside the rebuildable store folder |
-| `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
+| `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run (below) |
 | `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
 | `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
+
+**Published data.** A site config value may name a file or folder on the Hugging Face Hub at a pinned revision,
+`hf://datasets/<org>/<name>@<revision>/<path>`; the app reads it from the Hugging Face cache, downloading it on first
+use with `--allow-downloads` ([site configuration](../reference/site-config.md#hugging-face-hub-files)). Read-only
+inputs only: the extraction store, the GoodOption catalog, the synthetic population and guideline catalogs.
+`dashboard.synthetic_run` may name a whole published run, `hf://datasets/ksg-dfci/mmai-synthetic-1226@<revision>`:
+before serving, the app builds the run folder it reads under the data root's `no_phi/synthetic_runs/` from the
+dataset's corpus, trial tables, patient metadata and notes, and embeds the corpus with the published TrialSpace
+(minutes on a GPU, once per data root and revision; `apps.dashboard.hub_run`). The decision model is then the
+published MatchEval-1226. The [Hugging Face Space](hf-space.md) runs this way.
 
 The decision model is the synthetic run's trained model (`--decision-model` overrides it, with fallbacks while the
 run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
@@ -478,7 +494,8 @@ and `llama_server`):
 | `--local-server-default` | Once ready, the server is the default connection of every task in sessions that chose none |
 | `--llama-server PATH` | The `llama-server` binary (default: `$MMAI_LLAMA_SERVER`, else `llama-server` on `PATH`) |
 
-For example, a Space: Bolt with llama.cpp on the first GPU, the only model connection:
+For example, a Space (the [Hugging Face Space](hf-space.md) sets the same in its site config): Bolt with llama.cpp
+on the first GPU, the only model connection:
 
 ```bash
 mmai-dashboard --mode synthetic --allow-downloads --local-server-only \
