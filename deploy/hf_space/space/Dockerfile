@@ -14,17 +14,27 @@ ARG UBUNTU=ubuntu24.04
 FROM nvidia/cuda:${CUDA_VERSION}-devel-${UBUNTU} AS llama
 ARG LLAMA_CPP_COMMIT=33aeb17f85869279e3821f746bc645357139bc2c
 ARG CUDA_ARCHITECTURES=89
+ARG GCC_VERSION=14
+ENV DEBIAN_FRONTEND=noninteractive
+# GCC 14, as llama.cpp's own CUDA image at this commit builds with (CUDA 12.8 accepts it as nvcc's host compiler).
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates cmake git \
+        gcc-${GCC_VERSION} g++-${GCC_VERSION} \
     && rm -rf /var/lib/apt/lists/*
+ENV CC=gcc-${GCC_VERSION} CXX=g++-${GCC_VERSION} CUDAHOSTCXX=g++-${GCC_VERSION}
 RUN git init /llama.cpp && cd /llama.cpp \
     && git remote add origin https://github.com/ggml-org/llama.cpp.git \
     && git fetch --depth 1 origin "${LLAMA_CPP_COMMIT}" && git checkout --quiet FETCH_HEAD
 # Static llama libraries in one binary; the CUDA libraries come from the runtime image, libcuda from the host driver
-# (linked against the toolkit's stub, as llama.cpp's own CUDA image does).
+# (linked against the toolkit's stub, as llama.cpp's own CUDA image does). One GPU: no NCCL. No embedded chat UI
+# (the app uses only the API), so nothing is downloaded at build time. At most 8 compile jobs: each nvcc job needs
+# gigabytes of memory.
 RUN cd /llama.cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON \
-        -DGGML_NATIVE=OFF -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF \
+        -DGGML_NATIVE=OFF -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" -DGGML_CUDA_NCCL=OFF \
+        -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF \
         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined \
-    && cmake --build build --target llama-server -j"$(nproc)"
+    && jobs="$(nproc)" && if [ "$jobs" -gt 8 ]; then jobs=8; fi \
+    && cmake --build build --target llama-server -j"$jobs" \
+    && ! ldd build/bin/llama-server | grep -E "libllama|libggml|libmtmd|libnccl"
 
 # ---------------------------------------------------------------------------------------------- the source
 FROM alpine:3 AS source
@@ -50,8 +60,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8.11 /uv /usr/local/bin/uv
-# Spaces run the container as user 1000.
-RUN useradd -m -u 1000 user
+# Spaces run the container as user 1000; the Ubuntu 24.04 base images already have one (ubuntu), so it is replaced.
+RUN (userdel -r ubuntu 2>/dev/null || true) && useradd -m -u 1000 -s /bin/bash user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/venv/bin:/home/user/bin:$PATH \

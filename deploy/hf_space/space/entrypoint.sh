@@ -10,4 +10,6 @@ fi
 mkdir -p "$MMAI_DATA_ROOT"
 echo "MatchMiner-AI $(cat /home/user/space/MMAI_COMMIT 2>/dev/null || echo unknown); data in $MMAI_DATA_ROOT"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "no GPU visible"
+python -c "import torch; print('torch', torch.__version__, 'CUDA', torch.version.cuda, 'available:', torch.cuda.is_available())" \
+    || true
 exec mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve
