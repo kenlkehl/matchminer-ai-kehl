@@ -74,6 +74,8 @@ export interface ServerInfo {
 export interface LocalServerStatus {
   /** --local-server-only: the local server is the only model connection the app accepts. */
   only: boolean;
+  /** With --local-server-only, OpenRouter with a user's own API key is also accepted. */
+  allow_openrouter: boolean;
   server: ServerInfo | null;
   default_on_ready: boolean;
   allow_downloads: boolean;

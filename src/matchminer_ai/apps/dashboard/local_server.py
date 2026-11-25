@@ -191,7 +191,8 @@ class LocalServerControl:
 
     def describe(self, log_lines: int = 200) -> dict:
         server = self.server
-        return {"only": self.only, "server": server.describe(log_lines) if server else None,
+        return {"only": self.only, "allow_openrouter": self.allow_openrouter,
+                "server": server.describe(log_lines) if server else None,
                 "default_on_ready": self.make_default, "allow_downloads": self.allow_downloads,
                 "hub_cache": str(ls.hub_cache()), "default_model": ls.recipes().get("default"),
                 "known_models": [{"model": key, "label": entry.get("label") or key}

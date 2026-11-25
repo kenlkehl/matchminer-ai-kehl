@@ -44,8 +44,9 @@ export function LocalServerPanel() {
     <div className="flex flex-col gap-4 text-sm">
       {status.data.only ? (
         <p className="rounded-md bg-sky-50 px-3 py-2 text-sky-900">
-          This dashboard uses only this local model server (--local-server-only): every LLM task
-          uses it once it is ready, and no other model connection is accepted.
+          {status.data.allow_openrouter
+            ? "This dashboard's LLM tasks use this local model server once it is ready. The only other connection accepted is OpenRouter with your own API key: choose it for a task under Models, below."
+            : "This dashboard uses only this local model server (--local-server-only): every LLM task uses it once it is ready, and no other model connection is accepted."}
         </p>
       ) : null}
       {!installed ? (
