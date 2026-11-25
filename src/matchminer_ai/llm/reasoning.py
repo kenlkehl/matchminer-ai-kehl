@@ -24,6 +24,7 @@ MODEL_TO_REASONING_PARSER: dict[str, str] = {
 
 _SUBSTRING_FALLBACKS: tuple[tuple[str, str], ...] = (
     ("nemotron-3.5-super-vl", "nemotron_v3"),
+    ("nemotron-3.5-bolt", "ultra_v3"),
     ("gemma", "gemma4"),
     ("qwen", "qwen3"),
     ("gpt-oss", "openai_gptoss"),
@@ -168,6 +169,12 @@ def parse_reasoning_output(
     if parser_name is None:
         return "", text.strip()
 
+    if parser_name == "ultra_v3" and enable_thinking is False:
+        # Bolt's checkpoint parser: with thinking off the template closes the think block itself, so everything
+        # generated is the answer.
+        return "", text.strip()
+    if parser_name == "ultra_v3":
+        parser_name = "deepseek_r1"  # what ultra_v3 extends; registered without the checkpoint's plugin
     if parser_name == "beam":
         reasoning, content = _parse_beam_output(text)
     elif parser_name == "gemma4":

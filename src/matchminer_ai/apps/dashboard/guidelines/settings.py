@@ -397,7 +397,7 @@ class Settings:
     def thinking_supported(self):
         return self.llm_backend == "gemma_vertex" or (
             self.llm_backend == LOCAL
-            and bool(re.search(r"(?:qwen[-_ ]?3|gemma[-_ ]?4)", self.model, re.IGNORECASE))
+            and bool(re.search(r"(?:qwen[-_ ]?3|gemma[-_ ]?4|nemotron-3\.5-bolt)", self.model, re.IGNORECASE))
         )
 
     def inference_config(self):

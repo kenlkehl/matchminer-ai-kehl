@@ -36,8 +36,10 @@ def vendor_defaults(
     template = dict(template or {})
     if profile in (None, "none"):
         return {}, template
-    if profile not in {"auto", "gemma4", "qwen3.5", "qwen3.8", "nemotron-3.5-super-vl", "reflection-beam", "beam"}:
-        raise ValueError("sampling_profile must be auto, gemma4, qwen3.5, qwen3.8, nemotron-3.5-super-vl, reflection-beam, beam, or none")
+    if profile not in {"auto", "gemma4", "qwen3.5", "qwen3.8", "nemotron-3.5-super-vl", "nemotron-3.5-bolt",
+                       "reflection-beam", "beam"}:
+        raise ValueError("sampling_profile must be auto, gemma4, qwen3.5, qwen3.8, nemotron-3.5-super-vl, "
+                         "nemotron-3.5-bolt, reflection-beam, beam, or none")
     from .model_profiles import REFLECTION_BEAM
 
     if profile in {"reflection-beam", "beam"} or (
@@ -60,19 +62,22 @@ def vendor_defaults(
         )
         if "nemotron-3.5-super-vl" in model:
             family = "nemotron-3.5-super-vl"
+        if "nemotron-3.5-bolt" in model:
+            family = "nemotron-3.5-bolt"
     if family is None:
         return {}, template
     template.setdefault("enable_thinking", True)
     if type(template["enable_thinking"]) is not bool:
         raise ValueError("enable_thinking must be boolean")
-    if family == "nemotron-3.5-super-vl":
-        from .model_profiles import NEMOTRON_3_5_SUPER_VL
+    if family in {"nemotron-3.5-super-vl", "nemotron-3.5-bolt"}:
+        from .model_profiles import NEMOTRON_3_5_BOLT, NEMOTRON_3_5_SUPER_VL
 
+        nemotron = NEMOTRON_3_5_BOLT if family == "nemotron-3.5-bolt" else NEMOTRON_3_5_SUPER_VL
         # Text workflow. Explicit enable_thinking/medium_effort remain intact;
         # do not translate Qwen's graded effort into Nemotron template kwargs.
         return {
-            **NEMOTRON_3_5_SUPER_VL.request_params,
-            **NEMOTRON_3_5_SUPER_VL.extra_body,
+            **nemotron.request_params,
+            **nemotron.extra_body,
         }, template
     if family == "gemma4":
         return {"temperature": 1.0, "top_p": 0.95, "top_k": 64}, template

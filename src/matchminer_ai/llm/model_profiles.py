@@ -104,6 +104,26 @@ NEMOTRON_3_5_SUPER_VL = ModelProfile(
     replaces_task_sampling=True,
 )
 
+# The 2-bit Bolt checkpoint and its GGUF (the dashboard's local model server's default). NVIDIA's vLLM recipe
+# registers the ultra_v3 parser from the checkpoint's ultra_v3_reasoning_parser.py (a deepseek_r1 parser that treats
+# the whole output as the answer when thinking is off); its tool parser is qwen3_coder.
+NEMOTRON_3_5_BOLT = ModelProfile(
+    name="nemotron-3.5-bolt",
+    patterns=("nemotron-3.5-bolt",),
+    reasoning_parser="ultra_v3",
+    tool_call_parser="qwen3_coder",
+    request_params={"temperature": 1.0, "top_p": 0.95, "presence_penalty": 0.0},
+    # NVIDIA specifies temperature/top_p; the rest are neutral values, as for Super.
+    extra_body={"top_k": -1, "min_p": 0.0, "repetition_penalty": 1.0},
+    chat_template_kwargs={"enable_thinking": True},
+    source=(
+        "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB and its -GGUF "
+        "(verified 2026-11-24; text)"
+    ),
+    # As for Super (user instruction 2026-11-05): NVIDIA's sampling in every workflow Nemotron serves.
+    replaces_task_sampling=True,
+)
+
 REFLECTION_BEAM = ModelProfile(
     name="reflection-beam",
     patterns=(),
@@ -132,6 +152,7 @@ REFLECTION_BEAM = ModelProfile(
 MODEL_PROFILES: tuple[ModelProfile, ...] = (
     REFLECTION_BEAM,
     NEMOTRON_3_5_SUPER_VL,
+    NEMOTRON_3_5_BOLT,
     QWEN3_8_FLASH_NEXT_THINKING,
     GEMMA_4_THINKING,
 )
@@ -302,6 +323,7 @@ def configure_served_model(
 __all__ = [
     "GEMMA_4_THINKING",
     "MODEL_PROFILES",
+    "NEMOTRON_3_5_BOLT",
     "NEMOTRON_3_5_SUPER_VL",
     "QWEN3_8_FLASH_NEXT_THINKING",
     "REFLECTION_BEAM",
