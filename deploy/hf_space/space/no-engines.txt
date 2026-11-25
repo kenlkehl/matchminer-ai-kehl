@@ -1,0 +1,3 @@
+# The lite image variant's override (uv pip install --overrides): the package's vLLM dependency is left out, since
+# that image runs no local model server. vLLM is needed only to serve or parse a local model's output.
+vllm ; sys_platform == "never"

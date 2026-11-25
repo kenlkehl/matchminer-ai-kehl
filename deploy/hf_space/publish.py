@@ -4,8 +4,9 @@ github.com/kenlkehl/matchminer-ai-kehl whose code the Space's image installs. Th
 repository, which rebuilds the Space (with Docker's layer cache, so llama.cpp and the pinned dependencies are not
 rebuilt unless their layers change).
 
-Every Space (``SPACES``) gets the same files and commit; a Space may have its own card (``README.md``) and has its own
-hardware, by which the image picks its tier (``space/tier.py``).
+Every Space (``SPACES``) gets the same files and commit; a Space may have its own card (``README.md``) and image
+variant (``SPACE_VARIANTS``: the Dockerfile's ``MMAI_VARIANT``, full by default; lite has no local model server), and
+has its own hardware, by which the image picks its tier (``space/tier.py``).
 
     python deploy/hf_space/publish.py                    # this checkout's HEAD, which must be on GitHub
     python deploy/hf_space/publish.py --commit <sha>
@@ -43,6 +44,10 @@ SPACES = {
 }
 # A Space's own card in place of space/README.md.
 SPACE_CARDS = {"ksg-dfci/matchminer-ai-1226-lite": CARDS / "matchminer-ai-1226-lite.md"}
+# A Space's image variant (the Dockerfile's MMAI_VARIANT), when not the full one: lite builds no llama.cpp, vLLM or
+# FlashInfer, for a Space that hosts no LLM.
+SPACE_VARIANTS = {"ksg-dfci/matchminer-ai-1226-lite": "lite"}
+VARIANT_LINE = "ARG MMAI_VARIANT=full\n"
 SPACE = "ksg-dfci/matchminer-ai-1226"
 HARDWARE = SPACES[SPACE]
 SLEEP_SECONDS = 18000  # a Space sleeps after five hours without visitors (a wake is a long cold start)
@@ -77,9 +82,9 @@ def on_github(commit: str) -> bool:
         raise
 
 
-def stage(commit: str, folder: Path, card: Path | None = None) -> list[str]:
+def stage(commit: str, folder: Path, card: Path | None = None, variant: str = "full") -> list[str]:
     """The Space's files in ``folder``: ``space/``, ``MMAI_COMMIT`` and, when the Space has its own, its card as
-    ``README.md``."""
+    ``README.md``; the Dockerfile builds ``variant``."""
     names = []
     for path in sorted(FILES.iterdir()):
         if path.is_file():
@@ -87,6 +92,12 @@ def stage(commit: str, folder: Path, card: Path | None = None) -> list[str]:
             names.append(path.name)
     if card is not None:
         shutil.copy2(card, folder / "README.md")
+    if variant != "full":
+        dockerfile = folder / "Dockerfile"
+        text = dockerfile.read_text()
+        if text.count(VARIANT_LINE) != 1:
+            raise ValueError(f"The Dockerfile has no single {VARIANT_LINE.strip()!r} line to set the variant.")
+        dockerfile.write_text(text.replace(VARIANT_LINE, f"ARG MMAI_VARIANT={variant}\n"))
     (folder / "MMAI_COMMIT").write_text(commit + "\n")
     return [*names, "MMAI_COMMIT"]
 
@@ -119,9 +130,10 @@ def main(argv=None) -> int:
     if not args.no_github_check and not on_github(commit):
         sys.exit(f"GitHub {REPOSITORY} has no commit {commit}: push it first (the Space downloads its code there).")
     with tempfile.TemporaryDirectory(prefix="mmai-space-") as tmp:
-        names = stage(commit, Path(tmp), SPACE_CARDS.get(args.space))
+        variant = SPACE_VARIANTS.get(args.space, "full")
+        names = stage(commit, Path(tmp), SPACE_CARDS.get(args.space), variant)
         if args.dry_run:
-            print(f"Would upload to {args.space}: {', '.join(names)} (MMAI_COMMIT {commit})")
+            print(f"Would upload to {args.space}: {', '.join(names)} (MMAI_COMMIT {commit}, {variant} image)")
             return 0
         from huggingface_hub import HfApi
 

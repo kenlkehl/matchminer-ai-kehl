@@ -18,8 +18,10 @@ The Space's files are `deploy/hf_space/space/` in this repository:
 | File | Contents |
 | --- | --- |
 | `README.md` | The Space card, with its metadata: Docker SDK, port 7860, suggested hardware, startup timeout, models and dataset |
-| `Dockerfile` | Four stages: the source at `MMAI_COMMIT` (from GitHub), its React frontend, `llama-server` built for compute capabilities 8.9 and 12.0 (a pinned llama.cpp commit), and the Python runtime (CUDA runtime image with a C/C++ compiler for vLLM's kernel builds, Python 3.13, vLLM 0.33 and the package with `apps` and `sql`) |
-| `constraints.txt` | The pinned versions of the heavy dependencies (torch, vLLM, transformers, sentence-transformers, huggingface_hub, ...), installed in their own layer before the package |
+| `Dockerfile` | The source at `MMAI_COMMIT` (from GitHub), its React frontend, `llama-server` built for compute capabilities 8.9 and 12.0 (a pinned llama.cpp commit), and the Python runtime (Python 3.13 with a C/C++ compiler and the package with `apps` and `sql`), in two variants (`MMAI_VARIANT`): `full` adds vLLM 0.33, FlashInfer's kernels and `llama-server` on the CUDA runtime image; `lite` (the [lite Space](#the-lite-space)) is the app alone on plain Ubuntu |
+| `constraints.txt` | The pinned versions of the heavy dependencies both variants share (torch, transformers, sentence-transformers, huggingface_hub, ...), installed in their own layer before the package |
+| `constraints-engines.txt` | The full variant's: vLLM, flashinfer-python and the CUDA 13.0 compiler pins |
+| `no-engines.txt` | The lite variant's uv override that leaves the package's vLLM dependency out |
 | `site.yaml` | The Space's site config: the published data as `hf://` references at `${MMAI_DATASET_REVISION:-main}`, the local model server, framing by the Space page |
 | `entrypoint.sh` | `mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve`, with the data under `/data` when a storage bucket is mounted there; it logs the GPU, sets the tier (`tier.py`) and, with a local server, starts `prefetch.py` |
 | `tier.py` | The tier by the GPU's memory: Super with vLLM from 90 GB, Bolt with llama.cpp from 40 GB, else no local model server ([the lite Space](#the-lite-space)) |
@@ -148,7 +150,14 @@ image and commit on one T4 (16 GB, `t4-small`), which sleeps after five hours to
   same memory as bfloat16 (4.8 GiB at the app's 16,384-token budget) and bfloat16's speed; float32 took 7.8 GiB and
   four times as long. TrialSpace keeps its published settings (float32 weights, bfloat16 autocast, which torch
   emulates on a T4).
-- **Image:** vLLM and llama.cpp are installed but unused. torch 2.14's CUDA 13 wheels carry SM 7.5 kernels.
+- **Image:** the Dockerfile's `lite` variant, which `publish.py` sets for this Space (`SPACE_VARIANTS`, rewriting
+  `ARG MMAI_VARIANT=full`): the shared base and package layers on plain Ubuntu, with no llama.cpp stage, vLLM,
+  FlashInfer, CUDA compiler or Mamba prebuild (BuildKit builds only the stages a variant uses). The package is
+  installed with `no-engines.txt`, so its vLLM dependency is left out (the app needs vLLM only to serve or parse a
+  local model). About 7 GB installed against about 16 GB for the full image (estimates from installed package
+  sizes: 6.5 GB of Python packages, mostly torch and its CUDA libraries, against about 10 GB, plus the full image's
+  CUDA runtime base, FlashInfer's 1.7 GB of cubins and llama-server). torch 2.14's CUDA 13 wheels carry SM 7.5
+  kernels. On any GPU the lite image picks the no-server tier, since it has no engine to start.
 
 ## After a dataset update
 

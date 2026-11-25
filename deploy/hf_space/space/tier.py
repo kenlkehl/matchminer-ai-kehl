@@ -6,10 +6,13 @@ exports this prints (one image serves every Space, whatever its hardware).
   the decision model and TrialSpace).
 - ``openrouter``, less or no GPU (a T4): no local model server. With site.yaml's ``only`` and ``allow_openrouter``,
   the LLM tasks then use OpenRouter with each visitor's own API key, and nothing else.
+
+The lite image (the Dockerfile's ``MMAI_VARIANT=lite``) has no engines, so it is always ``openrouter``, on any GPU.
 """
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 
@@ -18,13 +21,18 @@ BOLT_MIB = 40_000
 BOLT = {"engine": "llama_cpp", "model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB", "gpus": [0]}
 
 
-def tier(gpu_mib: int) -> tuple[str, dict[str, str]]:
-    """``(name, environment)`` for a GPU of ``gpu_mib`` MiB (0: none)."""
+NO_SERVER = {"MMAI_DASH_LOCAL_SERVER_ENABLED": "false"}
+
+
+def tier(gpu_mib: int, variant: str = "full") -> tuple[str, dict[str, str]]:
+    """``(name, environment)`` for a GPU of ``gpu_mib`` MiB (0: none) in the image ``variant``."""
+    if variant == "lite":
+        return "openrouter", dict(NO_SERVER)
     if gpu_mib >= SUPER_MIB:
         return "super", {}
     if gpu_mib >= BOLT_MIB:
         return "bolt", {"MMAI_DASH_LOCAL_SERVER_AUTOSTART": json.dumps(BOLT, separators=(",", ":"))}
-    return "openrouter", {"MMAI_DASH_LOCAL_SERVER_ENABLED": "false"}
+    return "openrouter", dict(NO_SERVER)
 
 
 def gpu_mib() -> int:
@@ -43,9 +51,9 @@ def gpu_mib() -> int:
 
 
 def main() -> int:
-    memory = gpu_mib()
-    name, environment = tier(memory)
-    print(f"tier: {name} (GPU memory {memory} MiB)", file=sys.stderr)
+    memory, variant = gpu_mib(), os.environ.get("MMAI_VARIANT", "full")
+    name, environment = tier(memory, variant)
+    print(f"tier: {name} (GPU memory {memory} MiB, {variant} image)", file=sys.stderr)
     for key, value in {"MMAI_SPACE_TIER": name, **environment}.items():
         print(f"export {key}={shlex.quote(value)}")
     return 0

@@ -52,7 +52,8 @@ Space and do not survive a restart.
 ## Code
 
 The Space installs the commit of the repository named in `MMAI_COMMIT`; its own files are the repository's
-`deploy/hf_space/space/`, with this card (see `docs/apps/hf-space.md` there). A push to the repository's main branch
+`deploy/hf_space/space/`, with this card and the Dockerfile's lite variant (the app without the local model server's
+engines; see `docs/apps/hf-space.md` there). A push to the repository's main branch
 that changes the app republishes them, which rebuilds the Space.
 
 ## Licenses
