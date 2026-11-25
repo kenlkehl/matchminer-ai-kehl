@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from matchminer_ai import site
@@ -73,5 +75,39 @@ def test_hub_references_resolve_to_files_in_the_cache(tmp_path, monkeypatch):
         assert len(calls) == 1  # resolved once per process
         with pytest.raises(ValueError, match="writable folder"):
             site.data_root()
+    finally:
+        site.allow_hub_downloads(None)
+
+
+def test_environment_variables_and_missing_hub_paths(tmp_path, monkeypatch):
+    """${NAME:-default} picks a revision (a Space variable, else the default); a file or folder the revision does
+    not have reads as a missing path (the reader finds nothing), not an error, except where a caller requires it."""
+    import huggingface_hub
+
+    def snapshot_download(repo_id, *, repo_type, revision, allow_patterns, local_files_only=False):
+        return str(tmp_path / "hub" / repo_id / revision)  # nothing of the requested folder
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    monkeypatch.setattr(site, "_RESOLVED", {})
+    monkeypatch.setattr(site, "_ABSENT", {})
+    path = tmp_path / "site.yaml"
+    path.write_text("dashboard:\n"
+                    "  catalogs: hf://datasets/example-org/example-data@${EXAMPLE_REVISION:-main}/catalogs\n"
+                    "  root: ${EXAMPLE_ROOT}\n")
+    monkeypatch.setenv(site.SITE_CONFIG_ENV, str(path))
+    monkeypatch.delenv("EXAMPLE_REVISION", raising=False)
+    monkeypatch.delenv("EXAMPLE_ROOT", raising=False)
+    config = site.load_site_config()
+    site.allow_hub_downloads(True)
+    try:
+        assert config.get("dashboard.catalogs", resolve=False).endswith("@main/catalogs")
+        missing = config.get("dashboard.catalogs")
+        assert missing.endswith("/main/catalogs") and not os.path.exists(missing)
+        with pytest.raises(FileNotFoundError):
+            site.hub_path("hf://datasets/example-org/example-data@main/catalogs")
+        monkeypatch.setenv("EXAMPLE_REVISION", "1" * 40)
+        assert config.get("dashboard.catalogs", resolve=False).endswith("@" + "1" * 40 + "/catalogs")
+        with pytest.raises(KeyError, match="EXAMPLE_ROOT"):
+            config.get("dashboard.root")
     finally:
         site.allow_hub_downloads(None)

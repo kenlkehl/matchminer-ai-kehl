@@ -28,13 +28,22 @@ dashboard:
 ```
 
 `site.get` returns its local path in the Hugging Face cache (`HF_HUB_CACHE`), downloading only that file or folder
-(`snapshot_download` with `allow_patterns`) the first time a process reads it. The revision is required; use a commit
-hash, so the files never change underneath the app. Downloads follow `allow_hub_downloads` (the dashboard's
+(`snapshot_download` with `allow_patterns`) the first time a process reads it. The revision is required: a commit
+hash keeps the files fixed, a branch (such as `main`) follows the repository at each start. A file or folder the
+revision does not have reads like a local path that does not exist (with a warning), so an optional input is simply
+absent. Downloads follow `allow_hub_downloads` (the dashboard's
 `--allow-downloads`; elsewhere huggingface_hub's `HF_HUB_OFFLINE`); without them only cached files resolve. Models use
 `hf://models/<org>/<name>@<revision>`. A dataset reference must name a file or folder, so a whole dataset is never
 downloaded, except `dashboard.synthetic_run`, which may name a whole published run (read by `apps.dashboard.hub_run`,
 which downloads only what the app needs). Hub files are read-only: the data root, store folders and the trial
 management file must stay local (a Hub reference there is refused).
+
+## Environment variables
+
+`${NAME}` and `${NAME:-default}` in a value are replaced by the environment variable (`:-`: the default when it is
+unset or empty), for example a revision a deployment can set:
+`hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/guideline_catalogs/pdq`. An unset `${NAME}`
+without a default is an error naming it.
 
 ## Data root
 
@@ -92,7 +101,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `synthetic.frame_ancestors` | none | https origins whose pages may show synthetic mode in a frame, e.g. `[https://huggingface.co]` for a Space page (as `--frame-ancestors`) |
 | `real.local_server`, `synthetic.local_server` | none | The [local model server](../apps/dashboard.md#local-model-server): `only` (the local server is the only model connection), `autostart` (a server spec, or a JSON or YAML file), `default` and `llama_server` (the binary), as `--local-server-only`, `--local-server-autostart`, `--local-server-default` and `--llama-server` |
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run, `hf://datasets/<org>/<name>@<revision>`, built into `<data root>/no_phi/synthetic_runs/` before the app serves |
-| `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs (also `population.review`'s default) |
+| `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs (also `population.review`'s default); without any, the dashboard hides its guideline views |
 | `grouping` | the bundled example rules | Trial-group rules per center |
 | `real.trial_management`, `synthetic.trial_management` | `<data root>/phi/real_time/dashboard_trial_management/trial_management.json`, `<data root>/no_phi/dashboard_trial_management/trial_management.json` | The file of each mode's slots, edited criteria, subcohorts and group placements (Clinical trial management's Trial management sidebar), shared by the mode's users; outside the store folder, which is rebuildable; synthetic mode's never under `phi` |
 | `embedding_python` | the server's own Python | Python that runs the query encoder |

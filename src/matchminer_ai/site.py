@@ -12,13 +12,18 @@ The data root (``--data-root``, ``MMAI_DATA_ROOT`` or the site config's ``paths.
 ``no_phi/``. It has no default, and a data path inside this package's source checkout is refused, so clinical data
 cannot land in the repository.
 
-**Hugging Face Hub files.** A value may name a file or folder of a Hub repository at a pinned revision, in the Hub's
-own path form: ``hf://datasets/<org>/<name>@<revision>/<path>`` (also ``hf://models/<org>/<name>@<revision>``).
-``get`` returns its local path in the Hugging Face cache (``HF_HUB_CACHE``), downloading only that file or folder on
-first use (``hub_path``). Downloads follow ``allow_hub_downloads`` (default: huggingface_hub's ``HF_HUB_OFFLINE``);
-without them only cached files resolve. A dataset reference must name a file or folder, so a whole dataset is never
-downloaded; ``get(key, resolve=False)`` returns the reference itself (the dashboard's ``synthetic_run`` names a whole
-published run that way: ``apps.dashboard.hub_run``). Hub files are read-only: never name one where an app writes.
+**Environment variables.** ``${NAME}`` and ``${NAME:-default}`` in a value read with ``get`` are replaced by the
+variable (``:-``: the default when it is unset or empty); an unset ``${NAME}`` without a default is an error.
+
+**Hugging Face Hub files.** A value may name a file or folder of a Hub repository at a revision, in the Hub's own path
+form: ``hf://datasets/<org>/<name>@<revision>/<path>`` (also ``hf://models/<org>/<name>@<revision>``). ``get`` returns
+its local path in the Hugging Face cache (``HF_HUB_CACHE``), downloading only that file or folder on first use
+(``hub_path``). Downloads follow ``allow_hub_downloads`` (default: huggingface_hub's ``HF_HUB_OFFLINE``); without them
+only cached files resolve. A file or folder the revision does not have resolves like a local path that does not exist
+(the reader finds nothing there), with a warning. A dataset reference must name a file or folder, so a whole dataset
+is never downloaded; ``get(key, resolve=False)`` returns the reference itself (the dashboard's ``synthetic_run`` names
+a whole published run that way: ``apps.dashboard.hub_run``). Hub files are read-only: never name one where an app
+writes.
 """
 
 from __future__ import annotations
@@ -47,13 +52,14 @@ class SiteConfig:
         return bool(self.values)
 
     def get(self, key: str, default: Any = None, *, resolve: bool = True) -> Any:
-        """The value at ``key``; a Hub reference (or a list of them) as its local path, unless ``resolve`` is
-        False (see the module docstring)."""
+        """The value at ``key``, with environment variables expanded; a Hub reference (or a list of them) as its
+        local path, unless ``resolve`` is False (see the module docstring)."""
         value: Any = self.values
         for part in key.split("."):
             if not isinstance(value, dict) or part not in value:
                 return default
             value = value[part]
+        value = expand_env(value)
         return resolve_hub_value(value) if resolve else value
 
     def require(self, key: str) -> Any:
@@ -69,6 +75,27 @@ class SiteConfig:
 
 
 _CACHE: dict[tuple[str, int, int], SiteConfig] = {}
+_ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def expand_env(value: Any) -> Any:
+    """``value`` (a string, or strings in lists and mappings) with ``${NAME}`` and ``${NAME:-default}`` replaced."""
+    if isinstance(value, str):
+        def variable(match):
+            name, default = match.group(1), match.group(2)
+            found = os.environ.get(name)
+            if found or (found is not None and default is None):
+                return found
+            if default is not None:
+                return default
+            raise KeyError(f"the site config uses ${{{name}}}, which is not set (and has no :-default)")
+
+        return _ENV.sub(variable, value)
+    if isinstance(value, list):
+        return [expand_env(v) for v in value]
+    if isinstance(value, dict):
+        return {k: expand_env(v) for k, v in value.items()}
+    return value
 
 
 def load_site_config(path: str | os.PathLike | None = None) -> SiteConfig:
@@ -94,6 +121,7 @@ def load_site_config(path: str | os.PathLike | None = None) -> SiteConfig:
 _REPO_TYPES = {"datasets": "dataset", "models": "model"}
 _NAME = re.compile(r"^[A-Za-z0-9][\w.-]*$")
 _RESOLVED: dict[str, Path] = {}
+_ABSENT: dict[str, Path] = {}  # references resolved with missing_ok to a path that does not exist
 _hub_downloads: bool | None = None  # None: huggingface_hub's HF_HUB_OFFLINE decides
 
 
@@ -147,13 +175,35 @@ def _downloads_allowed() -> bool:
     return not constants.HF_HUB_OFFLINE
 
 
-def hub_path(value: str | HubRef) -> Path:
+def hub_path(value: str | HubRef, *, missing_ok: bool = False) -> Path:
     """The local path of a Hub file or folder, downloaded into the Hugging Face cache when it is not there yet
-    (only that file or folder: ``snapshot_download`` with ``allow_patterns``). Resolved once per process."""
+    (only that file or folder: ``snapshot_download`` with ``allow_patterns``). Resolved once per process.
+
+    ``missing_ok``: a file or folder the revision does not have (or, without downloads, the cache does not hold)
+    gives the path it would have, which does not exist, instead of ``FileNotFoundError``."""
     ref = value if isinstance(value, HubRef) else parse_hub_ref(value)
     key = str(ref)
     if key in _RESOLVED:
         return _RESOLVED[key]
+    if missing_ok and key in _ABSENT:
+        return _ABSENT[key]
+    try:
+        target = _hub_path(ref)
+    except FileNotFoundError as exc:
+        if not missing_ok:
+            raise
+        from huggingface_hub import constants
+
+        print(f"Hub: {exc}; read as a missing path", file=sys.stderr, flush=True)
+        folder = Path(constants.HF_HUB_CACHE) / f"{ref.repo_type}s--{ref.repo_id.replace('/', '--')}" / "snapshots"
+        _ABSENT[key] = folder / ref.revision / ref.path
+        return _ABSENT[key]
+    _RESOLVED[key] = target
+    return target
+
+
+def _hub_path(ref: HubRef) -> Path:
+    key = str(ref)
     if ref.repo_type == "dataset" and not ref.path:
         raise ValueError(f"{key}: name a file or folder of the dataset (a whole dataset is never downloaded)")
     from huggingface_hub import snapshot_download
@@ -174,16 +224,16 @@ def hub_path(value: str | HubRef) -> Path:
     if not target.exists():
         raise FileNotFoundError(f"{key}: {ref.path} is not in {ref.repo_id}@{ref.revision}"
                                 + ("" if _downloads_allowed() else " (or not cached; downloads are off)"))
-    _RESOLVED[key] = target
     return target
 
 
 def resolve_hub_value(value: Any) -> Any:
-    """``value`` with Hub references (a string, or strings in a list) replaced by their local paths."""
+    """``value`` with Hub references (a string, or strings in a list) replaced by their local paths (a missing file
+    or folder: the path it would have)."""
     if is_hub_ref(value):
-        return str(hub_path(value))
+        return str(hub_path(value, missing_ok=True))
     if isinstance(value, list):
-        return [str(hub_path(v)) if is_hub_ref(v) else v for v in value]
+        return [str(hub_path(v, missing_ok=True)) if is_hub_ref(v) else v for v in value]
     return value
 
 
