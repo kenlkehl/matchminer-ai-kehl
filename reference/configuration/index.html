@@ -2786,7 +2786,7 @@ to these endpoints instead of loading a model in-process. Model names and reques
 <tr>
 <td><code>provider</code></td>
 <td><code>openai</code></td>
-<td>Authentication and message profile: <code>openai</code>, <code>google_agent_platform</code> or <code>databricks_anthropic</code> (below)</td>
+<td>Authentication and message profile: <code>openai</code>, <code>google_agent_platform</code>, <code>databricks_anthropic</code> or <code>openrouter</code> (below)</td>
 </tr>
 <tr>
 <td><code>server_urls</code></td>
@@ -2852,6 +2852,11 @@ to these endpoints instead of loading a model in-process. Model names and reques
 <td><code>databricks_profile</code></td>
 <td>unset</td>
 <td>Databricks CLI profile for <code>databricks_anthropic</code></td>
+</tr>
+<tr>
+<td><code>api_key_ref</code></td>
+<td>unset</td>
+<td>For <code>openrouter</code>: the reference of a key held in the process's memory (<code>llm.openrouter.register_key</code>), never the key</td>
 </tr>
 <tr>
 <td><code>request_start_interval_seconds</code>, <code>capacity_retry_initial_seconds</code>, <code>capacity_retry_max_seconds</code></td>
@@ -2992,6 +2997,14 @@ gateway's three-part endpoint name.</p>
 <li><strong>Monitoring:</strong> with <code>MMAI_GATEWAY_REQUEST_LOG</code> set to a file, every request appends one line of metadata (times,
   HTTP status, stop reason, served model, token counts; never content), for watching rate limits.</li>
 </ul>
+<p><code>provider: openrouter</code> sends requests to <a href="https://openrouter.ai">OpenRouter</a> (<code>matchminer_ai.llm.openrouter</code>), with
+a user's own key held only in the process's memory: <code>register_key(key)</code> returns the reference that <code>api_key_ref</code>
+carries, and the key goes only to <code>server_urls: ["https://openrouter.ai/api/v1"]</code>, in a header. A section's
+<code>model_name</code> is an OpenRouter model ID. Requests keep a JSON-schema <code>response_format</code> and add
+<code>provider.require_parameters</code>; reasoning goes through OpenRouter's <code>reasoning</code> parameter (Claude: its effort, also as
+<code>verbosity</code>, and no sampling fields; other models: the thinking switch as <code>reasoning.enabled</code>). vLLM-only fields are
+dropped. Structured requests need <code>tokenizer_mode: bytes</code> and an explicit <code>context_window</code>. The dashboard offers it in
+synthetic mode only (<a href="../../apps/dashboard/#openrouter">OpenRouter</a>).</p>
 <h2 id="llm-sections">LLM sections<a class="headerlink" href="#llm-sections" title="Permanent link">&para;</a></h2>
 <p>These sections each configure one LLM task: <code>trial</code>, <code>patient</code>, <code>document_extraction</code>, <code>patient_extraction</code>,
 <code>workup_query_compile</code>, <code>workup_sql_agent</code>, <code>protocol_cohort_extraction</code>, <code>synthetic_protocol_generation</code>,

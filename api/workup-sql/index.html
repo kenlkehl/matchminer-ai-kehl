@@ -3934,8 +3934,7 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_sql/agent.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">902</span>
-<span class="normal">903</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">903</span>
 <span class="normal">904</span>
 <span class="normal">905</span>
 <span class="normal">906</span>
@@ -3979,7 +3978,8 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 <span class="normal">944</span>
 <span class="normal">945</span>
 <span class="normal">946</span>
-<span class="normal">947</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compile_workup_sql</span><span class="p">(</span>
+<span class="normal">947</span>
+<span class="normal">948</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compile_workup_sql</span><span class="p">(</span>
     <span class="n">requirements</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">ExtractionDatabase</span><span class="p">,</span>
@@ -4247,15 +4247,15 @@ transport failures), <code>model</code>, <code>contract</code> and <code>cached<
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/patients/workup_sql/agent.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">324</span>
-<span class="normal">325</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">325</span>
 <span class="normal">326</span>
 <span class="normal">327</span>
 <span class="normal">328</span>
 <span class="normal">329</span>
 <span class="normal">330</span>
 <span class="normal">331</span>
-<span class="normal">332</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">workup_sql_cache_key</span><span class="p">(</span><span class="n">requirement</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">population_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+<span class="normal">332</span>
+<span class="normal">333</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">workup_sql_cache_key</span><span class="p">(</span><span class="n">requirement</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">population_context</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
                          <span class="n">database_fingerprint</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">contract</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""The cache key of one requirement's accepted query."""</span>
     <span class="k">return</span> <span class="n">digest</span><span class="p">({</span>

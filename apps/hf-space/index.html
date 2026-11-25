@@ -2219,8 +2219,9 @@ sleeps after five hours without visitors. Everything it shows comes from the Hub
 guideline catalogs of <a href="https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226">mmai-synthetic-1226</a>,
 TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Super NVFP4 (the
 training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GPU under 90 GB (an L40S, say) the
-same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. It reaches no other model service, needs no
-sign-in and has no Benchmarking tab.</p>
+same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
+<a href="../dashboard/#openrouter">OpenRouter</a> with a visitor's own API key (<code>allow_openrouter</code>), at the visitor's own risk:
+while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
 <p>The Space's files are <code>deploy/hf_space/space/</code> in this repository:</p>
 <table>
@@ -2302,6 +2303,9 @@ folder the revision does not have reads as a missing path, so that feature is un
 <p>Clinical trial management's file (<code>no_phi/dashboard_trial_management/</code> under the data root) starts empty and is shared
 by everyone using the Space.</p>
 <h2 id="the-llm-server">The LLM server<a class="headerlink" href="#the-llm-server" title="Permanent link">&para;</a></h2>
+<p>Until the local server is ready (or on hardware without a GPU), Data and models offers OpenRouter: a visitor pastes
+their own key, which the app keeps only in memory for that browser session and sends only to OpenRouter, and picks a
+model (by default <code>nvidia/nemotron-3.5-super-vl</code>, the same Nemotron 3.5 Super). Nothing else is accepted.</p>
 <p><code>site.yaml</code>'s <code>local_server.autostart</code> is a full vLLM spec, so it needs no recipe in the package:
 - <strong>Model:</strong> <code>nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4</code> at a pinned revision, text only
   (<code>--language-model-only</code>), served under its own ID. So the package's Super profile applies: the <code>nemotron_v3</code>
@@ -2344,8 +2348,18 @@ by everyone using the Space.</p>
   per token (2.25 GiB for one 262,144-token context), and each sequence's Mamba state is about 80 MiB. So
   <code>max_model_len</code> 262,144 and <code>max_num_seqs</code> 8 fit, with the default (bf16) KV cache.
 - <strong>Engine:</strong> vLLM 0.33.0, whose wheels carry SM 12.0 kernels (the card lists vLLM on one RTX PRO 6000), with torch
-  2.14 (CUDA 13: host driver 580 or later; <code>entrypoint.sh</code> logs torch's view of the GPU). vLLM compiles some kernels
-  at start with the pip CUDA toolkit, which the local server finds by itself.</p>
+  2.14 (CUDA 13: host driver 580 or later; <code>entrypoint.sh</code> logs torch's view of the GPU). FlashInfer's precompiled
+  kernels for SM 12.0 are installed (<code>flashinfer-cubin</code>, and <code>flashinfer-jit-cache</code> with its <code>sm120f</code> provider), so
+  vLLM loads them instead of compiling them. The one FlashInfer kernel the jit-cache cannot hold, the Mamba state
+  update with site.yaml's flashinfer Mamba backend (fp16 state cache, Philox-5 stochastic rounding, 6 tokens per
+  step), is compiled during the image build (about 40 s on 8 cores) into FlashInfer's cache, with the settings vLLM's
+  run-time build uses, so a cold start loads it. Anything still compiled at start uses the pip CUDA toolkit, which
+  the local server finds by itself:
+  - <code>constraints.txt</code> pins its compiler to torch's CUDA 13.0, since a newer nvcc than the 13.0 headers fails CCCL's
+    check ("CUDA compiler and CUDA toolkit headers are incompatible");
+  - the Dockerfile gives it the layout FlashInfer's and nvcc's links expect: <code>lib64</code> (a link to the wheels' <code>lib</code>),
+    unversioned names such as <code>libcudart.so</code> beside the versioned libraries, and the CUDA toolkit's driver stub as
+    <code>lib/stubs/libcuda.so</code> (only linked against; the host driver's <code>libcuda.so.1</code> is loaded at run time).</p>
 <h2 id="after-a-dataset-update">After a dataset update<a class="headerlink" href="#after-a-dataset-update" title="Permanent link">&para;</a></h2>
 <p>A new dataset commit (new guideline catalogs, published vectors, a new extraction store) needs only a restart, no
 rebuild:</p>

@@ -1173,6 +1173,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#openrouter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#real-patients" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2226,6 +2237,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#openrouter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#real-patients" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2679,9 +2701,9 @@ when the site config names the gateway (<code>databricks.host</code>, <code>data
 (<code>databricks.endpoints.haiku</code>), else the Vertex profile Gemini 4 Hydrogen (in the site's <code>vertex.project</code>). Claude
 serves every task: Haiku's default effort (medium) for all of them except the SQL agent (high). The other
 endpoints the site names (<code>sonnet</code>, <code>opus</code>) can be chosen per task. An OpenAI-compatible endpoint is also offered
-(<code>--llm-backend openai</code>, <code>--llm-endpoint</code>, default the site's <code>endpoints.teacher.url</code>). Each session can change the
-connection per task on Data and models. Patient text and cohort criteria go to the selected endpoints, so use only
-endpoints authorized for the data.</p>
+(<code>--llm-backend openai</code>, <code>--llm-endpoint</code>, default the site's <code>endpoints.teacher.url</code>), and in synthetic mode
+<a href="#openrouter">OpenRouter</a> with a user's own key. Each session can change the connection per task on Data and models.
+Patient text and cohort criteria go to the selected endpoints, so use only endpoints authorized for the data.</p>
 <h2 id="decision-model-or-llm">Decision model or LLM<a class="headerlink" href="#decision-model-or-llm" title="Permanent link">&para;</a></h2>
 <p>Wherever the dashboard scores a patient-cohort pair, a <strong>Scores from: Decision model | LLM</strong> toggle chooses who
 answers. The choice belongs to the browser session: the same toggle appears in every such view, changing it in one
@@ -2853,12 +2875,15 @@ server refuses every other model connection, wherever one is chosen or used:</p>
   defaults are ignored).</li>
 <li><strong>Frontend:</strong> Data and models' connection forms offer only the local server. Benchmarking reads stored answers
   and is unaffected.</li>
+<li><strong>OpenRouter:</strong> with <code>--allow-openrouter</code> (synthetic mode), <a href="#openrouter">OpenRouter</a> with a session's own key is
+  accepted too, for example while the server loads or on a machine without a suitable GPU. The forms then offer the
+  local server and OpenRouter; nothing else.</li>
 <li><strong>Other network use is unchanged:</strong> Hugging Face model downloads (with <code>--allow-downloads</code>) and ClinicalTrials.gov
   fetches.</li>
 </ul>
-<p><strong>Flags</strong> (also <code>MMAI_DASH_LOCAL_SERVER_ONLY</code>, <code>MMAI_DASH_LOCAL_SERVER_AUTOSTART</code>, <code>MMAI_DASH_LOCAL_SERVER_DEFAULT</code>
-and <code>MMAI_DASH_LLAMA_SERVER</code>, or the site config's <code>dashboard.&lt;mode&gt;.local_server</code> with <code>only</code>, <code>autostart</code>, <code>default</code>
-and <code>llama_server</code>):</p>
+<p><strong>Flags</strong> (also <code>MMAI_DASH_LOCAL_SERVER_ONLY</code>, <code>MMAI_DASH_LOCAL_SERVER_AUTOSTART</code>, <code>MMAI_DASH_LOCAL_SERVER_DEFAULT</code>,
+<code>MMAI_DASH_LLAMA_SERVER</code> and <code>MMAI_DASH_ALLOW_OPENROUTER</code>, or the site config's <code>dashboard.&lt;mode&gt;.local_server</code> with
+<code>only</code>, <code>autostart</code>, <code>default</code>, <code>llama_server</code> and <code>allow_openrouter</code>):</p>
 <table>
 <thead>
 <tr>
@@ -2883,6 +2908,10 @@ and <code>llama_server</code>):</p>
 <td><code>--llama-server PATH</code></td>
 <td>The <code>llama-server</code> binary (default: <code>$MMAI_LLAMA_SERVER</code>, else <code>llama-server</code> on <code>PATH</code>)</td>
 </tr>
+<tr>
+<td><code>--allow-openrouter</code></td>
+<td>Synthetic mode, with <code>--local-server-only</code>: also accept OpenRouter with a session's own key</td>
+</tr>
 </tbody>
 </table>
 <p>For example, a Space (the <a href="../hf-space/">Hugging Face Space</a> sets the same in its site config): Bolt with llama.cpp
@@ -2891,6 +2920,35 @@ on the first GPU, the only model connection:</p>
 <span class="w">  </span>--local-server-autostart<span class="w"> </span><span class="s1">'{"engine": "llama_cpp", "model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB", "gpus": [0]}'</span>
 </code></pre></div>
 <p>The package API is described in <a href="../../api/local-server/">Local model server</a>.</p>
+<h2 id="openrouter">OpenRouter<a class="headerlink" href="#openrouter" title="Permanent link">&para;</a></h2>
+<p>In synthetic mode Data and models also offers <strong>OpenRouter (your own API key)</strong> for any task or <strong>Use for every
+task</strong>: an OpenRouter model ID and the user's own OpenRouter API key, at the user's own risk. It needs no site
+config and no GPU, so it also serves when no local model server can run.</p>
+<ul>
+<li><strong>Models:</strong> any OpenRouter model ID may be typed; the form suggests some (<code>presets/openrouter.yaml</code>, IDs from
+  OpenRouter's model list): Nemotron 3.5 Super (the model the synthetic training data was generated and labeled
+  with; the default) and its free tier, Claude Haiku, Sonnet and Opus 5.5, and open models with JSON-schema output
+  (Qwen3.8 Flash, DeepSeek V4.1 Flash, GLM 5.3, Kimi K3).</li>
+<li><strong>The key:</strong> pasted once per browser session and kept only in the app's memory for that session: never written
+  to disk, logged, put in an error or an export, or sent back to the browser (the form shows only "key set" and its
+  last four characters). It is sent only to <code>https://openrouter.ai/api/v1</code>, and forgotten when the session expires
+  or the user removes it. The key and the synthetic data the tasks send go to OpenRouter under the user's own
+  account, which is billed for them.</li>
+<li><strong>Requests</strong> (<code>matchminer_ai.llm.openrouter</code>): every task answers in its JSON schema (<code>response_format</code>), with
+  <code>provider.require_parameters</code> so that only providers honouring every parameter serve it. Reasoning goes through
+  OpenRouter's <code>reasoning</code> parameter: Claude gets the same efforts as through the gateway (medium, high for the query
+  writers) as <code>reasoning.effort</code> and <code>verbosity</code>, and no temperature, top_p or top_k; other models get their model
+  profile's sampling (Nemotron 3.5 Super: NVIDIA's) and the <strong>Reasoning</strong> switch as <code>reasoning.enabled</code>. Outputs are
+  capped at 65,536 tokens; prompt budgets count UTF-8 bytes.</li>
+<li><strong>Errors:</strong> fixed texts for a refused key (401), too few credits (402), a refused model or input (403), no
+  provider for the parameters (404) and rate limits (429); response bodies are not kept.</li>
+<li><strong>Connection check:</strong> reads the key's own record and the public model list, and checks that the model offers
+  JSON-schema output; it sends no prompt.</li>
+<li><strong>Real mode never offers OpenRouter.</strong> Its routes, the connection checks and the package's connection builders
+  (<code>llm.connections.set_connection_policy</code>, the mechanism <code>--local-server-only</code> uses) refuse it, and
+  <code>allow_openrouter</code> is an error there. OpenRouter cannot be the app's default connection (<code>--llm-backend</code>), since
+  the key is per session.</li>
+</ul>
 <h2 id="real-patients">Real patients<a class="headerlink" href="#real-patients" title="Permanent link">&para;</a></h2>
 <p>Real mode's patients are a preprocessed population cache: summaries with precomputed TrialSpace vectors, and the
 source notes, read on demand. It is built offline from a population DuckDB database (<code>dashboard.real.population_duckdb</code>)
