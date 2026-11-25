@@ -20,7 +20,6 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import shutil
 import signal
 import subprocess
 import sys
@@ -311,23 +310,10 @@ def teacher_command(args, index):
 
 
 def teacher_environment(args):
-    """Expose the pip CUDA toolkit when using a driver-only accelerator image."""
-    env = dict(os.environ)
-    executable = Path(shutil.which(args.vllm) or args.vllm).expanduser()
-    env["PATH"] = str(executable.parent) + os.pathsep + env.get("PATH", "")
-    if not env.get("CUDA_HOME") and not shutil.which("nvcc"):
-        python = executable.parent / "python"
-        probe = (
-            "import sysconfig; from pathlib import Path; "
-            "root=Path(sysconfig.get_paths()['purelib'])/'nvidia'; "
-            "print(next((str(p) for p in sorted(root.glob('cu*'), reverse=True) "
-            "if (p/'bin/nvcc').is_file()), ''))"
-        )
-        cuda_home = subprocess.check_output([str(python), "-c", probe], text=True).strip()
-        if cuda_home:
-            env["CUDA_HOME"] = cuda_home
-            env["PATH"] = str(Path(cuda_home) / "bin") + os.pathsep + env.get("PATH", "")
-    return env
+    """Expose the pip CUDA toolkit when using a driver-only accelerator image (``llm.local_server``'s probe)."""
+    from matchminer_ai.llm.local_server import cuda_environment
+
+    return cuda_environment(args.vllm)
 
 
 @contextmanager

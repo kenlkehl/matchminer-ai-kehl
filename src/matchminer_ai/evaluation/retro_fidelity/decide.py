@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import time
 
 from matchminer_ai.evaluation.retro_fidelity.common import DECISION_MODEL, log, private, private_dir, read_jsonl, run_stage, stage, write_json  # noqa: E402
@@ -30,11 +29,11 @@ LABELS = ('reasonableness', 'cancer_type', 'burden', 'treatment_history', 'bioma
 
 
 def gpu_memory_gb(index):
-    """(total, free) GB of physical GPU ``index``, as nvidia-smi reports them (every process on it)."""
-    out = subprocess.run(['nvidia-smi', '--query-gpu=memory.total,memory.used', '--format=csv,noheader,nounits',
-                          '-i', str(index)], capture_output=True, text=True, check=True).stdout.strip()
-    total, used = (float(v) for v in out.split(','))
-    return total / 1024, (total - used) / 1024
+    """(total, free) GB of physical GPU ``index`` (every process on it; ``llm.gpus``)."""
+    from matchminer_ai.llm.gpus import physical_gpu
+    gpu = physical_gpu(int(index))
+    used = gpu.memory_used if gpu.memory_used is not None else gpu.memory_total - (gpu.memory_free or 0)
+    return gpu.memory_total / 1024**3, (gpu.memory_total - used) / 1024**3
 
 
 def gpu_free_gb(index):
