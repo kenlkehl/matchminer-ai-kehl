@@ -35,6 +35,7 @@ nav:
   - Apps:
       - Dashboard overview: apps/dashboard-overview.md
       - Dashboard: apps/dashboard.md
+      - Hugging Face Space: apps/hf-space.md
   - Reference:
       - Configuration: reference/configuration.md
       - Site configuration: reference/site-config.md

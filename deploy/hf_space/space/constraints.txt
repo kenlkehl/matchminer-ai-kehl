@@ -1,0 +1,17 @@
+# The Space's pinned versions of the heavy dependencies (installed first, so a code update reuses their image layer),
+# then constraints on installing the package itself. Versions the dashboard runs with; change them together.
+torch==2.13.0
+vllm==0.30.0
+transformers==5.20.2
+sentence-transformers==6.1.0
+huggingface_hub==1.33.0
+hf_xet==1.8.0
+numpy==2.3.5
+pandas==3.0.3
+pyarrow==24.0.0
+fastapi==0.136.3
+starlette==1.10.0
+uvicorn==0.54.0
+python-multipart==0.0.33
+duckdb==1.4.4
+reportlab==5.0.0

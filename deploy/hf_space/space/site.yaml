@@ -1,0 +1,40 @@
+# Site config of the MatchMiner-AI Hugging Face Space (matchminer_ai.site; keys: docs/reference/site-config.md).
+# Synthetic data and public models only. Every hf:// value is a file or folder of a Hub repository at a pinned
+# revision, downloaded into the Space's Hugging Face cache when the app first reads it.
+paths:
+  # Writable: the app's store, caches, the trial management file and the synthetic run's folder. MMAI_DATA_ROOT
+  # overrides it (the Dockerfile sets it; entrypoint.sh moves it to /data when a storage bucket is mounted there).
+  data_root: /home/user/mmai-data
+
+dashboard:
+  # The published synthetic run: its trials, patients and corpus. The app builds the run folder it reads from the
+  # dataset (apps.dashboard.hub_run), embedding the corpus with the published TrialSpace (the preset's pinned
+  # ksg-dfci/TrialSpace-1226). The decision model is the published, pinned ksg-dfci/MatchEval-1226.
+  synthetic_run: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477
+
+  # Guideline catalogs (the Patient-centric Guidelines sub-tab, Guideline concordance reporting): none yet. To show
+  # catalogs, name a folder of finalized catalogs, e.g.
+  #   guideline_catalogs: hf://datasets/ksg-dfci/mmai-synthetic-1226@<revision>/guideline_catalogs/pdq
+  # Without the key the library is empty (its default folder under the data root does not exist here).
+
+  synthetic:
+    # Population management samples these (1,000 test-split patients with seed 23 by default).
+    population_summaries: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/summaries/patient_summaries_with_spaces.parquet
+    population_notes: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/patients/all_synthetic_notes.parquet
+    population_split: test
+    population_key: patient_id
+    # The structured extraction store (Nemotron 3.5 Super, the 1,000-patient test sample). A new store: change
+    # this line's path or revision.
+    extraction_records: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/extraction_records/n5000_test1000_nemotron
+    # The trials' drugs and drug classes.
+    good_options_catalog: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/good_options_catalog/n5000
+    # No benchmark_roots: the Benchmarking tab stays hidden.
+    # The Space page shows the app in a frame.
+    frame_ancestors: [https://huggingface.co]
+    # Every LLM task uses the app's own llama.cpp server on the Space's GPU, started at boot: Nemotron 3.5 Bolt's
+    # GGUF, its recipe chosen by the GPU's free memory (presets/local_servers.yaml). No other model connection is
+    # accepted.
+    local_server:
+      only: true
+      default: true
+      autostart: {engine: llama_cpp, model: nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB, gpus: [0]}

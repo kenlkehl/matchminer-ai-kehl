@@ -1,0 +1,54 @@
+name: Hugging Face Space
+
+# Rebuilds the Space ksg-dfci/matchminer-ai-1226 from this commit whenever main changes the app: uploads
+# deploy/hf_space/space/ with MMAI_COMMIT (deploy/hf_space/publish.py), and the Space builds that commit.
+# Needs the repository secret HF_TOKEN: a Hugging Face token with write access to the Space.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "frontend/dashboard/**"
+      - "docs/**"  # the How this works tab serves pages of docs/
+      - "pyproject.toml"
+      - "deploy/hf_space/**"
+      - ".github/workflows/hf-space.yml"
+  workflow_dispatch:
+    inputs:
+      factory_rebuild:
+        description: Rebuild without Docker's layer cache
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hf-space
+  cancel-in-progress: true  # a later push supersedes an earlier one
+
+jobs:
+  publish:
+    name: Publish the Space files
+    if: github.repository == 'kenlkehl/matchminer-ai-kehl'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install huggingface_hub
+        run: python -m pip install "huggingface_hub>=1.14"
+
+      - name: Upload the Space files and the commit
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_REBUILD: ${{ inputs.factory_rebuild && '--factory-rebuild' || '' }}
+        run: python deploy/hf_space/publish.py --commit "$GITHUB_SHA" $FACTORY_REBUILD
