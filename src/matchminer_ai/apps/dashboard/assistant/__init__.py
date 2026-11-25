@@ -92,6 +92,7 @@ class Assistant:
             raise InputError("This conversation has reached its message limit. Start a new conversation.")
         # The connections are fixed when the turn is submitted, as for every job.
         selected = self.connection(owner)
+        selected.require_connection()  # e.g. --local-server-only before the server is ready
         score_connection = self.score_connection(owner, scorer)
         model = connection_label(selected)
 

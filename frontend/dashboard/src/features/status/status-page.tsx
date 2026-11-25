@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
 import { isoWhen, when } from "@/lib/format";
-import { modelsOptions } from "@/lib/models";
 
 import { LocalServerPanel } from "./local-server-panel";
 import { ModelsPanel } from "./models-panel";
@@ -154,7 +153,6 @@ export function StatusPage() {
     refetchInterval: 5_000,
   });
   const rebuild = useMutation({ mutationFn: () => api.post("/api/rebuild", {}) });
-  const localServer = useQuery(modelsOptions()).data?.local_server.enabled;
   const s = status.data;
   if (!s) return <Spinner className="size-6" />;
   return (
@@ -266,12 +264,10 @@ export function StatusPage() {
           <Row label="Cached answers">{s.score_cache.toLocaleString()}</Row>
         </dl>
       </section>
-      {localServer ? (
-        <section>
-          <h2 className="mb-2 text-lg font-semibold">Local model server</h2>
-          <LocalServerPanel />
-        </section>
-      ) : null}
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">Local model server</h2>
+        <LocalServerPanel />
+      </section>
       <section>
         <h2 className="mb-2 text-lg font-semibold">Models</h2>
         <ModelsPanel />

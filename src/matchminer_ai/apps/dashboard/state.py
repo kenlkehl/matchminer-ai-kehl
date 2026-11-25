@@ -1,6 +1,6 @@
 """What the app holds: the trial store (rebuilt as its sources change), the patient corpus and its vectors, the
 trial cohorts' vectors, the encoder, the decision model, the guideline features, the Assistant tab's chat agent,
-the local model server (with ``--local-server``) and the background jobs.
+the local model server and the background jobs.
 
 The mode picks the sources (``settings``):
 
@@ -115,20 +115,21 @@ class DashState:
         log(f"  {len(self.corpus.patients):,} patients ({self.patient_source}; {self.corpus.load_seconds} s)"
             + (f": {self.patients_error}" if self.patients_error else ""))
         self.evidence = CatalogEvidence(settings.good_options_catalog)  # read on demand (evidence dialogs)
-        self.llm = LLMChecks(settings, Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
-                                                       settings.llm_tokenizer),
-                             ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
+        # The checks' default connection: none with --local-server-only until the local server is ready.
+        default = (Connection.make("openai", "") if getattr(settings, "local_server_only", False) else
+                   Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
+                                   settings.llm_tokenizer))
+        self.llm = LLMChecks(settings, default, ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
         # The LLM alternative to the decision model (answers in memory per session; runs on the LLM checks' pool),
         # also for the guideline searches' rankings.
         self.llm_decisions = LLMDecisions(self.guidelines.settings.ttl, jobs=self.llm.jobs,
                                           metadata_dir=settings.cache_dir / "llm_model_metadata")
         self.guidelines.llm_decisions = self.llm_decisions
-        # ---- the local model server of Data and models (offered only with --local-server)
+        # ---- the local model server of Data and models (with --local-server-only, the only connection allowed)
         from .local_server import LocalServerControl
 
         self.local_server = LocalServerControl(settings, self.guidelines, self.llm, log=log)
-        if self.local_server.enabled:
-            self.guidelines.local_server = self.local_server
+        self.guidelines.local_server = self.local_server
         self.custom: dict[str, dict] = {}
         self.seed_cohort_vectors()
         # ---- benchmarks: evaluation runs under the mode's roots (Benchmarking tab)

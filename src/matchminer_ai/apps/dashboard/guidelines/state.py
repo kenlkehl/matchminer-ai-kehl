@@ -15,6 +15,7 @@ from dataclasses import replace
 import threading
 import time
 
+from ..core.errors import InputError
 from ..core.jobs import JobManager
 from .extraction_workup import SessionExtractions
 from .population import PopulationSessions
@@ -23,6 +24,10 @@ from .settings import (
     CLAUDE_BACKENDS, CLAUDE_LABELS, GEMINI_BACKENDS, LLM_TASKS, VERTEX_BACKENDS, VERTEX_LABELS,
     Settings, claude_backends, databricks_profile, vertex_profiles, vertex_project,
 )
+
+
+# The values of a saved connection that name where its requests go.
+CONNECTION_KEYS = ("llm_backend", "endpoint", "model", "tokenizer")
 
 
 class GuidelineState:
@@ -41,7 +46,8 @@ class GuidelineState:
         # The LLM decision checks (``apps.dashboard.llm_decisions``), for the guideline searches' LLM rankings; the
         # app sets them.
         self.llm_decisions = None
-        # The local model server's control (``apps.dashboard.local_server``) when the app offers one; the app sets it.
+        # The local model server's control (``apps.dashboard.local_server``); the app sets it. With
+        # --local-server-only its ``refusal`` decides which connections are allowed.
         self.local_server = None
         self.workspace_settings: dict[str, dict] = {}
         self.lock = threading.RLock()
@@ -73,7 +79,24 @@ class GuidelineState:
             if entry is None:
                 return self.settings
             entry["updated"] = time.monotonic()
-            return replace(self.settings, **entry["values"])
+            return replace(self.settings, **self.allowed(entry["values"]))
+
+    def refusal(self, values: dict) -> str | None:
+        """Why a connection is refused (``--local-server-only``: anything but the app's ready local server)."""
+        return self.local_server.refusal(values) if self.local_server is not None else None
+
+    def allowed(self, values: dict) -> dict:
+        """A session's saved values without the connections now refused (a local server since stopped or restarted
+        on another port), so those tasks fall back to the app's default."""
+        if self.local_server is None or not self.local_server.only:
+            return values
+        kept = dict(values)
+        if any(k in kept for k in CONNECTION_KEYS) and self.refusal(kept):
+            for key in CONNECTION_KEYS:
+                kept.pop(key, None)
+        kept["task_connections"] = {task: v for task, v in (kept.get("task_connections") or {}).items()
+                                    if not self.refusal(v)}
+        return kept
 
     def task_settings(self, owner: str, task: str) -> Settings:
         return self.current_settings(owner).for_task(task)
@@ -84,6 +107,7 @@ class GuidelineState:
             workspace = self.current_settings(owner)
             base, inference = self.settings, self.inference
         selected = workspace.for_task(task)
+        selected.require_connection()
         worker = inference if selected is base else inference.with_settings(selected)
         if isinstance(worker, Inference) and task == "workup":
             worker = worker.with_workup_backups(
@@ -110,7 +134,11 @@ class GuidelineState:
             self.settings, self.inference = previous
 
     def update(self, owner: str, values: dict, *, task: str | None, apply_to_all: bool) -> Settings:
-        """Save a session's connection for ``task`` (or, with ``apply_to_all``, for every task)."""
+        """Save a session's connection for ``task`` (or, with ``apply_to_all``, for every task). A connection the
+        app refuses (``refusal``) raises ``InputError``."""
+        reason = self.refusal(values)
+        if reason:
+            raise InputError(reason)
         with self.lock:
             previous = self.current_settings(owner)
             saved = (self.workspace_settings.get(owner) or {}).get("values", {})
@@ -135,17 +163,21 @@ class GuidelineState:
 
     def config_view(self, selected: Settings) -> dict:
         settings = self.settings
-        project = vertex_project()
+        only = self.local_server is not None and self.local_server.only
+        project = vertex_project() if not only else ""
         return dict(
             **connection_view(selected),
             tasks={task: {"label": label, **connection_view(selected.for_task(task))}
                    for task, label in LLM_TASKS.items()},
-            vertex_profiles={key: {**profile, "label": VERTEX_LABELS[key], "project": project}
-                             for key, profile in vertex_profiles().items()},
-            claude_profiles={key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile()}
-                             for key, profile in claude_backends().items()},
+            # --local-server-only: no hosted profiles to offer (nor site values to read).
+            vertex_profiles={} if only else {key: {**profile, "label": VERTEX_LABELS[key], "project": project}
+                                             for key, profile in vertex_profiles().items()},
+            claude_profiles={} if only else {
+                key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile()}
+                for key, profile in claude_backends().items()},
             local_defaults={"endpoint": settings.endpoint, "model": settings.model, "tokenizer": settings.tokenizer},
-            local_server=self.local_server.connection_view() if self.local_server is not None else {"enabled": False},
+            local_server=(self.local_server.connection_view() if self.local_server is not None else
+                          {"only": False, "state": None, "endpoint": None, "model": None, "tokenizer": None}),
             device=settings.device,
             ttl_minutes=settings.ttl // 60,
             max_upload_mb=settings.max_upload // 1024**2,

@@ -110,13 +110,15 @@ class DashSettings(Settings):
     # other accounts on this machine, which can reach a loopback port; on request in synthetic mode.
     require_token: bool = False
     device_notice: str | None = None
-    # The local model server (Data and models; ``local_server``): off unless asked for (--local-server, or the site
-    # config's dashboard.<mode>.local_server.enabled). Anyone using the app may then start, stop and configure it.
-    local_server: bool = False
+    # The local model server (Data and models; ``local_server``), in every dashboard: anyone using the app may start,
+    # stop and configure it (user, 2026-11-24).
     # A server spec (JSON, or a JSON/YAML file) started at boot, after the decision model has loaded.
     local_server_autostart: str | None = None
     # Once ready, the server becomes the default connection of every task in sessions that chose none.
     local_server_default: bool = False
+    # Every LLM task uses this app's own local model server, and no other connection is accepted (no gateway, Vertex
+    # or other OpenAI-compatible endpoint); implies local_server_default.
+    local_server_only: bool = False
     # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
     llama_server: str | None = None
 
@@ -132,6 +134,8 @@ class DashSettings(Settings):
             self.allowed_hosts = tuple(LOOPBACK_HOSTS) if real else ("*",)
         if real:
             self.require_token = True
+        if self.local_server_only:
+            self.local_server_default = True
         if self.device in (None, "", AUTO_DEVICE):
             self.device, self.device_notice = default_device()
         if self.trial_data is None and real:
@@ -177,9 +181,15 @@ class DashSettings(Settings):
 def guideline_settings(dash: "DashSettings", decision_model: dict | None = None):
     """The guideline features' settings (``guidelines.settings.Settings``) for the app: real mode reads real
     patients; the default model connection is the app's (``--llm-*``); TrialSpace and the decision model run on
-    the app's device with the app's decision model (``decision_model``: its preset section)."""
+    the app's device with the app's decision model (``decision_model``: its preset section).
+
+    With ``--local-server-only`` there is no default connection until the local model server is ready (an empty
+    endpoint, which LLM tasks refuse), whatever the ``--llm-*`` options and the site config name."""
     from .guidelines.settings import LOCAL, Settings as GuidelineSettings, default_task_connections
 
+    if dash.local_server_only:
+        return GuidelineSettings(phi=dash.real, llm_backend=LOCAL, endpoint="", model="", tokenizer="",
+                                 device=dash.device, decision_model=dict(decision_model or {}), task_connections={})
     backend = LOCAL if dash.llm_backend == "openai" else dash.llm_backend
     return GuidelineSettings(phi=dash.real, llm_backend=backend, endpoint=dash.llm_endpoint or "http://localhost:8000/v1",
                              model=dash.llm_model, tokenizer=dash.llm_tokenizer or dash.llm_model, device=dash.device,
@@ -191,9 +201,9 @@ def _flag(name: str) -> bool:
 
 
 def local_server_settings(args, mode: str) -> dict:
-    """The local model server's settings: the command line, then MMAI_DASH_* variables (LOCAL_SERVER,
+    """The local model server's settings: the command line, then MMAI_DASH_* variables (LOCAL_SERVER_ONLY,
     LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER), then the site config's
-    ``dashboard.<mode>.local_server`` (``enabled``, ``autostart``, ``default``, ``llama_server``)."""
+    ``dashboard.<mode>.local_server`` (``only``, ``autostart``, ``default``, ``llama_server``)."""
     import json
 
     site = load_site_config().get(f"dashboard.{mode}.local_server") or {}
@@ -202,9 +212,9 @@ def local_server_settings(args, mode: str) -> dict:
     autostart = args.local_server_autostart or _env("local_server_autostart") or site.get("autostart")
     if isinstance(autostart, dict):
         autostart = json.dumps(autostart)
-    return {"local_server": bool(args.local_server or _flag("local_server") or site.get("enabled")),
-            "local_server_autostart": autostart or None,
-            "local_server_default": bool(args.local_server_default or _flag("local_server_default")
+    only = bool(args.local_server_only or _flag("local_server_only") or site.get("only"))
+    return {"local_server_only": only, "local_server_autostart": autostart or None,
+            "local_server_default": bool(only or args.local_server_default or _flag("local_server_default")
                                          or site.get("default")),
             "llama_server": args.llama_server or _env("llama_server") or site.get("llama_server") or None}
 
@@ -291,14 +301,14 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--auto-score-n", type=int, help="pairs scored automatically per search (default 10)")
     parser.add_argument("--round-poll-seconds", type=float)
     parser.add_argument("--allow-downloads", action="store_true")
-    parser.add_argument("--local-server", action="store_true", help="offer the local model server on Data and models: "
-                        "start a vLLM or llama.cpp server on this machine's GPUs for the LLM tasks (anyone using the "
-                        "app may start, stop and configure it; default: the site config's "
-                        "dashboard.<mode>.local_server.enabled)")
-    parser.add_argument("--local-server-autostart", metavar="JSON|PATH", help="with --local-server: start this server "
-                        "spec (JSON, or a JSON or YAML file) once the decision model has loaded")
-    parser.add_argument("--local-server-default", action="store_true", help="with --local-server: once the server is "
-                        "ready, make it the default connection of every task in sessions that chose none")
+    parser.add_argument("--local-server-only", action="store_true", help="every LLM task uses this app's local model "
+                        "server (Data and models), and no other connection is accepted: no gateway, Vertex or other "
+                        "OpenAI-compatible endpoint (implies --local-server-default)")
+    parser.add_argument("--local-server-autostart", metavar="JSON|PATH", help="start this local model server spec "
+                        "(JSON, or a JSON or YAML file) once the decision model has loaded; engine, model and GPUs "
+                        "are enough")
+    parser.add_argument("--local-server-default", action="store_true", help="once the local model server is ready, "
+                        "make it the default connection of every task in sessions that chose none")
     parser.add_argument("--llama-server", help="the llama-server binary (default: $MMAI_LLAMA_SERVER, else "
                         "llama-server on PATH)")
     args = parser.parse_args(argv)

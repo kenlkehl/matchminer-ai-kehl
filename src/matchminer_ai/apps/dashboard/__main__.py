@@ -64,18 +64,18 @@ def main(argv=None):
         return result
 
     loading = state.jobs.submit("load", "decision model", preload, device=decisions.device)
-    if state.local_server.enabled:
-        import atexit
+    # The local model server (Data and models) never outlives the app. uvicorn re-raises SIGTERM after its graceful
+    # exit with the handler it found; Python's default would end the process before the cleanup below.
+    import atexit
 
-        atexit.register(state.local_server.shutdown)
-        # uvicorn re-raises SIGTERM after its graceful exit with the handler it found; Python's default would end the
-        # process before the cleanup below, leaving the server on the GPU.
-        signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
-        print("Local model server: offered on Data and models (anyone using the app may start and stop it)",
+    atexit.register(state.local_server.shutdown)
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+    if settings.local_server_only:
+        print("LLM tasks use only this app's local model server (--local-server-only); start it on Data and models.",
               flush=True)
-        if settings.local_server_autostart:
-            threading.Thread(target=autostart, args=(state, settings.local_server_autostart, loading),
-                             name="local-server-autostart", daemon=True).start()
+    if settings.local_server_autostart:
+        threading.Thread(target=autostart, args=(state, settings.local_server_autostart, loading),
+                         name="local-server-autostart", daemon=True).start()
     state.embed_cohorts()
     threading.Thread(target=state.corpus.warm_search, name="search-index", daemon=True).start()
     stop = threading.Event()

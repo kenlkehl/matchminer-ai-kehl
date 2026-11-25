@@ -1,8 +1,12 @@
-"""The local model server of Data and models (``--local-server``): one vLLM or llama.cpp server on this machine at a
-time, for the app's LLM tasks (``matchminer_ai.llm.local_server``).
+"""The local model server of Data and models: one vLLM or llama.cpp server on this machine at a time, for the app's
+LLM tasks (``matchminer_ai.llm.local_server``).
 
-- **Who:** anyone using the app may start, stop and configure it (user, 2026-11-24); the feature exists only when the
-  app was started with ``--local-server`` (or the site config's ``dashboard.<mode>.local_server.enabled``).
+- **Who:** every dashboard has it, in both modes, and anyone using the app may start, stop and configure it (user,
+  2026-11-24).
+- **Only the local server** (``--local-server-only``): no other connection is accepted (``refusal``), wherever one
+  is chosen (``GuidelineState.update``, the connection check) or read back (``GuidelineState.current_settings``
+  drops a saved one that is not the ready server); the ready server is every task's default, and until it is ready
+  LLM tasks have no connection and say so.
 - **GPUs:** discovered with ``llm.gpus``; each GPU's memory is split into this app (its process and its children),
   the local server (its process group) and other processes. Process IDs are not sent to the page.
 - **Use:** once the server is ready, a session's tasks can use it (``use``), as an OpenAI-compatible connection with
@@ -23,10 +27,16 @@ import time
 from matchminer_ai.llm import local_server as ls
 from matchminer_ai.llm.gpus import GPU, discover_gpus
 
+from matchminer_ai.llm.connections import normalize_endpoint
+
 from .core.errors import ConflictError, InputError
 from .llm import Connection
 
 ENGINE_CACHE_SECONDS = 60
+ONLY = ("This dashboard uses only its own local model server (--local-server-only); other model connections are "
+        "refused. Use the local server on Data and models.")
+NOT_READY = ("This dashboard uses only its own local model server (--local-server-only), which is not ready: start it "
+             "on Data and models.")
 
 
 def load_spec(value: str) -> dict:
@@ -73,8 +83,8 @@ def connection_of(server) -> dict:
 
 class LocalServerControl:
     def __init__(self, settings, guidelines, llm_checks=None, log=print, gpus=discover_gpus):
-        self.enabled = bool(getattr(settings, "local_server", False))
-        self.make_default = bool(getattr(settings, "local_server_default", False))
+        self.only = bool(getattr(settings, "local_server_only", False))
+        self.make_default = self.only or bool(getattr(settings, "local_server_default", False))
         self.llama_server = getattr(settings, "llama_server", None)
         self.allow_downloads = bool(getattr(settings, "allow_downloads", False))
         self.device = str(getattr(settings, "device", "") or "")
@@ -171,7 +181,7 @@ class LocalServerControl:
 
     def describe(self, log_lines: int = 200) -> dict:
         server = self.server
-        return {"enabled": self.enabled, "server": server.describe(log_lines) if server else None,
+        return {"only": self.only, "server": server.describe(log_lines) if server else None,
                 "default_on_ready": self.make_default, "allow_downloads": self.allow_downloads,
                 "hub_cache": str(ls.hub_cache()), "default_model": ls.recipes().get("default"),
                 "known_models": [{"model": key, "label": entry.get("label") or key}
@@ -183,12 +193,30 @@ class LocalServerControl:
         return connection_of(server) if server is not None and server.state == "ready" else None
 
     def connection_view(self) -> dict:
-        """``/api/models``'s ``local_server``: whether it is offered and, once ready, its connection."""
+        """``/api/models``'s ``local_server``: whether it is the only connection allowed, its state and, once
+        ready, its connection."""
         server = self.server
         connection = self.connection() or {}
-        return {"enabled": self.enabled, "state": server.state if server else None,
+        return {"only": self.only, "state": server.state if server else None,
                 "endpoint": connection.get("endpoint"), "model": connection.get("model"),
                 "tokenizer": connection.get("tokenizer")}
+
+    def refusal(self, values) -> str | None:
+        """Why a connection (``llm_backend``, ``endpoint``, ``model``) is refused: with ``--local-server-only``,
+        anything but this app's own ready local server (by endpoint and served name); None when it is allowed."""
+        if not self.only:
+            return None
+        server = self.server
+        if server is None or server.state != "ready":
+            return NOT_READY
+        try:
+            endpoint = normalize_endpoint(str(values.get("endpoint") or ""))
+        except ValueError:
+            return ONLY
+        if (values.get("llm_backend") or "local") != "local" or endpoint != server.endpoint \
+                or values.get("model") != server.spec.name:
+            return ONLY
+        return None
 
     # ------------------------------------------------------------------ control
 

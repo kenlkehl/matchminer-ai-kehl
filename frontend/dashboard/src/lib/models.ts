@@ -46,13 +46,14 @@ export interface ModelConfig extends TaskConnection {
     }
   >;
   local_defaults: { endpoint: string; model: string; tokenizer: string };
-  /** The local model server (--local-server): offered or not and, once ready, its connection. */
+  /** The local model server (Data and models): its state and, once ready, its connection. `only`: the app runs
+   * with --local-server-only, so no other connection is accepted. */
   local_server: {
-    enabled: boolean;
-    state?: string | null;
-    endpoint?: string | null;
-    model?: string | null;
-    tokenizer?: string | null;
+    only: boolean;
+    state: string | null;
+    endpoint: string | null;
+    model: string | null;
+    tokenizer: string | null;
   };
   device: string;
   ttl_minutes: number;
@@ -80,6 +81,7 @@ export const modelsOptions = () =>
 
 /** What a task's connection is, in a few words. */
 export function connectionLabel(config: ModelConfig, c: TaskConnection): string {
+  if (!c.endpoint) return "No connection (start the local model server above)";
   const vertex = config.vertex_profiles[c.llm_backend];
   if (vertex) return `${vertex.label} (Google Vertex)`;
   if (c.llm_backend === "claude_databricks") return `${claudeName(c.model)} (Databricks gateway)`;

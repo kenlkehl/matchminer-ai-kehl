@@ -34,6 +34,7 @@ ATTEMPTS = 3
 
 def structured_config(selected) -> StructuredConfig:
     """The request configuration of a task connection (``guidelines.settings.Settings.for_task("assistant")``)."""
+    selected.require_connection()
     backend = selected.llm_backend
     runtime = {"max_retries": ATTEMPTS, "request_timeout": REQUEST_TIMEOUT, "max_concurrent_requests": 8,
                "response_format": "json_schema", "tokenizer_mode": "bytes", "stream": True,
@@ -103,4 +104,6 @@ def connection_label(selected) -> str:
         return f"{claude_name(selected.model)} (Databricks gateway)"
     if selected.llm_backend in VERTEX_BACKENDS:
         return f"{connections.VERTEX_LABELS[selected.llm_backend]} (Google Vertex)"
+    if not selected.endpoint:
+        return "No connection"
     return f"{selected.model} at {selected.endpoint}"

@@ -127,15 +127,15 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       setModel((task === "assistant" ? claude.models.opus : undefined) ?? claude.model);
   }, [claude, model, task]);
   const isBackup = BACKUP_TASKS.includes(task);
-  // The local model server (Data and models, with --local-server), once it is ready.
+  // The local model server (Data and models), once it is ready; with --local-server-only the only connection.
   const localServer = config.local_server;
-  const localReady =
-    localServer.enabled && localServer.state === "ready" && Boolean(localServer.endpoint);
+  const localReady = localServer.state === "ready" && Boolean(localServer.endpoint);
+  const only = localServer.only;
   const body = (applyToAll: boolean) => ({
-    llm_backend: backend,
-    endpoint: vertex?.endpoint ?? claude?.endpoint ?? endpoint,
-    model: vertex?.model ?? model,
-    tokenizer: vertex ? vertex.tokenizer : tokenizer,
+    llm_backend: only ? "local" : backend,
+    endpoint: only ? localServer.endpoint : (vertex?.endpoint ?? claude?.endpoint ?? endpoint),
+    model: only ? localServer.model : (vertex?.model ?? model),
+    tokenizer: only ? localServer.tokenizer : vertex ? vertex.tokenizer : tokenizer,
     task,
     apply_to_all: applyToAll,
     reasoning,
@@ -144,12 +144,17 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   });
   const check = useMutation({
     mutationFn: () =>
-      api.post<ModelCheck>("/api/models/check", {
-        task,
-        llm_backend: backend,
-        endpoint: vertex || claude ? null : endpoint,
-        model: vertex ? null : model,
-      }),
+      api.post<ModelCheck>(
+        "/api/models/check",
+        only
+          ? { task, llm_backend: "local", endpoint: localServer.endpoint, model: localServer.model }
+          : {
+              task,
+              llm_backend: backend,
+              endpoint: vertex || claude ? null : endpoint,
+              model: vertex ? null : model,
+            },
+      ),
     onSuccess: (found) => {
       setChecked(found);
       // An OpenAI-compatible server: take the model it serves (the first, if several and this one is not).
@@ -171,153 +176,161 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   return (
     <section className="flex flex-col gap-3 rounded-md border border-gray-200 p-3">
       <h3 className="font-semibold">{current.label}</h3>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-gray-500">Connection</span>
-          <select
-            className={SELECT}
-            value={vertex ? VERTEX : backend}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === VERTEX) {
-                const first = vertexKeys[0];
-                if (!vertex && first) setBackend(first as Backend);
-              } else setBackend(value as Backend);
-            }}
-          >
-            <option value="local">OpenAI-compatible server (vLLM, llama.cpp)</option>
-            {vertexKeys.length ? (
-              <option value={VERTEX}>Google Vertex / Agent Platform</option>
-            ) : null}
-            {Object.entries(config.claude_profiles).map(([key, p]) => (
-              <option key={key} value={key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {vertex ? (
-          <>
-            <label className="flex min-w-72 flex-col gap-1">
-              <span className="text-xs text-gray-500">Model</span>
-              <select
-                className={SELECT}
-                value={backend}
-                onChange={(e) => {
-                  setBackend(e.target.value as Backend);
-                }}
-              >
-                {Object.entries(config.vertex_profiles).map(([key, p]) => (
-                  <option key={key} value={key}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="pb-2 text-xs text-gray-500">
-              {vertex.model} in project {vertex.project}, with this server's Google Application
-              Default Credentials
-            </p>
-          </>
-        ) : claude ? (
-          <label className="flex min-w-96 flex-1 flex-col gap-1">
-            <span className="text-xs text-gray-500">
-              Model (gateway endpoint; profile {claude.databricks_profile})
-            </span>
+      {only ? (
+        <p className="text-gray-700">
+          {localReady
+            ? `Local model server: ${localServer.model ?? ""} at ${localServer.endpoint ?? ""}`
+            : "No connection: this dashboard uses only its local model server (--local-server-only). Start it above."}
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">Connection</span>
             <select
               className={SELECT}
-              value={model}
+              value={vertex ? VERTEX : backend}
               onChange={(e) => {
-                setModel(e.target.value);
+                const value = e.target.value;
+                if (value === VERTEX) {
+                  const first = vertexKeys[0];
+                  if (!vertex && first) setBackend(first as Backend);
+                } else setBackend(value as Backend);
               }}
             >
-              {Object.values(claude.models).includes(model) ? null : (
-                <option value={model}>{claudeName(model)}</option>
-              )}
-              {Object.values(claude.models).map((name) => (
-                <option key={name} value={name}>
-                  {claudeName(name)}
+              <option value="local">OpenAI-compatible server (vLLM, llama.cpp)</option>
+              {vertexKeys.length ? (
+                <option value={VERTEX}>Google Vertex / Agent Platform</option>
+              ) : null}
+              {Object.entries(config.claude_profiles).map(([key, p]) => (
+                <option key={key} value={key}>
+                  {p.label}
                 </option>
               ))}
             </select>
           </label>
-        ) : (
-          <>
-            <label className="flex min-w-72 flex-1 flex-col gap-1">
-              <span className="flex items-center justify-between text-xs text-gray-500">
-                <span>Endpoint (/v1 base URL)</span>
-                {localReady ? (
-                  <button
-                    type="button"
-                    className="text-brand-blue hover:underline"
-                    onClick={() => {
-                      setEndpoint(localServer.endpoint ?? "");
-                      setModel(localServer.model ?? "");
-                      setTokenizer(localServer.tokenizer ?? "");
-                    }}
-                  >
-                    Use the local server
-                  </button>
-                ) : null}
-              </span>
-              <Input
-                value={endpoint}
-                onChange={(e) => {
-                  setEndpoint(e.target.value);
-                }}
-              />
-            </label>
-            <div className="flex min-w-72 flex-1 flex-col gap-1">
-              <span className="flex items-center justify-between text-xs text-gray-500">
-                <span id={modelLabel}>Model</span>
-                <button
-                  type="button"
-                  className="text-brand-blue hover:underline disabled:opacity-50"
-                  disabled={check.isPending || !endpoint.trim()}
-                  onClick={() => {
-                    check.mutate();
-                  }}
-                >
-                  {check.isPending ? "Detecting…" : "Detect served model"}
-                </button>
-              </span>
-              {checked?.models.length ? (
+          {vertex ? (
+            <>
+              <label className="flex min-w-72 flex-col gap-1">
+                <span className="text-xs text-gray-500">Model</span>
                 <select
-                  aria-labelledby={modelLabel}
                   className={SELECT}
-                  value={model}
+                  value={backend}
                   onChange={(e) => {
-                    setModel(e.target.value);
+                    setBackend(e.target.value as Backend);
                   }}
                 >
-                  {checked.models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                  {Object.entries(config.vertex_profiles).map(([key, p]) => (
+                    <option key={key} value={key}>
+                      {p.label}
                     </option>
                   ))}
                 </select>
-              ) : (
+              </label>
+              <p className="pb-2 text-xs text-gray-500">
+                {vertex.model} in project {vertex.project}, with this server's Google Application
+                Default Credentials
+              </p>
+            </>
+          ) : claude ? (
+            <label className="flex min-w-96 flex-1 flex-col gap-1">
+              <span className="text-xs text-gray-500">
+                Model (gateway endpoint; profile {claude.databricks_profile})
+              </span>
+              <select
+                className={SELECT}
+                value={model}
+                onChange={(e) => {
+                  setModel(e.target.value);
+                }}
+              >
+                {Object.values(claude.models).includes(model) ? null : (
+                  <option value={model}>{claudeName(model)}</option>
+                )}
+                {Object.values(claude.models).map((name) => (
+                  <option key={name} value={name}>
+                    {claudeName(name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <>
+              <label className="flex min-w-72 flex-1 flex-col gap-1">
+                <span className="flex items-center justify-between text-xs text-gray-500">
+                  <span>Endpoint (/v1 base URL)</span>
+                  {localReady ? (
+                    <button
+                      type="button"
+                      className="text-brand-blue hover:underline"
+                      onClick={() => {
+                        setEndpoint(localServer.endpoint ?? "");
+                        setModel(localServer.model ?? "");
+                        setTokenizer(localServer.tokenizer ?? "");
+                      }}
+                    >
+                      Use the local server
+                    </button>
+                  ) : null}
+                </span>
                 <Input
-                  aria-labelledby={modelLabel}
-                  value={model}
+                  value={endpoint}
                   onChange={(e) => {
-                    setModel(e.target.value);
+                    setEndpoint(e.target.value);
                   }}
                 />
-              )}
-            </div>
-            <label className="flex min-w-48 flex-col gap-1">
-              <span className="text-xs text-gray-500">Tokenizer (default: the model)</span>
-              <Input
-                value={tokenizer}
-                onChange={(e) => {
-                  setTokenizer(e.target.value);
-                }}
-              />
-            </label>
-          </>
-        )}
-      </div>
+              </label>
+              <div className="flex min-w-72 flex-1 flex-col gap-1">
+                <span className="flex items-center justify-between text-xs text-gray-500">
+                  <span id={modelLabel}>Model</span>
+                  <button
+                    type="button"
+                    className="text-brand-blue hover:underline disabled:opacity-50"
+                    disabled={check.isPending || !endpoint.trim()}
+                    onClick={() => {
+                      check.mutate();
+                    }}
+                  >
+                    {check.isPending ? "Detecting…" : "Detect served model"}
+                  </button>
+                </span>
+                {checked?.models.length ? (
+                  <select
+                    aria-labelledby={modelLabel}
+                    className={SELECT}
+                    value={model}
+                    onChange={(e) => {
+                      setModel(e.target.value);
+                    }}
+                  >
+                    {checked.models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    aria-labelledby={modelLabel}
+                    value={model}
+                    onChange={(e) => {
+                      setModel(e.target.value);
+                    }}
+                  />
+                )}
+              </div>
+              <label className="flex min-w-48 flex-col gap-1">
+                <span className="text-xs text-gray-500">Tokenizer (default: the model)</span>
+                <Input
+                  value={tokenizer}
+                  onChange={(e) => {
+                    setTokenizer(e.target.value);
+                  }}
+                />
+              </label>
+            </>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-4">
         {!claude ? (
           <label className="flex items-center gap-2">
@@ -363,7 +376,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"
-          disabled={check.isPending}
+          disabled={check.isPending || (only && !localReady)}
           onClick={() => {
             check.mutate();
           }}
@@ -372,7 +385,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
           Check connection
         </Button>
         <Button
-          disabled={save.isPending}
+          disabled={save.isPending || (only && !localReady)}
           onClick={() => {
             save.mutate(false);
           }}
@@ -381,7 +394,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
         </Button>
         <Button
           variant="outline"
-          disabled={save.isPending}
+          disabled={save.isPending || (only && !localReady)}
           onClick={() => {
             save.mutate(true);
           }}

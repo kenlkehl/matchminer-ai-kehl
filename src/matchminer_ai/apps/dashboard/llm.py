@@ -135,7 +135,9 @@ class Connection:
     def label(self) -> str:
         if self.claude:
             return f"{claude_name(self.model)} (Databricks gateway)"
-        return VERTEX_LABELS[self.backend] if self.vertex else f"{self.model} at {self.endpoint}"
+        if self.vertex:
+            return VERTEX_LABELS[self.backend]
+        return f"{self.model} at {self.endpoint}" if self.endpoint else "No connection"
 
     def identity(self) -> dict:
         """What the cached answers are keyed on."""

@@ -586,6 +586,7 @@ class PopulationInference:
         from matchminer_ai.population import review_population_workup
 
         selected = self.settings.for_task("workup")
+        selected.require_connection()
         backup = self.settings.for_task("workup_full_backup")
         result = review_population_workup(
             cohort,

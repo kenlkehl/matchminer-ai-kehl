@@ -107,7 +107,7 @@ class LLMChecks:
     def connection_unavailable(self, connection: Connection | None = None) -> str | None:
         connection = connection or self.connection
         if not connection.configured:
-            return "No LLM endpoint is configured (Data and models)."
+            return "No LLM connection is ready: start the local model server or choose a connection on Data and models."
         return vertex_credentials_error() if connection.vertex else None
 
     def good_option_unavailable(self, connection: Connection | None = None) -> str | None:
@@ -123,10 +123,12 @@ class LLMChecks:
         """The check's state; ``connections``: the session's connection for ``good_option``, else the server's
         default."""
         good_option = (connections or {}).get("good_option")
+        only = bool(getattr(self.settings, "local_server_only", False))  # no hosted defaults or profiles
         return {"connection": (good_option or self.connection).describe(), "notice": NOTICE,
-                "defaults": {"backend": default_backend(), "endpoint": default_endpoint(), "model": default_model()},
-                "vertex_profiles": {k: {**v, "label": VERTEX_LABELS[k], "project": vertex_project()}
-                                    for k, v in vertex_profiles().items()},
+                "defaults": ({"backend": "openai", "endpoint": "", "model": ""} if only else
+                             {"backend": default_backend(), "endpoint": default_endpoint(), "model": default_model()}),
+                "vertex_profiles": {} if only else {k: {**v, "label": VERTEX_LABELS[k], "project": vertex_project()}
+                                                    for k, v in vertex_profiles().items()},
                 "good_option": {"available": self.good_option_unavailable(good_option) is None,
                                 "reason": self.good_option_unavailable(good_option)},
                 "package": self.package(), "rubric": rubric(), "jobs": self.jobs.recent(10)}

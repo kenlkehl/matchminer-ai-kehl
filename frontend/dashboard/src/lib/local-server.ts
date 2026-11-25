@@ -1,4 +1,4 @@
-/** The local model server of Data and models (the server's /api/local-server*, offered with --local-server). */
+/** The local model server of Data and models (the server's /api/local-server*, in every dashboard). */
 import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "./api";
@@ -72,7 +72,8 @@ export interface ServerInfo {
 }
 
 export interface LocalServerStatus {
-  enabled: boolean;
+  /** --local-server-only: the local server is the only model connection the app accepts. */
+  only: boolean;
   server: ServerInfo | null;
   default_on_ready: boolean;
   allow_downloads: boolean;

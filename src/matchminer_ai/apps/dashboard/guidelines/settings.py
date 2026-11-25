@@ -84,7 +84,9 @@ VERTEX_LABELS = connections.VERTEX_LABELS
 GEMINI_BACKENDS = connections.GEMINI_BACKENDS
 VERTEX_BACKENDS = frozenset(connections.VERTEX_MODELS)  # Gemini and Gemma MaaS
 DEFAULT_BACKEND = "gemini4_vertex"
-LOCAL = "local"  # an OpenAI-compatible server (vLLM)
+LOCAL = "local"  # an OpenAI-compatible server (vLLM, llama.cpp)
+NO_CONNECTION = ("No model connection is ready: this dashboard uses only its own local model server, which is not "
+                 "ready. Start it on Data and models.")
 
 
 def vertex_project():
@@ -310,12 +312,14 @@ class Settings:
         retries, instead of vLLM structured outputs; the SQL agent's small action
         schema keeps JSON-schema responses there too.
         """
+        self.require_connection()
         c = self.inference_config()
         # On-demand extraction sends one request per note; let several run at once.
         c.remote["max_concurrent_requests"] = 8
         for name in ("document_extraction", "patient_extraction"):
             self._connect_section(getattr(c, name), name)
         writer = self.for_task(SQL_TASK)
+        writer.require_connection()
         for name in QUERY_WRITERS:
             writer._connect_section(getattr(c, name), name, own_connection=True)
         return c
@@ -392,6 +396,14 @@ class Settings:
             # Until set, the SQL agent uses the concordance checks' connection.
             return self.for_task("workup")
         return replace(self, backup_enabled=False) if task.endswith("_backup") else self
+
+    def require_connection(self):
+        """Raise ``InputError`` when this connection has no endpoint: with ``--local-server-only``, until the app's
+        local model server is ready (the app never falls back to another connection)."""
+        if self.llm_backend == LOCAL and not (self.endpoint or "").strip():
+            from ..core.errors import InputError
+
+            raise InputError(NO_CONNECTION)
 
     @property
     def thinking_supported(self):

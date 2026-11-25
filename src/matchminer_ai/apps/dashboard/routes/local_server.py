@@ -1,4 +1,4 @@
-"""Data and models' local model server (``apps.dashboard.local_server``); included only with ``--local-server``.
+"""Data and models' local model server (``apps.dashboard.local_server``), in every dashboard.
 
 - ``GET /api/local-server``: the server's spec, command, state, phase and download progress, endpoint and its log's
   last lines.

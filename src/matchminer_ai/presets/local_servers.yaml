@@ -1,5 +1,5 @@
-# Known models of the local model server (matchminer_ai.llm.local_server; the dashboard's Data and models tab with
-# --local-server). Each model's settings come from its model card, per engine:
+# Known models of the local model server (matchminer_ai.llm.local_server; the dashboard's Data and models tab).
+# Each model's settings come from its model card, per engine:
 # - model: the engine's repository when it differs (a GGUF repository for llama.cpp);
 # - compute_capabilities / why: the GPUs the engine's recipe runs on ("12.x": any 12.*); the form proposes the other
 #   engine on other GPUs and says why;

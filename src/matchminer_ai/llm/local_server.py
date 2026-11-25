@@ -1,8 +1,8 @@
 """A local OpenAI-compatible model server on this machine: vLLM or llama.cpp's ``llama-server``.
 
-The dashboard's Data and models tab starts one with ``--local-server`` (``apps.dashboard.local_server``), for
-machines that cannot reach a hosted endpoint. Both engines serve the same OpenAI-compatible API on loopback, so every
-LLM task can use the server as an ordinary OpenAI-compatible connection.
+The dashboard's Data and models tab starts one (``apps.dashboard.local_server``), also for machines that cannot
+reach a hosted endpoint. Both engines serve the same OpenAI-compatible API on loopback, so every LLM task can use the
+server as an ordinary OpenAI-compatible connection.
 
 - **Spec:** ``ServerSpec`` holds the engine, the Hugging Face model, the GPUs and the engine's parameters; unknown
   fields are refused (``ServerSpec.from_dict``).

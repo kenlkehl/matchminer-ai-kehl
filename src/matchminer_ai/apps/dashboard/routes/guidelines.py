@@ -6,7 +6,8 @@
   (with an extraction-cost estimate that makes no model calls).
 - ``/api/models*``: the session's connection per LLM task (``guidelines.settings.LLM_TASKS``) and connection
   checks. Vertex and Claude destinations are built on the server, never from browser input; Claude through
-  the Databricks gateway serves every task (since 2026-11-21).
+  the Databricks gateway serves every task (since 2026-11-21). With ``--local-server-only`` both refuse every
+  connection but the app's ready local model server (``GuidelineState.refusal``).
 
 Long work runs as session jobs (``guidelines.state.GuidelineState.jobs``) polled through ``/api/jobs/{id}``.
 """
@@ -173,6 +174,11 @@ def router(g: GuidelineState) -> APIRouter:
         if body.task:
             selected = selected.for_task(body.task)
         backend = body.llm_backend or selected.llm_backend
+        # --local-server-only: no request goes to any endpoint but the app's own local server.
+        reason = g.refusal({"llm_backend": backend, "endpoint": body.endpoint or selected.endpoint,
+                            "model": body.model if body.model is not None else selected.model})
+        if reason:
+            raise InputError(reason)
         if backend in CLAUDE_BACKENDS:
             from matchminer_ai.llm.anthropic_messages import check_gateway
 

@@ -204,7 +204,8 @@ class LLMDecisions:
 
     def unavailable(self, connection: Connection) -> str | None:
         if not connection.configured:
-            return "No LLM connection is configured for the LLM decision checks (Data and Models)."
+            return ("No LLM connection is ready for the LLM decision checks: start the local model server or choose a "
+                    "connection on Data and models.")
         if connection.vertex:
             from matchminer_ai.llm.connections import vertex_credentials_error
 

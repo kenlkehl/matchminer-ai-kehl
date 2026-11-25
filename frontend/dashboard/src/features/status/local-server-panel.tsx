@@ -39,8 +39,21 @@ export function LocalServerPanel() {
   const engines = useQuery(enginesOptions());
   if (status.isError) return <p className="text-red-700">{status.error.message}</p>;
   if (!status.data || !engines.data) return <Spinner />;
+  const installed = Object.values(engines.data).some((e) => e.available);
   return (
     <div className="flex flex-col gap-4 text-sm">
+      {status.data.only ? (
+        <p className="rounded-md bg-sky-50 px-3 py-2 text-sky-900">
+          This dashboard uses only this local model server (--local-server-only): every LLM task
+          uses it once it is ready, and no other model connection is accepted.
+        </p>
+      ) : null}
+      {!installed ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+          Neither vLLM nor llama.cpp (llama-server) is installed for this app, so no local server
+          can start here. {engines.data.vllm.reason} {engines.data.llama_cpp.reason}
+        </p>
+      ) : null}
       <GpuTable rows={gpus.data?.gpus ?? []} note={gpus.data?.note ?? null} />
       <ServerForm status={status.data} engines={engines.data} gpus={gpus.data?.gpus ?? []} />
     </div>
@@ -49,7 +62,11 @@ export function LocalServerPanel() {
 
 function GpuTable({ rows, note }: { rows: GpuRow[]; note: string | null }) {
   if (!rows.length)
-    return <p className="text-gray-600">No NVIDIA GPU was found on this machine.</p>;
+    return (
+      <p className="text-gray-600">
+        No NVIDIA GPU was found on this machine; llama.cpp can still run a small model on the CPU.
+      </p>
+    );
   return (
     <div className="flex flex-col gap-1">
       <table className="w-full text-left">
@@ -461,7 +478,7 @@ function ServerForm({
           {use.isError ? <span className="text-red-700">{use.error.message}</span> : null}
         </div>
       ) : null}
-      {status.default_on_ready ? (
+      {status.default_on_ready && !status.only ? (
         <p className="text-xs text-gray-500">
           Once ready, the server is also the default connection of every task in sessions that chose
           none, until it stops.
