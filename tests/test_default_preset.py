@@ -1,3 +1,5 @@
+import pytest
+
 from matchminer_ai.config import load_default_preset
 
 MODEL = "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4"
@@ -209,3 +211,20 @@ def test_configs_with_the_removed_raw_note_sections_still_load(tmp_path):
     config = load_config(path)
     assert config.raw["raw_patient_note_qa"]["embedding_model_name"] == "Qwen/Qwen3-Embedding-0.6B"
     assert not hasattr(config, "raw_patient_note_qa") and not hasattr(config, "full_patient_screen")
+
+
+def test_the_decision_models_automatic_dtype(monkeypatch):
+    """``auto`` (the preset's): bfloat16 from Ampere on and on the CPU, float16 on an older GPU such as a T4 (it gave
+    the same answers there); an explicit dtype is kept."""
+    import torch
+
+    from matchminer_ai.matching.decision_model import PRE_AMPERE_DTYPE, decision_settings, resolve_dtype
+
+    assert decision_settings()["dtype"] == "auto" and PRE_AMPERE_DTYPE == "float16"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    for capability, expected in (((7, 5), "float16"), ((8, 0), "bfloat16"), ((12, 0), "bfloat16")):
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None, c=capability: c)
+        assert resolve_dtype("cuda") == expected and resolve_dtype("cuda:0", "float32") == "float32"
+    assert resolve_dtype("cpu") == "bfloat16"
+    with pytest.raises(ValueError):
+        resolve_dtype("cuda", "half")

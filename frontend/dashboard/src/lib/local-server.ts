@@ -76,6 +76,10 @@ export interface LocalServerStatus {
   only: boolean;
   /** With --local-server-only, OpenRouter with a user's own API key is also accepted. */
   allow_openrouter: boolean;
+  /** False on a machine that cannot host an LLM (--no-local-server): no server can be started here. */
+  enabled: boolean;
+  /** Why no local server is offered (when not `enabled`). */
+  disabled_reason: string | null;
   server: ServerInfo | null;
   default_on_ready: boolean;
   allow_downloads: boolean;

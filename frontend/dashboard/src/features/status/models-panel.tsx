@@ -107,8 +107,14 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   const localReady = localServer.state === "ready" && Boolean(localServer.endpoint);
   const only = localServer.only;
   const openRouter = config.openrouter.offered ? config.openrouter : null;
+  // No local server here (--no-local-server): with --local-server-only, OpenRouter is the only connection.
+  const noLocal = localServer.enabled === false;
   const [backend, setBackend] = useState<Backend>(
-    only && current.llm_backend !== "openrouter" ? "local" : current.llm_backend,
+    only && current.llm_backend !== "openrouter"
+      ? noLocal && openRouter
+        ? "openrouter"
+        : "local"
+      : current.llm_backend,
   );
   const local = current.llm_backend === "local" ? current : config.local_defaults;
   const [endpoint, setEndpoint] = useState(local.endpoint);
@@ -230,11 +236,13 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
                 } else chooseBackend(value as Backend);
               }}
             >
-              <option value="local">
-                {only
-                  ? "This app's local model server"
-                  : "OpenAI-compatible server (vLLM, llama.cpp)"}
-              </option>
+              {only && noLocal ? null : (
+                <option value="local">
+                  {only
+                    ? "This app's local model server"
+                    : "OpenAI-compatible server (vLLM, llama.cpp)"}
+                </option>
+              )}
               {vertexKeys.length ? (
                 <option value={VERTEX}>Google Vertex / Agent Platform</option>
               ) : null}

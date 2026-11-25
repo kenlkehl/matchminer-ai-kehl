@@ -109,7 +109,7 @@ COPY --from=llama --chown=user /llama.cpp/build/bin/llama-server /home/user/bin/
 COPY --from=frontend --chown=user /src /home/user/matchminer-ai-kehl
 RUN uv pip install --python /home/user/venv/bin/python -c /home/user/space/constraints.txt \
         "/home/user/matchminer-ai-kehl[apps,sql]"
-COPY --chown=user MMAI_COMMIT entrypoint.sh prefetch.py site.yaml /home/user/space/
+COPY --chown=user MMAI_COMMIT entrypoint.sh prefetch.py site.yaml tier.py /home/user/space/
 ENV MMAI_SITE_CONFIG=/home/user/space/site.yaml \
     MMAI_DATA_ROOT=/home/user/mmai-data \
     MMAI_LLAMA_SERVER=/home/user/bin/llama-server \

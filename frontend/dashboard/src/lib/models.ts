@@ -60,6 +60,8 @@ export interface ModelConfig extends TaskConnection {
     model: string | null;
     tokenizer: string | null;
     allow_openrouter?: boolean;
+    /** False when no local server is offered here (--no-local-server). */
+    enabled?: boolean;
   };
   /** OpenRouter with the session's own key (synthetic mode only). The key is never sent back: only whether one
    * is set and its last four characters. */

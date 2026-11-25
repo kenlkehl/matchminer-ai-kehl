@@ -495,7 +495,9 @@ decision_model:
   revision: "7040834b637353d55ffc3a3944e52359244c2252"
   backend: transformers
   device: cuda
-  dtype: bfloat16
+  # auto: bfloat16 where the device computes in it natively (CUDA from Ampere on, the CPU), else float16
+  # (matching.decision_model.resolve_dtype); or bfloat16, float16, float32.
+  dtype: auto
   # The fine-tuning length; longer requests still run (no truncation) and are counted.
   max_length: 10000
   # Questions read together after one state; null = the model's trained size (16).

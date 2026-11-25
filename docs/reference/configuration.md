@@ -508,7 +508,7 @@ with Transformers and the checkpoint's own code (`trust_remote_code`). See
 | `revision` | MatchEval-1226's pinned commit | Commit of a Hub model; required for every Hub model because its code runs, ignored for a local directory |
 | `backend` | `transformers` | The only backend |
 | `device` | `cuda` | Where the model runs |
-| `dtype` | `bfloat16` | Weight type |
+| `dtype` | `auto` | Weight type: `auto` (bfloat16 where the device computes in it natively, CUDA from Ampere on and the CPU, else float16: `resolve_dtype`), `bfloat16`, `float16` or `float32` |
 | `max_length` | `10000` | The fine-tuning request length in tokens; longer requests still run untruncated and are counted in the metadata's `over_max_length` |
 | `set_size` | `null` | Questions read together after one state; `null` uses the model's trained size (16). Larger is faster and departs from training |
 | `token_budget` | `65536` | Padded tokens per forward pass |

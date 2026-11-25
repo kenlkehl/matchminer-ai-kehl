@@ -327,7 +327,9 @@ published MatchEval-1226. The [Hugging Face Space](hf-space.md) runs this way.
 The decision model is the synthetic run's trained model (`--decision-model` overrides it, with fallbacks while the
 run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
 the LLM (Benchmarking always uses it) and runs on `--device`, by default `cuda:0` when CUDA is available, else the
-CPU.
+CPU. Its dtype (`--dtype`, `MMAI_DASH_DTYPE`) is `auto` by default: bfloat16, the checkpoint's own, from Ampere on and on
+the CPU, and float16 on an older GPU such as a T4, which gave the same answers (see the
+[lite Space](hf-space.md#the-lite-space)).
 
 The default model connection (`--llm-backend`, `--llm-model`) is Claude Haiku 5.5 through a Databricks AI Gateway
 when the site config names the gateway (`databricks.host`, `databricks.profile`) and a Haiku endpoint
@@ -484,12 +486,18 @@ server refuses every other model connection, wherever one is chosen or used:
 - **OpenRouter:** with `--allow-openrouter` (synthetic mode), [OpenRouter](#openrouter) with a session's own key is
   accepted too, for example while the server loads or on a machine without a suitable GPU. The forms then offer the
   local server and OpenRouter; nothing else.
+- **No local server:** `--no-local-server` (`MMAI_DASH_LOCAL_SERVER_ENABLED=false`, site config
+  `local_server.enabled: false`) is for a machine that cannot host an LLM: Data and models says so instead of showing
+  the server's controls, starting or using one is refused, and no autostart runs. With `--local-server-only` and
+  `--allow-openrouter` too (the [lite Space](hf-space.md#the-lite-space)), OpenRouter is the only connection and every
+  task's default (the presets' default model, reasoning on), served by each session's own key.
 - **Other network use is unchanged:** Hugging Face model downloads (with `--allow-downloads`) and ClinicalTrials.gov
   fetches.
 
 **Flags** (also `MMAI_DASH_LOCAL_SERVER_ONLY`, `MMAI_DASH_LOCAL_SERVER_AUTOSTART`, `MMAI_DASH_LOCAL_SERVER_DEFAULT`,
-`MMAI_DASH_LLAMA_SERVER` and `MMAI_DASH_ALLOW_OPENROUTER`, or the site config's `dashboard.<mode>.local_server` with
-`only`, `autostart`, `default`, `llama_server` and `allow_openrouter`):
+`MMAI_DASH_LLAMA_SERVER`, `MMAI_DASH_ALLOW_OPENROUTER` and `MMAI_DASH_LOCAL_SERVER_ENABLED`, or the site config's
+`dashboard.<mode>.local_server` with `only`, `autostart`, `default`, `llama_server`, `allow_openrouter` and
+`enabled`):
 
 | Flag | Effect |
 | --- | --- |
@@ -498,6 +506,7 @@ server refuses every other model connection, wherever one is chosen or used:
 | `--local-server-default` | Once ready, the server is the default connection of every task in sessions that chose none |
 | `--llama-server PATH` | The `llama-server` binary (default: `$MMAI_LLAMA_SERVER`, else `llama-server` on `PATH`) |
 | `--allow-openrouter` | Synthetic mode, with `--local-server-only`: also accept OpenRouter with a session's own key |
+| `--no-local-server` | Offer no local model server (a machine that cannot host an LLM); with the two above, OpenRouter only |
 
 For example, a Space (the [Hugging Face Space](hf-space.md) sets the same in its site config): Bolt with llama.cpp
 on the first GPU, the only model connection:

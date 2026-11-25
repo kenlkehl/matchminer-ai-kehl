@@ -38,6 +38,12 @@ export function LocalServerPanel() {
   const gpus = useQuery(gpusOptions());
   const engines = useQuery(enginesOptions());
   if (status.isError) return <p className="text-red-700">{status.error.message}</p>;
+  if (status.data && !status.data.enabled)
+    return (
+      <p className="rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-900">
+        {status.data.disabled_reason}
+      </p>
+    );
   if (!status.data || !engines.data) return <Spinner />;
   const installed = Object.values(engines.data).some((e) => e.available);
   return (

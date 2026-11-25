@@ -36,3 +36,19 @@ def test_the_space_site_config_and_its_vllm_server(monkeypatch):
                  "--trust-remote-code", "--enable-prefix-caching", '"method":"mtp"'):
         assert flag in joined
     assert spec.engine == "vllm" and spec.gpu_memory_utilization <= 0.85 and spec.max_model_len >= 200_000
+
+
+def test_the_spaces_tier_by_gpu_memory():
+    """tier.py: Super with vLLM from 90 GB (site.yaml's autostart), Bolt with llama.cpp from 40 GB, else no local
+    server (a T4, or no GPU: OpenRouter only)."""
+    import importlib.util
+    import json
+
+    spec = importlib.util.spec_from_file_location("space_tier", SITE.parent / "tier.py")
+    tier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tier)
+    assert tier.tier(97_887) == ("super", {})  # an RTX PRO 6000
+    name, env = tier.tier(46_068)  # an L40S
+    assert name == "bolt" and json.loads(env["MMAI_DASH_LOCAL_SERVER_AUTOSTART"])["engine"] == "llama_cpp"
+    for memory in (15_360, 0):  # a T4; no GPU
+        assert tier.tier(memory) == ("openrouter", {"MMAI_DASH_LOCAL_SERVER_ENABLED": "false"})

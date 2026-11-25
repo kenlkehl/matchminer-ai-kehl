@@ -49,8 +49,8 @@ dashboard:
     # 3.5 Super NVFP4, text only, as NVIDIA's model card serves it on one GPU and as the production servers do (the
     # package's Super profile gives the reasoning and tool parsers and the sampling). Memory: about 70 GiB of
     # weights, then the KV and Mamba caches inside 84% of the GPU; the remaining ~15 GiB hold the decision model and
-    # TrialSpace, which the app loads on the same GPU. On a GPU under 90 GB, entrypoint.sh starts Bolt's GGUF with
-    # llama.cpp instead.
+    # TrialSpace, which the app loads on the same GPU. On a smaller GPU tier.py picks Bolt's GGUF with llama.cpp (from
+    # 40 GB) or no local server (a T4, the lite Space): OpenRouter is then the only LLM connection.
     local_server:
       only: true
       default: true

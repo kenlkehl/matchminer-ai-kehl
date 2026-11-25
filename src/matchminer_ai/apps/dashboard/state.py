@@ -117,10 +117,16 @@ class DashState:
         log(f"  {len(self.corpus.patients):,} patients ({self.patient_source}; {self.corpus.load_seconds} s)"
             + (f": {self.patients_error}" if self.patients_error else ""))
         self.evidence = CatalogEvidence(settings.good_options_catalog)  # read on demand (evidence dialogs)
-        # The checks' default connection: none with --local-server-only until the local server is ready.
-        default = (Connection.make("openai", "") if getattr(settings, "local_server_only", False) else
-                   Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
-                                   settings.llm_tokenizer))
+        # The checks' default connection: none with --local-server-only until the local server is ready; with
+        # OpenRouter the only connection, its default model (each session's own key serves it).
+        if getattr(settings, "openrouter_only", False):
+            g = self.guidelines.settings
+            default = Connection.make("openrouter", g.endpoint, g.model, g.tokenizer, thinking=True)
+        elif getattr(settings, "local_server_only", False):
+            default = Connection.make("openai", "")
+        else:
+            default = Connection.make(settings.llm_backend, settings.llm_endpoint, settings.llm_model,
+                                      settings.llm_tokenizer)
         self.llm = LLMChecks(settings, default, ScoreCache(settings.cache_dir / "llm_checks.sqlite"))
         # The LLM alternative to the decision model (answers in memory per session; runs on the LLM checks' pool),
         # also for the guideline searches' rankings.

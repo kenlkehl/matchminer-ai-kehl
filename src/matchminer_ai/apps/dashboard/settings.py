@@ -129,6 +129,10 @@ class DashSettings(Settings):
     # Space whose local server is loading or which has no GPU). Without local_server_only, synthetic mode always
     # offers OpenRouter; real mode never does.
     allow_openrouter: bool = False
+    # False on a machine that cannot host an LLM (no GPU, or one too small): no local model server is offered, and
+    # no autostart runs. With local_server_only and allow_openrouter, OpenRouter with a session's own key is then the
+    # only connection and every task's default (``openrouter_only``).
+    local_server_enabled: bool = True
     # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
     llama_server: str | None = None
     # Synthetic mode only: another trial set than the synthetic run's (site config dashboard.synthetic.trial_cohorts
@@ -158,7 +162,12 @@ class DashSettings(Settings):
         for origin in self.frame_ancestors:
             if not FRAME_ORIGIN.match(origin):
                 raise ValueError(f"A frame ancestor is an https origin such as https://huggingface.co, not {origin!r}")
-        if self.local_server_only:
+        if not self.local_server_enabled:
+            self.local_server_autostart, self.local_server_default = None, False
+            if self.local_server_only and not self.allow_openrouter:
+                raise ValueError("With no local model server, --local-server-only needs --allow-openrouter: no other "
+                                 "connection would be accepted.")
+        elif self.local_server_only:
             self.local_server_default = True
         if self.allow_openrouter and real:
             raise ValueError("OpenRouter is for synthetic mode only (allow_openrouter); real mode never offers it.")
@@ -213,6 +222,12 @@ class DashSettings(Settings):
         return self.mode == "real"
 
     @property
+    def openrouter_only(self) -> bool:
+        """OpenRouter with a session's own key is the only LLM connection: no local server here, and nothing else
+        accepted (--local-server-only with --allow-openrouter)."""
+        return self.local_server_only and self.allow_openrouter and not self.local_server_enabled
+
+    @property
     def store_path(self) -> Path:
         return self.store_dir / "dashboard.json"
 
@@ -222,9 +237,18 @@ def guideline_settings(dash: "DashSettings", decision_model: dict | None = None)
     the app's device with the app's decision model (``decision_model``: its preset section).
 
     With ``--local-server-only`` there is no default connection until the local model server is ready (an empty
-    endpoint, which LLM tasks refuse), whatever the ``--llm-*`` options and the site config name."""
-    from .guidelines.settings import LOCAL, Settings as GuidelineSettings, default_task_connections
+    endpoint, which LLM tasks refuse), whatever the ``--llm-*`` options and the site config name. With OpenRouter as
+    the only connection (``openrouter_only``) the default is OpenRouter's default model with reasoning on, which each
+    session's own key then serves (until a session pastes one, LLM tasks say to)."""
+    from .guidelines.settings import LOCAL, OPENROUTER, Settings as GuidelineSettings, default_task_connections
 
+    if dash.openrouter_only:
+        from matchminer_ai.llm import openrouter
+
+        model = openrouter.presets()["default"]
+        return GuidelineSettings(phi=dash.real, llm_backend=OPENROUTER, endpoint=openrouter.ENDPOINT, model=model,
+                                 tokenizer=openrouter.model_settings(model)["tokenizer"], reasoning=True,
+                                 device=dash.device, decision_model=dict(decision_model or {}), task_connections={})
     if dash.local_server_only:
         return GuidelineSettings(phi=dash.real, llm_backend=LOCAL, endpoint="", model="", tokenizer="",
                                  device=dash.device, decision_model=dict(decision_model or {}), task_connections={})
@@ -240,8 +264,9 @@ def _flag(name: str) -> bool:
 
 def local_server_settings(args, mode: str) -> dict:
     """The local model server's settings: the command line, then MMAI_DASH_* variables (LOCAL_SERVER_ONLY,
-    LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER, ALLOW_OPENROUTER), then the site config's
-    ``dashboard.<mode>.local_server`` (``only``, ``autostart``, ``default``, ``llama_server``, ``allow_openrouter``)."""
+    LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER, ALLOW_OPENROUTER, LOCAL_SERVER_ENABLED), then the site
+    config's ``dashboard.<mode>.local_server`` (``only``, ``autostart``, ``default``, ``llama_server``,
+    ``allow_openrouter``, ``enabled``)."""
     import json
 
     site = load_site_config().get(f"dashboard.{mode}.local_server") or {}
@@ -256,7 +281,10 @@ def local_server_settings(args, mode: str) -> dict:
                                          or site.get("default")),
             "llama_server": args.llama_server or _env("llama_server") or site.get("llama_server") or None,
             "allow_openrouter": bool(getattr(args, "allow_openrouter", False) or _flag("allow_openrouter")
-                                     or site.get("allow_openrouter"))}
+                                     or site.get("allow_openrouter")),
+            "local_server_enabled": not (getattr(args, "no_local_server", False)
+                                         or (_env("local_server_enabled") or "").lower() in ("0", "false", "no")
+                                         or site.get("enabled") is False)}
 
 
 def default_device() -> tuple[str, str | None]:
@@ -334,7 +362,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--decision-revision")
     parser.add_argument("--device", help="decision-model device, e.g. cpu or cuda:1 (default cuda:0 when CUDA is "
                                          "available, else cpu)")
-    parser.add_argument("--dtype", choices=("bfloat16", "float32"))
+    parser.add_argument("--dtype", choices=("auto", "bfloat16", "float16", "float32"), help="the decision model's "
+                        "dtype (default auto: bfloat16 where the GPU computes in it, from Ampere on, and on the CPU; "
+                        "matching.decision_model.PRE_AMPERE_DTYPE on an older GPU such as a T4)")
     parser.add_argument("--threads", type=int)
     parser.add_argument("--embedding-python", type=Path)
     parser.add_argument("--embedding-cache", type=Path, action="append")
@@ -353,6 +383,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--allow-openrouter", action="store_true", help="synthetic mode, with --local-server-only: "
                         "also accept OpenRouter connections with each browser session's own key (synthetic mode "
                         "offers OpenRouter anyway without --local-server-only; real mode never does)")
+    parser.add_argument("--no-local-server", action="store_true", help="offer no local model server (a machine that "
+                        "cannot host an LLM); with --local-server-only and --allow-openrouter, OpenRouter with each "
+                        "session's own key is the only LLM connection (also MMAI_DASH_LOCAL_SERVER_ENABLED=false)")
     parser.add_argument("--llama-server", help="the llama-server binary (default: $MMAI_LLAMA_SERVER, else "
                         "llama-server on PATH)")
     parser.add_argument("--frame-ancestors", help="synthetic mode: comma-separated https origins whose pages may show "

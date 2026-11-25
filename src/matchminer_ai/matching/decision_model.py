@@ -72,7 +72,7 @@ PROMPTS = {
     "criterion_teacher": "criterion_check.labels.user.txt",
 }
 DEFAULTS = {"model_name": BASE_MODEL, "revision": BASE_REVISION, "backend": "transformers", "device": "cuda",
-            "dtype": "bfloat16", "max_length": 10000, "set_size": None, "token_budget": 65536, "batch_size": 256,
+            "dtype": "auto", "max_length": 10000, "set_size": None, "token_budget": 65536, "batch_size": 256,
             "compile": False}
 
 
@@ -287,18 +287,40 @@ def clear_decision_model_cache() -> None:
         pass
 
 
+#: The dtype ``auto`` picks on a GPU without native bfloat16 (compute capability below 8.0, such as a T4): on the
+#: published model's synthetic requests it gave the same answers as bfloat16 (``docs/apps/hf-space.md``).
+PRE_AMPERE_DTYPE = "float16"
+DTYPES = ("auto", "bfloat16", "float16", "float32")
+
+
+def resolve_dtype(device: str, dtype: str = "auto") -> str:
+    """``dtype``, or for ``auto``: bfloat16 (the checkpoint's own) where the device computes in it natively, CUDA
+    from Ampere on and the CPU, else ``PRE_AMPERE_DTYPE``."""
+    if dtype not in DTYPES:
+        raise ValueError(f"decision_model.dtype must be one of {', '.join(DTYPES)}, not {dtype!r}")
+    if dtype != "auto":
+        return dtype
+    import torch
+
+    target = torch.device(device)
+    if target.type == "cuda" and torch.cuda.is_available() and torch.cuda.get_device_capability(target)[0] < 8:
+        return PRE_AMPERE_DTYPE
+    return "bfloat16"
+
+
 def load_decision_model(settings: Mapping[str, Any]):
-    """The decision model (cached): its Hugging Face class with the System One API."""
+    """The decision model (cached): its Hugging Face class with the System One API, in ``resolve_dtype``'s dtype."""
     name, revision = str(settings["model_name"]), settings.get("revision")
     local = Path(name).expanduser().is_dir()
-    key = (name, None if local else revision, settings["device"], settings["dtype"], settings["token_budget"],
+    dtype = resolve_dtype(str(settings["device"]), str(settings["dtype"]))
+    key = (name, None if local else revision, settings["device"], dtype, settings["token_budget"],
            bool(settings["compile"]))
     if key not in _MODELS:
         import torch
         from transformers import AutoModel
         model = AutoModel.from_pretrained(str(Path(name).expanduser()) if local else name,
                                           revision=None if local else revision, trust_remote_code=True,
-                                          dtype=getattr(torch, settings["dtype"]))
+                                          dtype=getattr(torch, dtype))
         model = model.to(settings["device"]).eval()
         model.engine.token_budget = int(settings["token_budget"])
         if settings["compile"]:
@@ -451,5 +473,5 @@ __all__ = ["BASE_MODEL", "BASE_REVISION", "BOILERPLATE", "CRITERION", "CRITERION
            "CRITERION_TYPES",
            "FAMILIES", "attribute_decision", "boilerplate_question", "boilerplate_state", "checkable_items",
            "clear_decision_model_cache", "criteria_state", "criterion_name", "criterion_question",
-           "criterion_teacher_messages", "decision_settings", "load_decision_model", "match_questions", "match_state",
+           "criterion_teacher_messages", "decision_settings", "load_decision_model", "resolve_dtype", "match_questions", "match_state",
            "noul", "no_request_metadata", "oriented", "parse_criterion_label", "questions_digest", "run_decisions"]

@@ -67,7 +67,7 @@ class Settings:
     decision_model: str | None = None  # None: the run's decision model, else fit 2, else base d1-2B
     decision_revision: str = PUBLISHED_DECISION_REVISION
     device: str = "cpu"
-    dtype: str = "bfloat16"
+    dtype: str = "auto"  # the decision model's (matching.decision_model.resolve_dtype): bfloat16 from Ampere on
     threads: int = 32
     decision_batch_size: int = 8
     decision_token_budget: int = 16384

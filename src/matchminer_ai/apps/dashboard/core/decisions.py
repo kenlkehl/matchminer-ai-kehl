@@ -103,11 +103,21 @@ class DecisionService:
                          f"({contract_questions[:12]}... vs {self.questions[:12]}...).")
         return notes
 
+    def effective_dtype(self) -> str | None:
+        """The dtype the model loads in (``auto`` resolved for this device), None when it cannot be told."""
+        from matchminer_ai.matching.decision_model import resolve_dtype
+
+        try:
+            return resolve_dtype(str(self.device), str(self.settings.dtype))
+        except Exception:
+            return None
+
     def describe(self) -> dict:
         return {"model": self.model, "revision": self.revision, "why": self.why, "fingerprint": self.fingerprint,
                 "questions_sha256": self.questions, "contract": self.contract, "trained_states": self.trained_states(),
                 "untrained_families": self.untrained_families(), "warnings": self.warnings(),
-                "device": self.device, "dtype": self.settings.dtype, "threads": self.settings.threads,
+                "device": self.device, "dtype": self.settings.dtype, "effective_dtype": self.effective_dtype(),
+                "threads": self.settings.threads,
                 "loaded": self.loaded_at is not None, "load_seconds": self.load_seconds,
                 # match_quality: P(reasonable) for a pass (inference reasonableness_cutoff, since 2026-11-17).
                 "cutoffs": {"match_quality": self.config.raw.get("match_quality", {}).get("reasonableness_cutoff", 0.5),

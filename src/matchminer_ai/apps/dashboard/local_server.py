@@ -10,6 +10,10 @@ LLM tasks (``matchminer_ai.llm.local_server``).
   session's own key, e.g. while the server loads or on a machine without a GPU (a Hugging Face Space).
 - **OpenRouter** is refused in real mode, always (``refusal``), by the same policy the package's connection builders
   apply (``connection_policy``).
+- **No local server** (``--no-local-server``, site config ``local_server.enabled: false``): for a machine that cannot
+  host an LLM (no GPU, or one too small). The panel says so, and starting or using a server is refused. With
+  ``--local-server-only`` and ``--allow-openrouter`` too (the Hugging Face Space on a small GPU), OpenRouter with a
+  session's own key is then the only connection, and every task's default (``settings.guideline_settings``).
 - **GPUs:** discovered with ``llm.gpus``; each GPU's memory is split into this app (its process and its children),
   the local server (its process group) and other processes. Process IDs are not sent to the page.
 - **Use:** once the server is ready, a session's tasks can use it (``use``), as an OpenAI-compatible connection with
@@ -40,6 +44,8 @@ ONLY = ("This dashboard uses only its own local model server (--local-server-onl
         "refused. Use the local server on Data and models.")
 ONLY_OR_OPENROUTER = ("This dashboard uses only its own local model server (--local-server-only) or OpenRouter with "
                       "your own key; other model connections are refused.")
+NO_SERVER = ("This dashboard runs no local model server: this machine's GPU is too small for an LLM, or it has none. "
+             "Use OpenRouter with your own API key (Models, on Data and models).")
 OPENROUTER_BACKEND = "openrouter"
 OPENROUTER_REAL = "OpenRouter is offered in synthetic mode only; real mode never sends patient data to it."
 NOT_READY = ("This dashboard uses only its own local model server (--local-server-only), which is not ready: start it "
@@ -95,6 +101,8 @@ class LocalServerControl:
         self.real = str(getattr(settings, "mode", "synthetic")) == "real"
         # With --local-server-only: also OpenRouter with a session's own key (never in real mode).
         self.allow_openrouter = bool(getattr(settings, "allow_openrouter", False)) and not self.real
+        # False where the machine cannot host an LLM: no server can be started or used.
+        self.enabled = bool(getattr(settings, "local_server_enabled", True))
         self.llama_server = getattr(settings, "llama_server", None)
         self.allow_downloads = bool(getattr(settings, "allow_downloads", False))
         self.device = str(getattr(settings, "device", "") or "")
@@ -191,7 +199,8 @@ class LocalServerControl:
 
     def describe(self, log_lines: int = 200) -> dict:
         server = self.server
-        return {"only": self.only, "allow_openrouter": self.allow_openrouter,
+        return {"only": self.only, "allow_openrouter": self.allow_openrouter, "enabled": self.enabled,
+                "disabled_reason": None if self.enabled else NO_SERVER,
                 "server": server.describe(log_lines) if server else None,
                 "default_on_ready": self.make_default, "allow_downloads": self.allow_downloads,
                 "hub_cache": str(ls.hub_cache()), "default_model": ls.recipes().get("default"),
@@ -210,7 +219,8 @@ class LocalServerControl:
         connection = self.connection() or {}
         return {"only": self.only, "state": server.state if server else None,
                 "endpoint": connection.get("endpoint"), "model": connection.get("model"),
-                "tokenizer": connection.get("tokenizer"), "allow_openrouter": self.allow_openrouter}
+                "tokenizer": connection.get("tokenizer"), "allow_openrouter": self.allow_openrouter,
+                "enabled": self.enabled}
 
     @property
     def restricts(self) -> bool:
@@ -238,6 +248,8 @@ class LocalServerControl:
             return None
         server = self.server
         refused = ONLY_OR_OPENROUTER if self.allow_openrouter else ONLY
+        if not self.enabled:
+            return NO_SERVER
         if server is None or server.state != "ready":
             return NOT_READY + (" Or use OpenRouter with your own key." if self.allow_openrouter else "")
         try:
@@ -266,6 +278,8 @@ class LocalServerControl:
 
     def start(self, values: dict, *, fill: bool = False) -> dict:
         """Start a server (``fill``: complete ``values`` from the recipe first, as autostart does)."""
+        if not self.enabled:
+            raise InputError(NO_SERVER)
         if fill:
             values = self.complete(values)
         try:
@@ -304,6 +318,8 @@ class LocalServerControl:
 
     def use(self, owner: str, *, task: str | None, apply_to_all: bool, reasoning: bool):
         """Save the ready server as the session's connection for ``task`` (or every task)."""
+        if not self.enabled:
+            raise InputError(NO_SERVER)
         connection = self.connection()
         if connection is None:
             raise InputError("The local server is not ready.")

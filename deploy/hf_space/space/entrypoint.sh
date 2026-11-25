@@ -10,21 +10,11 @@ fi
 mkdir -p "$MMAI_DATA_ROOT"
 echo "MatchMiner-AI $(cat /home/user/space/MMAI_COMMIT 2>/dev/null || echo unknown); data in $MMAI_DATA_ROOT"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "nvidia-smi: none"
-# torch's view of the GPU (torch 2.14 is a CUDA 13 build: host driver 580 or later), and its memory in MiB.
-GPU_MIB=$(python - <<'EOF' || echo 0
-import sys
-import torch
-ok = torch.cuda.is_available()
-print("torch", torch.__version__, "CUDA", torch.version.cuda, "available:", ok,
-      torch.cuda.get_device_name(0) if ok else "", file=sys.stderr)
-print(torch.cuda.get_device_properties(0).total_memory // 2**20 if ok else 0)
-EOF
-)
-if [ "${GPU_MIB:-0}" -lt 90000 ]; then
-    # Too small for Nemotron 3.5 Super (site.yaml's vLLM server), e.g. an L40S: Bolt's GGUF with llama.cpp.
-    echo "GPU memory ${GPU_MIB:-0} MiB: the local model server runs Nemotron 3.5 Bolt with llama.cpp"
-    export MMAI_DASH_LOCAL_SERVER_AUTOSTART='{"engine":"llama_cpp","model":"nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB","gpus":[0]}'
+# The local model server by the GPU's memory (tier.py): Nemotron 3.5 Super with vLLM from 90 GB, Bolt with llama.cpp
+# from 40 GB, else none (OpenRouter with each visitor's own key only).
+eval "$(python /home/user/space/tier.py)"
+if [ "${MMAI_SPACE_TIER:-}" != openrouter ]; then
+    # The local model server's weights download while the app starts (prefetch.py).
+    python /home/user/space/prefetch.py &
 fi
-# The local model server's weights download while the app starts (prefetch.py).
-python /home/user/space/prefetch.py &
 exec mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve

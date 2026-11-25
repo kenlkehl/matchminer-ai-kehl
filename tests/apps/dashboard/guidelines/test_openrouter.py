@@ -70,3 +70,27 @@ def test_local_server_only_accepts_openrouter_only_when_allowed(make_client):
     connections.connect_remote(SimpleNamespace(remote={}), connections.Connection("openrouter", MODEL))
     with pytest.raises(connections.ConnectionRefused):
         connections.connect_remote(SimpleNamespace(remote={}), connections.Connection("local", "m", ELSEWHERE["endpoint"]))
+
+
+def test_with_no_local_server_openrouter_is_the_only_connection_and_the_default(make_client):
+    """The small-GPU Space: --local-server-only, --allow-openrouter and no local server. Every task defaults to
+    OpenRouter's default model, a session without a key is told to paste one, and nothing else is accepted."""
+    client = make_client(local_server_only=True, allow_openrouter=True, local_server_enabled=False)
+    status = client.get("/api/local-server").json()
+    assert status["enabled"] is False and "OpenRouter" in status["disabled_reason"]
+    assert client.post("/api/local-server/start", json={"spec": {"engine": "llama_cpp", "model": "m"}}).status_code == 400
+    view = client.get("/api/models").json()
+    default = openrouter.presets()["default"]
+    assert {(t["llm_backend"], t["model"]) for t in view["tasks"].values()} == {("openrouter", default)}
+    assert view["local_server"]["enabled"] is False and view["openrouter"]["offered"]
+    response = client.post("/api/patient/summarize", json={"text": "Fabricated note."})
+    assert response.status_code == 400 and response.json()["error"] == openrouter.NO_KEY
+    for body in (ELSEWHERE, {**ELSEWHERE, "endpoint": "http://127.0.0.1:8000/v1"}):
+        assert client.post("/api/models", json={**body, "task": "summarize"}).status_code == 400
+    assert client.post("/api/models/openrouter-key", json={"key": KEY}).status_code == 200
+    g, owner = client.app.state.mmai.guidelines, client.cookies.get(SESSION_COOKIE)
+    assert Connection.for_task(g.task_settings(owner, "llm_decisions")).credentials_error() is None
+    with pytest.raises(connections.ConnectionRefused):
+        connections.connect_remote(SimpleNamespace(remote={}), connections.Connection("local", "m", ELSEWHERE["endpoint"]))
+    with pytest.raises(ValueError, match="allow-openrouter"):
+        make_client(local_server_only=True, local_server_enabled=False)
