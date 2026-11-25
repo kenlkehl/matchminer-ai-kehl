@@ -107,6 +107,9 @@ def make_client(dataset, trial_data, fake_model, fake_ncit, tmp_path):  # noqa: 
     for state in states:
         state.local_server.shutdown()
         state.registry.shutdown()
+    from matchminer_ai.llm import connections
+
+    connections.set_connection_policy(None)  # --local-server-only's process-wide rule
 
 
 # ---------------------------------------------------------------------------------------------- shared fakes

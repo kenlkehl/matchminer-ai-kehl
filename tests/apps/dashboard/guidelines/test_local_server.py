@@ -7,7 +7,10 @@ import time
 
 import pytest
 
+from types import SimpleNamespace
+
 from matchminer_ai.apps.dashboard.llm import Connection
+from matchminer_ai.llm import connections
 
 from .conftest import SESSION_COOKIE, peer
 
@@ -132,3 +135,9 @@ def test_only_mode_refuses_other_connections_on_update_and_on_use(make_client, f
     g, owner = client.app.state.mmai.guidelines, client.cookies.get(SESSION_COOKIE)
     g.workspace_settings[owner]["values"]["task_connections"]["llm_decisions"] = dict(GATEWAY)
     assert Connection.for_task(g.task_settings(owner, "llm_decisions")).endpoint == server["endpoint"]
+    # The package's builders refuse every other destination too, wherever the app reaches them.
+    with pytest.raises(connections.ConnectionRefused):
+        connections.connect_remote(SimpleNamespace(remote={}), connections.Connection("claude_databricks", HAIKU))
+    with pytest.raises(connections.ConnectionRefused):
+        connections.claude_connection("haiku")
+    connections.connect_remote(SimpleNamespace(remote={}), g.settings.llm_connection)  # the server itself

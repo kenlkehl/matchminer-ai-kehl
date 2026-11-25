@@ -71,8 +71,10 @@ class Job:
 
 
 def public_error(exc: BaseException) -> str:
-    """What the page shows for a failed job."""
-    if isinstance(exc, InputError):
+    """What the page shows for a failed job (a refused connection's message is a fixed text)."""
+    from matchminer_ai.llm.connections import ConnectionRefused
+
+    if isinstance(exc, (InputError, ConnectionRefused)):
         return str(exc)
     return f"{type(exc).__name__}: {GENERIC_ERROR}"
 

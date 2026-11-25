@@ -201,6 +201,15 @@ class LocalServerControl:
                 "endpoint": connection.get("endpoint"), "model": connection.get("model"),
                 "tokenizer": connection.get("tokenizer")}
 
+    def connection_policy(self, connection) -> str | None:
+        """``llm.connections``' policy with ``--local-server-only`` (``set_connection_policy``): every builder refuses
+        a destination other than the ready local server. A connection with no endpoint (no destination: the
+        default before the server is ready) passes; the LLM tasks refuse it themselves."""
+        if connection.backend == "local" and not connection.endpoint:
+            return None
+        return self.refusal({"llm_backend": connection.backend, "endpoint": connection.endpoint,
+                             "model": connection.model})
+
     def refusal(self, values) -> str | None:
         """Why a connection (``llm_backend``, ``endpoint``, ``model``) is refused: with ``--local-server-only``,
         anything but this app's own ready local server (by endpoint and served name); None when it is allowed."""

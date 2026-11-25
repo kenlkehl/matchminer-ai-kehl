@@ -454,7 +454,9 @@ server refuses every other model connection, wherever one is chosen or used:
 - **Refused:** the Databricks gateway, Vertex, Azure and any OpenAI-compatible URL, including other loopback
   addresses. A session's or a task's connection, **Use for every task**, the connection check, the Assistant, the
   **Scores from: LLM** checks, criteria classification and trial management's labeling all accept only the ready
-  local server (matched by endpoint and served name), and a refused one gets a 400 that says why.
+  local server (matched by endpoint and served name), and a refused one gets a 400 that says why. The package's
+  connection builders apply the same rule (`llm.connections.set_connection_policy`), so no preset section the app
+  builds can point anywhere else.
 - **Defaults:** the ready server is every task's default (`--local-server-default` is implied). Before it is ready
   there is no default connection: LLM tasks fail with a message pointing to Data and models, and nothing falls back
   to a hosted endpoint the site config names. A connection saved for a server since stopped or restarted is dropped.

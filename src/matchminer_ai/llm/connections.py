@@ -25,6 +25,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -320,6 +321,31 @@ class Connection:
     thinking: bool | None = None
 
 
+class ConnectionRefused(ValueError):
+    """A connection this process's policy refuses (``set_connection_policy``); the message says why."""
+
+
+# A check every builder below applies to its connection (None: none). The dashboard's --local-server-only sets one
+# that accepts only the app's own local model server.
+_connection_policy: Callable[[Connection], str | None] | None = None
+
+
+def set_connection_policy(policy: Callable[[Connection], str | None] | None) -> None:
+    """Make ``connect_section``, ``connect_remote``, ``connect_patient_section`` and ``claude_connection`` refuse
+    (``ConnectionRefused``) every connection ``policy`` returns a reason for; None removes the policy."""
+    global _connection_policy
+    _connection_policy = policy
+
+
+def check_connection(connection: Connection) -> Connection:
+    """``connection``, unless the process's policy refuses it (``ConnectionRefused``)."""
+    policy = _connection_policy
+    reason = policy(connection) if policy is not None else None
+    if reason:
+        raise ConnectionRefused(reason)
+    return connection
+
+
 def claude_connection(name: str = "haiku") -> Connection:
     """Claude through the gateway: ``name`` is a model the site config's ``databricks.endpoints`` names (haiku,
     sonnet, opus) or a full endpoint name. Raises ``ValueError`` when the site config names no gateway or the name
@@ -330,7 +356,7 @@ def claude_connection(name: str = "haiku") -> Connection:
         raise ValueError("The site config names no Databricks gateway (databricks.host).")
     if not CLAUDE_ENDPOINT_NAME.fullmatch(model or ""):
         raise ValueError(f"{name!r} is neither a model of the site config's databricks.endpoints nor an endpoint name.")
-    return Connection(CLAUDE_BACKEND, model, profile["endpoint"], profile["tokenizer"])
+    return check_connection(Connection(CLAUDE_BACKEND, model, profile["endpoint"], profile["tokenizer"]))
 
 
 def connect_section(section: dict, name: str, connection: Connection, *, own_connection: bool = False) -> None:
@@ -342,6 +368,7 @@ def connect_section(section: dict, name: str, connection: Connection, *, own_con
     extraction prompts stay under ``CLAUDE_PATIENT_PROMPT_TOKENS``. Hosted Vertex models answer free JSON that the
     package validates and retries (the SQL agent's small action schema keeps JSON-schema responses).
     """
+    check_connection(connection)
     remote = dict(section["remote"])
     local = dict(section.get("local", {}))
     if connection.backend == CLAUDE_BACKEND:
@@ -399,6 +426,7 @@ def connect_section(section: dict, name: str, connection: Connection, *, own_con
 def connect_remote(config, connection: Connection) -> None:
     """Point the shared ``remote`` (the endpoint, provider and credentials scope every section uses but the SQL
     agent's own) at ``connection`` and enable it, in place. Concurrency and timeouts stay the caller's."""
+    check_connection(connection)
     config.remote["enabled"] = True
     if connection.backend == LOCAL_BACKEND:
         config.remote["server_urls"] = [connection.endpoint]
@@ -417,6 +445,7 @@ def connect_patient_section(config, connection: Connection) -> None:
     """Point the ``patient`` section (serial summaries, full-note and note-search workup reviews) and the shared
     ``remote`` (``connect_remote``) at ``connection``, in place. Concurrency, timeouts and prompt-building workers
     stay the caller's."""
+    check_connection(connection)
     connect_remote(config, connection)
     patient = config.patient
     patient["remote"].update(model_name=connection.model, tokenizer_name=connection.tokenizer or connection.model)
