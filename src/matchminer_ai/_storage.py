@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -83,3 +84,47 @@ def directory_lock(directory: Path):
                 yield
             finally:
                 fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+class QueryCache:
+    """A folder of JSON values, one file per 64-hex-digit key, written atomically.
+
+    A ``MutableMapping``-like cache for compiled queries (``compile_workup_queries``,
+    ``compile_workup_sql`` and the criteria compilers): any key it cannot read is
+    missing, so a damaged entry is compiled again.
+    """
+
+    def __init__(self, folder):
+        self.folder = Path(folder)
+
+    def _path(self, key):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(key)):
+            raise KeyError(key)
+        return self.folder / f"{key}.json"
+
+    def get(self, key, default=None):
+        try:
+            return json.loads(self._path(key).read_text())
+        except (OSError, ValueError, KeyError):
+            return default
+
+    def __getitem__(self, key):
+        value = self.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+    def __setitem__(self, key, value):
+        path = self._path(key)
+        self.folder.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".query-", dir=self.folder)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(value, handle, ensure_ascii=False)
+            os.replace(temporary, path)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise

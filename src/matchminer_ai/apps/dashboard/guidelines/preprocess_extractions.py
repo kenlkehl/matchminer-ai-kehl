@@ -231,9 +231,9 @@ def main(argv=None):
         os.umask(0o077)
     from matchminer_ai import load_default_preset
 
-    from .extraction_workup import (
-        extraction_metadata, resolve_store, write_store,
-    )
+    from matchminer_ai.patients.extraction.store import extraction_metadata
+
+    from .extraction_workup import resolve_store, write_store
     from .services import InputError
 
     servers = None

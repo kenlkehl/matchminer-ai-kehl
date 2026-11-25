@@ -324,6 +324,7 @@ are described in [guideline extraction](../user-guide/guideline-extraction.md) a
         - review_guideline_citations
         - audit_guideline_catalog
         - load_guideline_catalog
+        - latest_guideline_catalogs
         - get_guideline_considerations
         - prepare_pdq_library
         - summarize_pdq

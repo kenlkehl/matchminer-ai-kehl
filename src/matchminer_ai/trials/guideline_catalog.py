@@ -445,6 +445,55 @@ def load_guideline_catalog(
     return (frame, metadata) if return_metadata else frame
 
 
+def default_guideline_catalog_root() -> Path:
+    """The site's finalized guideline catalogs: the site config's ``dashboard.guideline_catalogs``, else the data
+    root's ``no_phi/space_paradigms_nccn`` (raises without either)."""
+    from matchminer_ai.site import data_root, load_site_config
+
+    value = load_site_config().get("dashboard.guideline_catalogs")
+    return (Path(value).expanduser() if value else data_root() / "no_phi" / "space_paradigms_nccn").resolve()
+
+
+def latest_guideline_catalogs(root: str | Path) -> list[dict]:
+    """The latest complete, audited catalog of each disease under ``root``, sorted by title.
+
+    The supported layouts are ``root/<run>/<disease>/`` and ``root/<disease>/``;
+    checkpoints are never traversed. A catalog folder qualifies when its
+    ``validation.json`` audit passed, its ``status.json`` says complete and it has
+    ``paradigms.jsonl``; of several runs of one disease (``sources.json``'s
+    ``disease``), the one updated last (``status.json``'s ``updated_utc``) is kept.
+    Unreadable or in-progress folders are skipped. Each row has ``disease``,
+    ``title``, ``version``, ``spaces``, ``updated`` and ``path``; pass the paths to
+    :func:`load_guideline_catalog`, which verifies the export hashes.
+    """
+    root = Path(root)
+    candidates: dict[str, dict] = {}
+    for audit_file in [*root.glob("*/*/validation.json"), *root.glob("*/validation.json")]:
+        folder = audit_file.parent
+        try:
+            audit = json.loads(audit_file.read_text())
+            status = json.loads((folder / "status.json").read_text())
+            source = json.loads((folder / "sources.json").read_text())
+            if audit.get("status") != "passed" or status.get("status") != "complete":
+                continue
+            if not (folder / "paradigms.jsonl").is_file():
+                continue
+            row = dict(
+                disease=source["disease"],
+                title=source["title"],
+                version=source["version"],
+                spaces=audit["paradigms"],
+                updated=status.get("updated_utc", ""),
+                path=str(folder),
+            )
+            old = candidates.get(row["disease"])
+            if old is None or row["updated"] > old["updated"]:
+                candidates[row["disease"]] = row
+        except (OSError, ValueError, KeyError):
+            continue  # A copying/in-progress artifact is not a catalog.
+    return sorted(candidates.values(), key=lambda row: row["title"].casefold())
+
+
 def get_guideline_considerations(
     catalog: str | Path | pd.DataFrame | list[str | Path],
     *,
