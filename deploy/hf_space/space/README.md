@@ -44,8 +44,8 @@ engine, and nothing it shows is medical advice.
 - **Data:** [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), downloaded at
   startup at a pinned revision.
 
-After the Space wakes, it needs some minutes before it serves: it downloads the data and models and builds its
-search index. Clinical trial management edits are shared by everyone using the Space and do not survive a restart.
+After the Space wakes, it needs a while before it serves: it downloads the data and models and builds its search
+index. Clinical trial management edits are shared by everyone using the Space and do not survive a restart.
 
 ## Code
 

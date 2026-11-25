@@ -71,7 +71,8 @@ A Space has no persistent disk unless a storage bucket is mounted, so every star
 
 1. Download the dataset's files (about 15 GB, mostly the notes) and the models into the Hugging Face cache.
 2. Build the run folder and, unless the dataset publishes the vectors, embed about 88,000 patients and 15,000
-   cohorts with TrialSpace on the GPU: by far the longest step.
+   cohorts with TrialSpace on the GPU: by far the longest step (about 14 minutes on a shared H100, so expect several
+   times that on an L40S). With published vectors the folder takes under a minute.
 3. Load the decision model; then serve. The local model server downloads Bolt (about 23 GB) and starts in the
    background; Data and models shows its progress.
 
