@@ -55,6 +55,10 @@ folder the revision does not have reads as a missing path, so that feature is un
   are the dataset's own when it publishes them (`trialspace/trialspace_round3/mining/{patients,cohorts}.npy` and the
   mining `manifest.json`, checked against the corpus rows); otherwise the app embeds the corpus with the preset's
   pinned TrialSpace-1226 (the model that made them). The decision model is the preset's pinned MatchEval-1226.
+- `dashboard.synthetic.trial_cohorts` and `trial_tables`: the trials the Space shows, the dataset's cohort table
+  (`trials/retrieval_cohorts.parquet`) and trial tables, now the run's 5,000 trials. Another trial set in the dataset
+  (a fresh ClinicalTrials.gov extraction in its own folder, in the same table form) is a change of these lines and a
+  restart. The patients stay the run's.
 - `dashboard.synthetic.population_summaries`, `population_notes`, `extraction_records`, `good_options_catalog`: files
   and folders of the dataset. A new extraction store in another folder is a change of that line.
 - `dashboard.guideline_catalogs`: the dataset's `guideline_catalogs/pdq/`, the NCI PDQ catalogs, shown in the
@@ -89,8 +93,12 @@ A Space has no persistent disk unless a storage bucket is mounted, so every star
 2. Build the run folder and, unless the dataset publishes the vectors, embed about 88,000 patients and 15,000
    cohorts with TrialSpace on the GPU: by far the longest step (about 14 minutes on a shared H100, so expect several
    times that on an L40S). With published vectors the folder takes under a minute.
-3. Load the decision model; then serve. The local model server downloads Bolt (about 23 GB) and starts in the
-   background; Data and models shows its progress.
+3. Load the decision model and build the trial store; then serve. The local model server downloads Bolt (about
+   23 GB) and starts in the background; Data and models shows its progress.
+4. Embed the trial cohorts that have no TrialSpace vector of the round, in the background. The run's own 5,000 trials
+   take theirs from the round, so nothing is embedded now; another trial set is embedded at every start (its vectors
+   live in the data root), by the query encoder on `--embedding-device` (`MMAI_DASH_EMBEDDING_DEVICE`; CPU by default,
+   far too slow for tens of thousands of cohorts, while the GPU must leave Bolt's memory free).
 
 The card's `startup_duration_timeout` allows for this. With a storage bucket mounted at `/data`
 (`HfApi.set_space_volumes`), `entrypoint.sh` keeps the data root and the Hugging Face cache there, and a restart

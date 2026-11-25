@@ -22,6 +22,14 @@ dashboard:
   guideline_catalogs: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/guideline_catalogs/pdq
 
   synthetic:
+    # The trials shown (Clinical trial management, Patient-centric search): a cohort table and trial tables merged by
+    # nct_id (apps.dashboard.synthetic_trials). Now the published run's 5,000 trials; another trial set in the dataset
+    # (e.g. a trials_ctgov_all/ folder) is these lines plus a restart. Cohorts without the run's TrialSpace vectors are
+    # embedded when the app starts.
+    trial_cohorts: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/trials/retrieval_cohorts.parquet
+    trial_tables:
+      - hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/trials/ctgov_sample_trials.parquet
+      - hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/trials/ctgov_trials_with_cohorts.parquet
     # Population management samples these (1,000 test-split patients with seed 23 by default).
     population_summaries: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/summaries/patient_summaries_with_spaces.parquet
     population_notes: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/patients/all_synthetic_notes.parquet
