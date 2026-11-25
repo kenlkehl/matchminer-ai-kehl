@@ -14,7 +14,7 @@
         <link rel="prev" href="../dashboard-overview/">
       
       
-        <link rel="next" href="../../reference/configuration/">
+        <link rel="next" href="../hf-space/">
       
       
         
@@ -932,6 +932,8 @@
       
         
       
+        
+      
     
     
     
@@ -1185,6 +1187,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hf-space/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hugging Face Space
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2541,8 +2571,13 @@ build copies them into the package (<code>static/docs/</code>) for an installed 
 mmai-dashboard<span class="w"> </span>--mode<span class="w"> </span>synthetic<span class="w"> </span>--site-config<span class="w"> </span>site.yaml<span class="w"> </span>--device<span class="w"> </span>cuda:0
 </code></pre></div>
 <p><code>python -m matchminer_ai.apps.dashboard</code> is the same command. <code>mmai-dashboard --mode ... build</code> builds the trial
-store once and exits. <code>pnpm dev</code> serves the frontend on :5173 and proxies <code>/api</code> to a running server
+store once and exits; <code>mmai-dashboard --mode ... prepare</code> only builds the synthetic run from its published dataset
+(below) and exits. <code>pnpm dev</code> serves the frontend on :5173 and proxies <code>/api</code> to a running server
 (<code>MMAI_DASH_API_URL</code>, default <code>http://127.0.0.1:8781</code>).</p>
+<p><strong>Framing.</strong> No other site may show the app in a frame, except, in synthetic mode, the https origins of
+<code>--frame-ancestors</code> (<code>MMAI_DASH_FRAME_ANCESTORS</code>, site config <code>dashboard.synthetic.frame_ancestors</code>), such as
+<code>https://huggingface.co</code> for a Space page. The session cookie is then a partitioned third-party cookie, which browsers
+keep in a frame.</p>
 <p><strong>Access.</strong> Real mode serves on loopback only, because it shows patient records and confidential protocol content;
 forward the port with <code>ssh -L</code> to reach it from another machine. It accepts only loopback Host headers, refuses
 cross-origin writes and requires the access token: <code>MMAI_DASH_ACCESS_TOKEN</code>, else a private
@@ -2604,7 +2639,13 @@ expire after an hour unused.</p>
 <td><code>--synthetic-run</code> (<code>dashboard.synthetic_run</code>)</td>
 <td>both</td>
 <td><code>no_phi/synthetic_run</code></td>
-<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients</td>
+<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run (below)</td>
+</tr>
+<tr>
+<td><code>dashboard.synthetic.trial_cohorts</code>, <code>dashboard.synthetic.trial_tables</code></td>
+<td>synthetic</td>
+<td>the run's corpus cohorts and trial tables</td>
+<td>Another trial set: a cohort table (or corpus JSON lines) and trial tables merged by <code>nct_id</code>; cohorts without the round's vectors are embedded at startup (<code>--embedding-device</code>)</td>
 </tr>
 <tr>
 <td><code>dashboard.real.population_cache</code></td>
@@ -2616,10 +2657,19 @@ expire after an hour unused.</p>
 <td><code>dashboard.guideline_catalogs</code></td>
 <td>both</td>
 <td><code>no_phi/space_paradigms_nccn</code></td>
-<td>Finalized guideline catalogs</td>
+<td>Finalized guideline catalogs; without any, the Guidelines sub-tab and Guideline concordance reporting are hidden</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Published data.</strong> A site config value may name a file or folder on the Hugging Face Hub at a pinned revision,
+<code>hf://datasets/&lt;org&gt;/&lt;name&gt;@&lt;revision&gt;/&lt;path&gt;</code>; the app reads it from the Hugging Face cache, downloading it on first
+use with <code>--allow-downloads</code> (<a href="../../reference/site-config/#hugging-face-hub-files">site configuration</a>). Read-only
+inputs only: the extraction store, the GoodOption catalog, the synthetic population and guideline catalogs.
+<code>dashboard.synthetic_run</code> may name a whole published run, <code>hf://datasets/ksg-dfci/mmai-synthetic-1226@&lt;revision&gt;</code>:
+before serving, the app builds the run folder it reads under the data root's <code>no_phi/synthetic_runs/</code> from the
+dataset's corpus, trial tables, patient metadata and notes, and embeds the corpus with the published TrialSpace
+(minutes on a GPU, once per data root and revision; <code>apps.dashboard.hub_run</code>). The decision model is then the
+published MatchEval-1226. The <a href="../hf-space/">Hugging Face Space</a> runs this way.</p>
 <p>The decision model is the synthetic run's trained model (<code>--decision-model</code> overrides it, with fallbacks while the
 run is still training; Data and models shows which one loaded). It scores in every tab unless a view's toggle chooses
 the LLM (Benchmarking always uses it) and runs on <code>--device</code>, by default <code>cuda:0</code> when CUDA is available, else the
@@ -2835,7 +2885,8 @@ and <code>llama_server</code>):</p>
 </tr>
 </tbody>
 </table>
-<p>For example, a Space: Bolt with llama.cpp on the first GPU, the only model connection:</p>
+<p>For example, a Space (the <a href="../hf-space/">Hugging Face Space</a> sets the same in its site config): Bolt with llama.cpp
+on the first GPU, the only model connection:</p>
 <div class="highlight"><pre><span></span><code>mmai-dashboard<span class="w"> </span>--mode<span class="w"> </span>synthetic<span class="w"> </span>--allow-downloads<span class="w"> </span>--local-server-only<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--local-server-autostart<span class="w"> </span><span class="s1">'{"engine": "llama_cpp", "model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB", "gpus": [0]}'</span>
 </code></pre></div>

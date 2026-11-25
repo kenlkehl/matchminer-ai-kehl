@@ -930,6 +930,8 @@
       
         
       
+        
+      
     
     
     
@@ -1018,6 +1020,34 @@
     
   
     Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../apps/hf-space/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hugging Face Space
   
 
     
@@ -1195,6 +1225,28 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#hugging-face-hub-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hugging Face Hub files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#data-root" class="md-nav__link">
@@ -2048,6 +2100,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#hugging-face-hub-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hugging Face Hub files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#data-root" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2142,6 +2216,27 @@ or as environment variables).</p>
 <span class="n">site</span><span class="o">.</span><span class="n">require</span><span class="p">(</span><span class="s2">"endpoints.teacher.url"</span><span class="p">)</span>    <span class="c1"># KeyError naming the key, the file and how to set it</span>
 <span class="n">site</span><span class="o">.</span><span class="n">section</span><span class="p">(</span><span class="s2">"dashboard.branding"</span><span class="p">)</span>       <span class="c1"># a dict, empty when unset</span>
 </code></pre></div>
+<h2 id="hugging-face-hub-files">Hugging Face Hub files<a class="headerlink" href="#hugging-face-hub-files" title="Permanent link">&para;</a></h2>
+<p>A value may name a file or folder of a Hugging Face Hub repository at a pinned revision, in the Hub's own path form:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">dashboard</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">synthetic</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">extraction_records</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf://datasets/ksg-dfci/mmai-synthetic-1226@&lt;commit&gt;/extraction_records/n5000_test1000_nemotron</span>
+</code></pre></div>
+<p><code>site.get</code> returns its local path in the Hugging Face cache (<code>HF_HUB_CACHE</code>), downloading only that file or folder
+(<code>snapshot_download</code> with <code>allow_patterns</code>) the first time a process reads it. The revision is required: a commit
+hash keeps the files fixed, a branch (such as <code>main</code>) follows the repository at each start. A file or folder the
+revision does not have reads like a local path that does not exist (with a warning), so an optional input is simply
+absent. Downloads follow <code>allow_hub_downloads</code> (the dashboard's
+<code>--allow-downloads</code>; elsewhere huggingface_hub's <code>HF_HUB_OFFLINE</code>); without them only cached files resolve. Models use
+<code>hf://models/&lt;org&gt;/&lt;name&gt;@&lt;revision&gt;</code>. A dataset reference must name a file or folder, so a whole dataset is never
+downloaded, except <code>dashboard.synthetic_run</code>, which may name a whole published run (read by <code>apps.dashboard.hub_run</code>,
+which downloads only what the app needs). Hub files are read-only: the data root, store folders and the trial
+management file must stay local (a Hub reference there is refused).</p>
+<h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p><code>${NAME}</code> and <code>${NAME:-default}</code> in a value are replaced by the environment variable (<code>:-</code>: the default when it is
+unset or empty), for example a revision a deployment can set:
+<code>hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/guideline_catalogs/pdq</code>. An unset <code>${NAME}</code>
+without a default is an error naming it.</p>
 <h2 id="data-root">Data root<a class="headerlink" href="#data-root" title="Permanent link">&para;</a></h2>
 <p>The data root holds <code>phi/</code> (real clinical data) and <code>no_phi/</code> (synthetic and public data). It comes from the apps'
 <code>--data-root</code>, then <code>MMAI_DATA_ROOT</code>, then the site config's <code>paths.data_root</code>, and has no default
@@ -2303,6 +2398,21 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <td>Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under <code>phi</code></td>
 </tr>
 <tr>
+<td><code>synthetic.trial_cohorts</code></td>
+<td>the synthetic run's corpus <code>cohorts.jsonl</code></td>
+<td>The cohorts synthetic mode shows: corpus JSON lines, or the pipeline's cohort table (Parquet or CSV with <code>cohort_trial_id</code>, as <code>retrieval_cohorts</code>)</td>
+</tr>
+<tr>
+<td><code>synthetic.trial_tables</code></td>
+<td>the run's <code>ctgov_sample_trials.csv</code> and <code>ctgov_cohorts/trials_with_cohorts.csv</code></td>
+<td>Tables (Parquet or CSV) of those trials' <code>phases</code>, <code>overall_status</code>, <code>title</code>, <code>brief_summary</code> and <code>detailed_description</code>, merged by <code>nct_id</code></td>
+</tr>
+<tr>
+<td><code>synthetic.frame_ancestors</code></td>
+<td>none</td>
+<td>https origins whose pages may show synthetic mode in a frame, e.g. <code>[https://huggingface.co]</code> for a Space page (as <code>--frame-ancestors</code>)</td>
+</tr>
+<tr>
 <td><code>real.local_server</code>, <code>synthetic.local_server</code></td>
 <td>none</td>
 <td>The <a href="../../apps/dashboard/#local-model-server">local model server</a>: <code>only</code> (the local server is the only model connection), <code>autostart</code> (a server spec, or a JSON or YAML file), <code>default</code> and <code>llama_server</code> (the binary), as <code>--local-server-only</code>, <code>--local-server-autostart</code>, <code>--local-server-default</code> and <code>--llama-server</code></td>
@@ -2310,12 +2420,12 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <tr>
 <td><code>synthetic_run</code></td>
 <td><code>&lt;data root&gt;/no_phi/synthetic_run</code></td>
-<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients</td>
+<td>TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run, <code>hf://datasets/&lt;org&gt;/&lt;name&gt;@&lt;revision&gt;</code>, built into <code>&lt;data root&gt;/no_phi/synthetic_runs/</code> before the app serves</td>
 </tr>
 <tr>
 <td><code>guideline_catalogs</code></td>
 <td><code>&lt;data root&gt;/no_phi/space_paradigms_nccn</code></td>
-<td>Finalized guideline catalogs (also <code>population.review</code>'s default)</td>
+<td>Finalized guideline catalogs (also <code>population.review</code>'s default); without any, the dashboard hides its guideline views</td>
 </tr>
 <tr>
 <td><code>grouping</code></td>
