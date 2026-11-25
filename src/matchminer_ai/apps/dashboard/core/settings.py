@@ -109,6 +109,10 @@ class Settings:
                 return str(local), None, "configured checkpoint directory"
             return self.decision_model, self.decision_revision, "configured Hub model"
         run = self.synthetic_run / RUN_DECISION_MODEL
+        from ..hub_run import RECORD
+
+        if (self.synthetic_run / RECORD).is_file():  # a run built from its published dataset has no decision model
+            return PUBLISHED_DECISION_MODEL, PUBLISHED_DECISION_REVISION, "the published MatchEval-1226"
         pending = complete_decision_model(run)
         if pending is None:
             return str(run), None, f"the run's trained decision model ({RUN_DECISION_MODEL})"
