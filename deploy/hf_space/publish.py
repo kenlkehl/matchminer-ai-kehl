@@ -28,8 +28,10 @@ import urllib.request
 
 SPACE = "ksg-dfci/matchminer-ai-1226"
 REPOSITORY = "kenlkehl/matchminer-ai-kehl"
-HARDWARE = "l40sx1"
-SLEEP_SECONDS = 3600  # the Space sleeps after an hour without visitors
+# One RTX PRO 6000 (96 GB, Blackwell): vLLM serves Nemotron 3.5 Super there (site.yaml). Not in huggingface_hub's
+# SpaceHardware enum yet, so passed as a string.
+HARDWARE = "rtx-pro-6000"
+SLEEP_SECONDS = 18000  # the Space sleeps after five hours without visitors (a wake is a long cold start)
 FILES = Path(__file__).resolve().parent / "space"
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
@@ -76,8 +78,12 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--commit", help="the commit to build (default: this checkout's HEAD)")
     parser.add_argument("--space", default=SPACE)
-    parser.add_argument("--create", action="store_true", help=f"create the public Docker Space if needed and request "
-                        f"{HARDWARE} with a {SLEEP_SECONDS // 60}-minute sleep time (billed while awake)")
+    parser.add_argument("--create", action="store_true", help="create the public Docker Space if needed and request "
+                        "--hardware with --sleep-seconds (billed while awake)")
+    parser.add_argument("--hardware", default=HARDWARE, help=f"the Space's hardware flavor with --create (default "
+                        f"{HARDWARE})")
+    parser.add_argument("--sleep-seconds", type=int, default=SLEEP_SECONDS, help="with --create: seconds without "
+                        f"visitors before the Space sleeps (default {SLEEP_SECONDS}, {SLEEP_SECONDS // 3600} hours)")
     parser.add_argument("--factory-rebuild", action="store_true", help="rebuild without Docker's layer cache")
     parser.add_argument("--no-github-check", action="store_true", help="skip checking that GitHub has the commit")
     parser.add_argument("--dry-run", action="store_true", help="only stage the files and print what would be uploaded")
@@ -106,9 +112,9 @@ def main(argv=None) -> int:
         if args.create:
             # The GPU before the first upload, so the first build runs on it.
             api.create_repo(args.space, repo_type="space", space_sdk="docker", private=False, exist_ok=True,
-                            space_hardware=HARDWARE, space_sleep_time=SLEEP_SECONDS)
-            runtime = api.request_space_hardware(args.space, HARDWARE, sleep_time=SLEEP_SECONDS)
-            print(f"{args.space}: {HARDWARE}, sleeps after {SLEEP_SECONDS // 60} min without visitors "
+                            space_hardware=args.hardware, space_sleep_time=args.sleep_seconds)
+            runtime = api.request_space_hardware(args.space, args.hardware, sleep_time=args.sleep_seconds)
+            print(f"{args.space}: {args.hardware}, sleeps after {args.sleep_seconds // 60} min without visitors "
                   f"({runtime.stage})")
         # Files removed from space/ are removed from the Space too (the Hub keeps .gitattributes).
         info = api.upload_folder(repo_id=args.space, repo_type="space", folder_path=tmp, delete_patterns="*",

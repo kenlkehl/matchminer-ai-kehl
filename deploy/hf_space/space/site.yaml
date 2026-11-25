@@ -43,10 +43,29 @@ dashboard:
     # No benchmark_roots: the Benchmarking tab stays hidden.
     # The Space page shows the app in a frame.
     frame_ancestors: [https://huggingface.co]
-    # Every LLM task uses the app's own llama.cpp server on the Space's GPU, started at boot: Nemotron 3.5 Bolt's
-    # GGUF, its recipe chosen by the GPU's free memory (presets/local_servers.yaml). No other model connection is
-    # accepted.
+    # Every LLM task uses the app's own model server on the Space's GPU, started once the decision model has loaded;
+    # no other model connection is accepted. On the RTX PRO 6000 (96 GB): vLLM serving Nemotron 3.5 Super NVFP4, text
+    # only, as NVIDIA's model card serves it on one GPU and as the production servers do (the package's Super profile
+    # gives the reasoning and tool parsers and the sampling). Memory: about 70 GiB of weights, then the KV and Mamba
+    # caches inside 84% of the GPU; the remaining ~15 GiB hold the decision model and TrialSpace, which the app loads
+    # on the same GPU. On a GPU under 90 GB, entrypoint.sh starts Bolt's GGUF with llama.cpp instead.
     local_server:
       only: true
       default: true
-      autostart: {engine: llama_cpp, model: nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB, gpus: [0]}
+      autostart:
+        engine: vllm
+        model: nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+        revision: ae1368329b1fc76b71534c5d04b87b35d9cc6e15
+        gpus: [0]
+        trust_remote_code: true
+        enable_prefix_caching: true
+        gpu_memory_utilization: 0.84
+        max_model_len: 262144
+        max_num_seqs: 8
+        # The model's own MTP head drafts tokens (the card's RTX PRO 6000 setting); no drafter download.
+        speculative_config: {method: mtp, num_speculative_tokens: 5}
+        extra_args: [--language-model-only, --max-num-batched-tokens, "8192", --block-size, "64",
+                     --prefix-match-unit, "64", --mamba-backend, flashinfer, --mamba-ssm-cache-dtype, float16,
+                     --enable-mamba-cache-stochastic-rounding, --mamba-cache-philox-rounds, "5",
+                     --mamba-cache-mode, align, --enable-mamba-shared-prefix-checkpoint, --async-scheduling,
+                     --chat-template-content-format, string]

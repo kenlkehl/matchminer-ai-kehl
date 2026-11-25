@@ -8,12 +8,12 @@ ARG CUDA_VERSION=12.8.1
 ARG UBUNTU=ubuntu24.04
 
 # ---------------------------------------------------------------------------------------------- llama-server
-# Built for the L40S (Ada, compute capability 8.9). The local model server (Data and models) runs Nemotron 3.5 Bolt's
-# GGUF with it; its card asks for a recent llama.cpp (DFlash speculative decoding). Pinned to a commit known to run
-# the app's llama.cpp recipes.
+# The local model server's second engine: Nemotron 3.5 Bolt's GGUF, which entrypoint.sh starts on a GPU too small
+# for Nemotron 3.5 Super (vLLM, site.yaml), such as an L40S. Built for Ada (8.9) and Blackwell RTX PRO (12.0); its
+# card asks for a recent llama.cpp (DFlash speculative decoding). Pinned to a commit known to run the app's recipes.
 FROM nvidia/cuda:${CUDA_VERSION}-devel-${UBUNTU} AS llama
 ARG LLAMA_CPP_COMMIT=33aeb17f85869279e3821f746bc645357139bc2c
-ARG CUDA_ARCHITECTURES=89
+ARG CUDA_ARCHITECTURES="89;120"
 ARG GCC_VERSION=14
 ENV DEBIAN_FRONTEND=noninteractive
 # GCC 14, as llama.cpp's own CUDA image at this commit builds with (CUDA 12.8 accepts it as nvcc's host compiler).
@@ -55,9 +55,12 @@ WORKDIR /src/frontend/dashboard
 RUN pnpm install --frozen-lockfile && pnpm build && rm -rf node_modules
 
 # ---------------------------------------------------------------------------------------------- the runtime
+# The runtime: the CUDA 12.8 runtime image (llama-server's libraries); torch and vLLM bring their own CUDA 13
+# libraries and nvcc (pip), which the local model server finds for vLLM's kernel builds. A C/C++ compiler is needed
+# at run time too: Triton, torch.compile and FlashInfer compile kernels when vLLM starts.
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-${UBUNTU}
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 \
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8.11 /uv /usr/local/bin/uv
 # Spaces run the container as user 1000; the Ubuntu 24.04 base images already have one (ubuntu), so it is replaced.
@@ -77,11 +80,13 @@ COPY --from=llama --chown=user /llama.cpp/build/bin/llama-server /home/user/bin/
 COPY --from=frontend --chown=user /src /home/user/matchminer-ai-kehl
 RUN uv pip install --python /home/user/venv/bin/python -c /home/user/space/constraints.txt \
         "/home/user/matchminer-ai-kehl[apps,sql]"
-COPY --chown=user MMAI_COMMIT entrypoint.sh site.yaml /home/user/space/
+COPY --chown=user MMAI_COMMIT entrypoint.sh prefetch.py site.yaml /home/user/space/
 ENV MMAI_SITE_CONFIG=/home/user/space/site.yaml \
     MMAI_DATA_ROOT=/home/user/mmai-data \
     MMAI_LLAMA_SERVER=/home/user/bin/llama-server \
     HF_HOME=/home/user/.cache/huggingface \
+    HF_XET_HIGH_PERFORMANCE=1 \
+    HF_XET_CHUNK_CACHE_SIZE_BYTES=0 \
     TOKENIZERS_PARALLELISM=false \
     PYTHONUNBUFFERED=1
 EXPOSE 7860
