@@ -49,7 +49,9 @@ def make_builder(settings):
     from .synthetic_trials import SyntheticBuilder, SyntheticSources
 
     return SyntheticBuilder(SyntheticSources(settings.path("corpus"), settings.path("trials"), settings.grouping,
-                                             settings.good_options_catalog))
+                                             settings.good_options_catalog,
+                                             cohorts=getattr(settings, "trial_cohorts", None),
+                                             tables=tuple(getattr(settings, "trial_tables", ()) or ())))
 
 
 class DashState:

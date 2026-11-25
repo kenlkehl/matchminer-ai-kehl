@@ -166,3 +166,38 @@ def _lines(root, name):
     shard = root / "trialspace" / "trialspace_corpus" / f"{name}-00000.jsonl.zst"
     with pa.CompressedInputStream(pa.OSFile(str(shard), "rb"), "zstd") as stream:
         return [line for line in stream.read().decode().splitlines() if line.strip()]
+
+
+def test_another_trial_set_from_a_cohort_table_and_trial_tables(dataset, tmp_path):
+    """Synthetic mode's trials from the site config's trial_cohorts (the pipeline's cohort table, text columns only,
+    as published) and trial_tables (merged by nct_id), instead of the run's own."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from matchminer_ai.apps.dashboard.settings import DashSettings
+    from matchminer_ai.apps.dashboard.state import make_builder
+
+    criteria = "Inclusion criteria:\nMetastatic melanoma.\nExclusion criteria:\nPrior anti-PD-1."
+    items = json.dumps([{"number": 1, "heading": "Inclusion criteria:", "text": "Metastatic melanoma.",
+                         "criterion_type": "inclusion", "boilerplate": False}])
+    rows = [("NCT00000009", 0, 2, "yes", "Arm A"), ("NCT00000009", 1, 2, "yes", "Arm B"),
+            ("NCT00000010", 0, 1, "no", "All participants")]
+    pq.write_table(pa.table({
+        "cohort_trial_id": [f"{t}-ctgov-cohort-{n}" for t, n, *_ in rows], "trial_id": [r[0] for r in rows],
+        "cohort_number": [str(r[1]) for r in rows], "cohort_count": [str(r[2]) for r in rows],
+        "multiple_cohorts": [r[3] for r in rows], "cohort_name": [r[4] for r in rows],
+        "cohort_eligibility_criteria": [criteria] * 3, "cohort_key_criteria": [criteria] * 3,
+        "cohort_boilerplate_criteria": [""] * 3, "cohort_criteria_items": [items] * 3,
+        "cohort_criteria_source": ["ctgov"] * 3, "cancer_treatment_trial": ["yes"] * 3}), tmp_path / "cohorts.parquet")
+    pq.write_table(pa.table({"nct_id": ["NCT00000009", "NCT00000010"], "title": ["Melanoma A", "Melanoma B"],
+                             "overall_status": ["RECRUITING", "COMPLETED"], "phases": ['["PHASE2"]', '["PHASE1"]']}),
+                   tmp_path / "trials.parquet")
+    settings = DashSettings(mode="synthetic", synthetic_run=dataset["root"], store_dir=tmp_path / "store",
+                            device="cpu", trial_cohorts=tmp_path / "cohorts.parquet",
+                            trial_tables=(tmp_path / "trials.parquet",))
+    store = make_builder(settings).build()
+    assert sorted(store["trials"]) == ["NCT00000009", "NCT00000010"]
+    trial = store["trials"]["NCT00000009"]
+    assert (trial["short_title"], trial["status"], trial["is_open"]) == ("Melanoma A", "Recruiting", True)
+    assert [store["cohorts"][c]["name"] for c in trial["cohort_ids"]] == ["Arm A", "Arm B"]
+    assert store["cohorts"][trial["cohort_ids"][0]]["items"][0]["text"] == "Metastatic melanoma."

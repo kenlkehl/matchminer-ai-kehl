@@ -310,6 +310,7 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `--grouping` (`dashboard.grouping`) | both | the bundled example rules | Trial-group rules per center |
 | `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard_trial_management/trial_management.json`, `no_phi/dashboard_trial_management/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)); outside the rebuildable store folder |
 | `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run (below) |
+| `dashboard.synthetic.trial_cohorts`, `dashboard.synthetic.trial_tables` | synthetic | the run's corpus cohorts and trial tables | Another trial set: a cohort table (or corpus JSON lines) and trial tables merged by `nct_id`; cohorts without the round's vectors are embedded at startup (`--embedding-device`) |
 | `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
 | `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs; without any, the Guidelines sub-tab and Guideline concordance reporting are hidden |
 

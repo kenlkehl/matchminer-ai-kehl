@@ -127,6 +127,10 @@ class DashSettings(Settings):
     local_server_only: bool = False
     # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
     llama_server: str | None = None
+    # Synthetic mode only: another trial set than the synthetic run's (site config dashboard.synthetic.trial_cohorts
+    # and .trial_tables; ``synthetic_trials``): its cohorts (corpus JSON lines or a cohort table) and trial tables.
+    trial_cohorts: Path | None = None
+    trial_tables: tuple[Path, ...] = ()
     # Synthetic mode only: origins whose pages may show the app in a frame (CSP frame-ancestors), e.g. a Hugging Face
     # Space page (https://huggingface.co). Its session cookie is then a partitioned third-party cookie (SameSite=None,
     # Secure), so a framed app keeps its session. Default: no framing.
@@ -164,6 +168,14 @@ class DashSettings(Settings):
         if self.good_options_catalog is None:
             self.good_options_catalog = site_default(self.mode, "good_options_catalog",
                                                      "good_options_catalog/catalog" if real else None)
+        if not real:
+            site = load_site_config()
+            if self.trial_cohorts is None and site.get("dashboard.synthetic.trial_cohorts"):
+                self.trial_cohorts = Path(site.get("dashboard.synthetic.trial_cohorts")).expanduser()
+            if not self.trial_tables:
+                tables = site.get("dashboard.synthetic.trial_tables") or ()
+                self.trial_tables = tuple(Path(t).expanduser() for t in ([tables] if isinstance(tables, str)
+                                                                          else tables))
         if self.trial_management is None:
             # Beside the store, not in it: the store folder is rebuildable, the users' edits are not.
             self.trial_management = site_default(self.mode, "trial_management",
@@ -182,7 +194,7 @@ class DashSettings(Settings):
             if error:
                 raise ValueError(f"{error} Choose another --{name.replace('_', '-')}.")
         if not real:
-            for name in ("trial_data", "oa_db", "good_options_catalog"):
+            for name in ("trial_data", "oa_db", "good_options_catalog", "trial_cohorts"):
                 value = getattr(self, name)
                 if value is not None and mode_side_error(self.mode, value):
                     raise ValueError(f"Synthetic mode never reads a phi folder: {name}.")
