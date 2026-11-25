@@ -3034,8 +3034,7 @@ directory, outside public packages and source control.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/matching/guideline_report.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 24</span>
-<span class="normal"> 25</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 25</span>
 <span class="normal"> 26</span>
 <span class="normal"> 27</span>
 <span class="normal"> 28</span>
@@ -3281,7 +3280,8 @@ directory, outside public packages and source control.</p>
 <span class="normal">268</span>
 <span class="normal">269</span>
 <span class="normal">270</span>
-<span class="normal">271</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_guideline_considerations_report</span><span class="p">(</span>
+<span class="normal">271</span>
+<span class="normal">272</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_guideline_considerations_report</span><span class="p">(</span>
     <span class="n">matches</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">patient_summaries</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">output_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
@@ -3419,7 +3419,7 @@ directory, outside public packages and source control.</p>
                 <span class="s2">""</span><span class="p">,</span>
                 <span class="sa">f</span><span class="s2">"Space ID: `</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">'space_trial_id'</span><span class="p">]</span><span class="si">}</span><span class="s2">`"</span><span class="p">,</span>
                 <span class="s2">""</span><span class="p">,</span>
-                <span class="sa">f</span><span class="s2">"Source: </span><span class="si">{</span><span class="n">_text</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="s1">'title'</span><span class="p">])</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">_text</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="s1">'version'</span><span class="p">])</span><span class="si">}</span><span class="s2">."</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">"Source: </span><span class="si">{</span><span class="n">_text</span><span class="p">(</span><span class="n">source_label</span><span class="p">(</span><span class="n">source</span><span class="p">))</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">_text</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="s1">'version'</span><span class="p">])</span><span class="si">}</span><span class="s2">."</span><span class="p">,</span>
                 <span class="s2">""</span><span class="p">,</span>
                 <span class="s2">"**Catalog population key criteria**"</span><span class="p">,</span>
                 <span class="s2">""</span><span class="p">,</span>
