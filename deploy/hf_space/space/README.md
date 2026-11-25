@@ -42,7 +42,7 @@ engine, and nothing it shows is medical advice.
   [Nemotron 3.5 Bolt](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF) in llama.cpp on this
   Space's GPU. The Space reaches no other model service.
 - **Data:** [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), downloaded at
-  startup at a pinned revision.
+  startup, with its guideline catalogs (NCI PDQ) when it has them.
 
 After the Space wakes, it needs a while before it serves: it downloads the data and models and builds its search
 index. Clinical trial management edits are shared by everyone using the Space and do not survive a restart.
@@ -59,3 +59,6 @@ app republishes them, which rebuilds the Space.
 - MatchEval-1226: LFM Open License v1.0 (fine-tuned from LiquidAI's d1-2B).
 - Nemotron 3.5 Bolt (NVIDIA): the OpenMDW-1.1 license.
 - Trial listings: ClinicalTrials.gov (U.S. National Library of Medicine). Drug classes: NCI Thesaurus (CC BY 4.0).
+- Guideline catalogs: machine extractions from NCI's PDQ® cancer treatment summaries (Health Professional Versions),
+  cited to them. They are not PDQ summaries and are not endorsed by NCI. PDQ® is a registered trademark of the U.S.
+  Department of Health and Human Services.

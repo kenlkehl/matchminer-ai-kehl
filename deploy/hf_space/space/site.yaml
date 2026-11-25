@@ -1,6 +1,10 @@
 # Site config of the MatchMiner-AI Hugging Face Space (matchminer_ai.site; keys: docs/reference/site-config.md).
-# Synthetic data and public models only. Every hf:// value is a file or folder of a Hub repository at a pinned
-# revision, downloaded into the Space's Hugging Face cache when the app first reads it.
+# Synthetic data and public models only. Every hf:// value is a file or folder of a Hub repository, downloaded into
+# the Space's Hugging Face cache when the app first reads it.
+#
+# The dataset revision: the Space variable MMAI_DATASET_REVISION when set (pin a commit there), else the dataset's
+# main branch, so a dataset update reaches the Space with a restart (deploy/hf_space/refresh.py). A file or folder
+# the revision does not have reads as missing: that feature is then unavailable, not an error.
 paths:
   # Writable: the app's store, caches, the trial management file and the synthetic run's folder. MMAI_DATA_ROOT
   # overrides it (the Dockerfile sets it; entrypoint.sh moves it to /data when a storage bucket is mounted there).
@@ -8,26 +12,26 @@ paths:
 
 dashboard:
   # The published synthetic run: its trials, patients and corpus. The app builds the run folder it reads from the
-  # dataset (apps.dashboard.hub_run), embedding the corpus with the published TrialSpace (the preset's pinned
-  # ksg-dfci/TrialSpace-1226). The decision model is the published, pinned ksg-dfci/MatchEval-1226.
-  synthetic_run: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477
+  # dataset (apps.dashboard.hub_run), with the dataset's round 3 vectors when it publishes them, else embedding the
+  # corpus with the published TrialSpace (the preset's pinned ksg-dfci/TrialSpace-1226). The decision model is the
+  # published, pinned ksg-dfci/MatchEval-1226.
+  synthetic_run: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}
 
-  # Guideline catalogs (the Patient-centric Guidelines sub-tab, Guideline concordance reporting): none yet. To show
-  # catalogs, name a folder of finalized catalogs, e.g.
-  #   guideline_catalogs: hf://datasets/ksg-dfci/mmai-synthetic-1226@<revision>/guideline_catalogs/pdq
-  # Without the key the library is empty (its default folder under the data root does not exist here).
+  # Guideline catalogs (the Patient-centric Guidelines sub-tab, Guideline concordance reporting): the dataset's NCI
+  # PDQ catalogs. While the dataset has none, the guideline views are hidden.
+  guideline_catalogs: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/guideline_catalogs/pdq
 
   synthetic:
     # Population management samples these (1,000 test-split patients with seed 23 by default).
-    population_summaries: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/summaries/patient_summaries_with_spaces.parquet
-    population_notes: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/patients/all_synthetic_notes.parquet
+    population_summaries: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/summaries/patient_summaries_with_spaces.parquet
+    population_notes: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/patients/all_synthetic_notes.parquet
     population_split: test
     population_key: patient_id
     # The structured extraction store (Nemotron 3.5 Super, the 1,000-patient test sample). A new store: change
-    # this line's path or revision.
-    extraction_records: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/extraction_records/n5000_test1000_nemotron
+    # this line's folder.
+    extraction_records: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/extraction_records/n5000_test1000_nemotron
     # The trials' drugs and drug classes.
-    good_options_catalog: hf://datasets/ksg-dfci/mmai-synthetic-1226@0d360c73088e2ecf69d0e9a62790df0361108477/good_options_catalog/n5000
+    good_options_catalog: hf://datasets/ksg-dfci/mmai-synthetic-1226@${MMAI_DATASET_REVISION:-main}/good_options_catalog/n5000
     # No benchmark_roots: the Benchmarking tab stays hidden.
     # The Space page shows the app in a frame.
     frame_ancestors: [https://huggingface.co]

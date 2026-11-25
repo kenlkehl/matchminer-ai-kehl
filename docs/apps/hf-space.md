@@ -2,10 +2,10 @@
 
 [`ksg-dfci/matchminer-ai-1226`](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226) runs the
 [dashboard](dashboard.md) in synthetic mode as a public Docker Space, on one L40S (48 GB) that sleeps after an hour
-without visitors. Everything it shows comes from the Hub at pinned revisions: the trials, patients and corpus of
-[mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), TrialSpace-1226,
-MatchEval-1226, and NVIDIA's Nemotron 3.5 Bolt GGUF for every LLM task, run by llama.cpp on the Space's GPU. It reaches
-no other model service, needs no sign-in and has no Benchmarking tab.
+without visitors. Everything it shows comes from the Hub: the trials, patients, corpus and guideline catalogs of
+[mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), TrialSpace-1226 and
+MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Bolt GGUF for every LLM task, run by
+llama.cpp on the Space's GPU. It reaches no other model service, needs no sign-in and has no Benchmarking tab.
 
 ## Files
 
@@ -16,10 +16,11 @@ The Space's files are `deploy/hf_space/space/` in this repository:
 | `README.md` | The Space card, with its metadata: Docker SDK, port 7860, suggested hardware, startup timeout, models and dataset |
 | `Dockerfile` | Four stages: the source at `MMAI_COMMIT` (from GitHub), its React frontend, `llama-server` built for compute capability 8.9 (a pinned llama.cpp commit), and the Python runtime (CUDA runtime image, Python 3.13, the package with `apps` and `sql`) |
 | `constraints.txt` | The pinned versions of the heavy dependencies (torch, vLLM, transformers, sentence-transformers, huggingface_hub, ...), installed in their own layer before the package |
-| `site.yaml` | The Space's site config: the published data as `hf://` references, the local model server, framing by the Space page |
+| `site.yaml` | The Space's site config: the published data as `hf://` references at `${MMAI_DATASET_REVISION:-main}`, the local model server, framing by the Space page |
 | `entrypoint.sh` | `mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve`, with the data under `/data` when a storage bucket is mounted there |
 
 `MMAI_COMMIT`, the commit whose code the image installs, is not in the repository: `publish.py` writes it.
+`deploy/hf_space/refresh.py` restarts the Space after a dataset update (below).
 
 ## Publishing
 
@@ -42,7 +43,11 @@ needs the repository secret `HF_TOKEN`: a Hugging Face token with write access t
 
 ## Data and models
 
-`site.yaml` names every input (see [site configuration](../reference/site-config.md#hugging-face-hub-files)):
+`site.yaml` names every input (see [site configuration](../reference/site-config.md#hugging-face-hub-files)), all of
+the dataset at one revision: `${MMAI_DATASET_REVISION:-main}`, the Space variable `MMAI_DATASET_REVISION` when it is
+set, else the dataset's main branch. So a dataset update reaches the Space with a restart and no code change; to hold
+the Space at a dataset commit, set the variable (`refresh.py --pin <commit>`; `--unpin` follows main again). A file or
+folder the revision does not have reads as a missing path, so that feature is unavailable rather than an error.
 
 - `dashboard.synthetic_run`: the published run, `hf://datasets/ksg-dfci/mmai-synthetic-1226@<commit>`. Before
   serving, the app builds its run folder from the dataset (`apps.dashboard.hub_run`): it decompresses the corpus,
@@ -51,12 +56,10 @@ needs the repository secret `HF_TOKEN`: a Hugging Face token with write access t
   mining `manifest.json`, checked against the corpus rows); otherwise the app embeds the corpus with the preset's
   pinned TrialSpace-1226 (the model that made them). The decision model is the preset's pinned MatchEval-1226.
 - `dashboard.synthetic.population_summaries`, `population_notes`, `extraction_records`, `good_options_catalog`: files
-  and folders of the same dataset revision. A new extraction store, or a later dataset revision, is a change of that
-  line.
-- `dashboard.guideline_catalogs`: not set, so the guideline library is empty. Naming a folder of finalized catalogs
-  (for example `hf://datasets/<repo>@<commit>/guideline_catalogs/<name>`) shows them in the Patient-centric
-  Guidelines sub-tab and Guideline concordance reporting. Catalogs derived from licensed guidelines must not be
-  published there.
+  and folders of the dataset. A new extraction store in another folder is a change of that line.
+- `dashboard.guideline_catalogs`: the dataset's `guideline_catalogs/pdq/`, the NCI PDQ catalogs, shown in the
+  Patient-centric Guidelines sub-tab and Guideline concordance reporting. While the dataset has none, both are
+  hidden. Catalogs derived from licensed guidelines (NCCN) must never be published there.
 - `dashboard.synthetic.local_server`: the only model connection, started at boot: Bolt with llama.cpp on GPU 0, its
   recipe chosen by the GPU's free memory (`presets/local_servers.yaml`). Bolt's GGUF and its draft model download on
   first start.
@@ -64,6 +67,19 @@ needs the repository secret `HF_TOKEN`: a Hugging Face token with write access t
 
 Clinical trial management's file (`no_phi/dashboard_trial_management/` under the data root) starts empty and is shared
 by everyone using the Space.
+
+## After a dataset update
+
+A new dataset commit (new guideline catalogs, published vectors, a new extraction store) needs only a restart, no
+rebuild:
+
+```bash
+python deploy/hf_space/refresh.py --dry-run   # the dataset's main, and the catalogs the Space would load
+python deploy/hf_space/refresh.py --wait      # restart, and wait until it runs again
+```
+
+It warns when `MMAI_DATASET_REVISION` pins another commit. The token is `HF_TOKEN` (or the huggingface_hub login), as
+for `publish.py`. A restart repeats the startup below.
 
 ## Startup
 
