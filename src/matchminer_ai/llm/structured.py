@@ -199,6 +199,11 @@ def parse_model_json(content):
     return json.loads(content, object_pairs_hook=object_from_pairs), counts
 
 
+# New characters between checks of a stream's 8,192-character tail for sustained repetition. Checking on every streamed
+# token cost about 0.1 ms of CPU per token, enough to starve a client reading hundreds of streams.
+REPETITION_CHECK_CHARS = 512
+
+
 def read_chat_stream(lines, *, guards=()):
     """Assemble provider text verbatim; reject sustained degenerate generation early."""
     result = {
@@ -214,6 +219,7 @@ def read_chat_stream(lines, *, guards=()):
     }
     fragments = {"content": [], "reasoning": []}
     tails = {"content": "", "reasoning": ""}
+    unchecked = {"content": 0, "reasoning": 0}
     choice = result["choices"][0]
     for raw in lines:
         check_cancelled()
@@ -254,7 +260,9 @@ def read_chat_stream(lines, *, guards=()):
                         break
                 tails[key] = (tails[key] + text)[-8192:]
                 tail = tails[key]
-                if len(tail) == 8192:
+                unchecked[key] += len(text)
+                if len(tail) == 8192 and unchecked[key] >= REPETITION_CHECK_CHARS:
+                    unchecked[key] = 0
                     words = tail.split()
                     repetitive = len(words) >= 500 and (
                         len(set(words)) <= 10 or len(set("".join(words))) <= 6

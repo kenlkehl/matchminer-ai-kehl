@@ -1124,6 +1124,14 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(value["choices"][0]["message"]["content"], text)
             self.assertIn("abort_reason", value["transport"])
 
+    def test_token_sized_chunks_still_abort_sustained_repetition_early(self):
+        # The tail is checked every REPETITION_CHECK_CHARS new characters, not on every token.
+        text = "l la L de " * 3000
+        tokens = [{"reasoning": text[i:i + 4]} for i in range(0, len(text), 4)]
+        value = read_chat_stream(self.events(tokens))
+        self.assertEqual(value["choices"][0]["finish_reason"], "client_aborted_repetition")
+        self.assertLess(len(value["choices"][0]["message"]["reasoning"]), 8192 + 1024)
+
     def test_stream_does_not_cap_long_meaningful_output_or_accept_truncation(self):
         text = json.dumps(
             {
