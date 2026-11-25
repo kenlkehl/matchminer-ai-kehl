@@ -23,7 +23,10 @@ population:
 
 Nothing here samples patients, chooses data paths or writes files except an explicit `save_patient_cohort`. The
 [dashboard](../apps/dashboard.md)'s Population tab runs the same steps, and leaves workup items
-that ask only for a history and physical out of every check.
+that ask only for a history and physical out of every check (`patients.workup.is_history_and_physical`).
+
+To review each patient against their own most relevant guideline space instead, anchored at a note by their
+provider and aggregated by provider and department, see [Anchored guideline concordance](population-concordance.md).
 
 ## Retrieve a cohort
 

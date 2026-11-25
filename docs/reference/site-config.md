@@ -39,13 +39,13 @@ its command line.
 | `paths.trialspace_model` | `embed_for_matching` and everything that embeds with TrialSpace, including the dashboard's guideline features | A local TrialSpace checkpoint, used when the configuration's `embedding.model_path` is unset (otherwise the published `ksg-dfci/TrialSpace-1226`) |
 | `paths.embeddinggemma2_cache` | `evaluation.retro_fidelity` | A cache holding the pinned EmbeddingGemma 2 snapshot (default: the Hugging Face cache) |
 | `paths.retro_source_root` | `evaluation.retro_cohorts` | The institution's structured EHR extract (`structured_data/`, `derived_data/`) |
-| `paths.phi_roots` | `evaluation.retro_cohorts.build_note_level_dataset` | Directories besides `<data root>/phi` where note text may be written |
+| `paths.phi_roots` | `evaluation.retro_cohorts.build_note_level_dataset`, `population.review` | Directories besides `<data root>/phi` where note text (and other patient data) may be written |
 | `endpoints.teacher.url` | `evaluation.retro_fidelity`, `evaluation.retro_cohorts.summarize_retro_cohorts`, the dashboard | The on-premises OpenAI-compatible teacher server (`/v1`), approved for PHI. The dashboard offers it as its OpenAI-compatible endpoint |
 | `endpoints.secondary_teacher.url` | `evaluation.retro_fidelity` | An optional second teacher, reached through `teacher_proxy`; unset labels on the first teacher only |
 | `vertex.project` | the apps' Vertex profiles, `evaluation.dual_judge.judge_worker` | Google Cloud project of the Vertex (Agent Platform) endpoints, and of the Claude judge on Vertex |
-| `databricks.host` | the dashboard's model connections, `provider: databricks_anthropic`, `evaluation.dual_judge.judge_worker --judge databricks` | Workspace URL whose AI Gateway serves Claude |
+| `databricks.host` | the dashboard's model connections, `population.review`, `provider: databricks_anthropic`, `evaluation.dual_judge.judge_worker --judge databricks` | Workspace URL whose AI Gateway serves Claude |
 | `databricks.profile` | the same | Databricks CLI login profile (default `unity-gateway`) |
-| `databricks.endpoints.<name>` | the dashboard (`haiku`: its default model for every LLM task, except query writing, `sonnet`, and the chat assistant, `opus`; the others selectable), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
+| `databricks.endpoints.<name>` | the dashboard (`haiku`: its default model for every LLM task, except query writing, `sonnet`, and the chat assistant, `opus`; the others selectable), `population.review` (`haiku` and `sonnet`), the Databricks judge (`opus`) | Full three-part gateway endpoint names of the Claude models (`haiku`, `sonnet`, `opus`) |
 
 Without `vertex.project` the Vertex profiles have no project, and without `databricks.host` the Claude option has no
 gateway.
@@ -71,7 +71,7 @@ other's folders); shared values sit directly under `dashboard`.
 | `synthetic.population_key` | `pseudo_mrn` | The synthetic tables' patient key; `patient_id` when it is the patient's own ID (the patient corpus's), not a generation-prompt ID |
 | `real.benchmark_roots`, `synthetic.benchmark_roots` | none | Folders searched for evaluation runs (Benchmarking tab); synthetic mode's never under `phi` |
 | `synthetic_run` | `<data root>/no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients |
-| `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
+| `guideline_catalogs` | `<data root>/no_phi/space_paradigms_nccn` | Finalized guideline catalogs (also `population.review`'s default) |
 | `grouping` | the bundled example rules | Trial-group rules per center |
 | `real.trial_management`, `synthetic.trial_management` | `<data root>/phi/real_time/dashboard_trial_management/trial_management.json`, `<data root>/no_phi/dashboard_trial_management/trial_management.json` | The file of each mode's slots, edited criteria, subcohorts and group placements (Clinical trial management's Trial management sidebar), shared by the mode's users; outside the store folder, which is rebuildable; synthetic mode's never under `phi` |
 | `embedding_python` | the server's own Python | Python that runs the query encoder |

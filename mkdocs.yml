@@ -26,6 +26,7 @@ nav:
       - NCI PDQ catalogs: user-guide/pdq-catalogs.md
       - Note-search question answering: user-guide/note-search-qa.md
       - Population workup review: user-guide/population-workup.md
+      - Anchored guideline concordance: user-guide/population-concordance.md
   - Training:
       - Overview: training/index.md
       - Synthetic protocols: training/synthetic-protocols.md

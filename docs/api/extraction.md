@@ -304,4 +304,3 @@ records as the extractors return them. A store holds patient-derived text: keep 
   - The document prompt asks every imaging report read for cancer, and every oncology clinic or hospital note that
     assesses it, for an assessment of each cancer.
   - Records of earlier versions have neither, so a query on them reads `site_groups` as not stated.
-
