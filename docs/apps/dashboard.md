@@ -311,7 +311,7 @@ Paths come from the command line, `MMAI_DASH_*` variables (for example `MMAI_DAS
 | `--trial-management` (`dashboard.<mode>.trial_management`) | both | `phi/real_time/dashboard_trial_management/trial_management.json`, `no_phi/dashboard_trial_management/trial_management.json` | Slots, edited criteria, subcohorts and group placements ([Trial management](#trial-management)); outside the rebuildable store folder |
 | `--synthetic-run` (`dashboard.synthetic_run`) | both | `no_phi/synthetic_run` | TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run (below) |
 | `dashboard.real.population_cache` | real | beside the population database | The real patients (see below) |
-| `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs |
+| `dashboard.guideline_catalogs` | both | `no_phi/space_paradigms_nccn` | Finalized guideline catalogs; without any, the Guidelines sub-tab and Guideline concordance reporting are hidden |
 
 **Published data.** A site config value may name a file or folder on the Hugging Face Hub at a pinned revision,
 `hf://datasets/<org>/<name>@<revision>/<path>`; the app reads it from the Hugging Face cache, downloading it on first

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -5,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { metaOptions } from "@/lib/queries";
 
 import { restoreSession } from "./actions";
 import { GuidelinesView } from "./guidelines/guidelines-view";
@@ -22,7 +24,10 @@ const route = getRouteApi("/_app/patient/");
  * sub-tab is the `view` search param.
  */
 export function PatientPage() {
-  const view = route.useSearch({ select: (s) => s.view ?? "trials" });
+  // Without guideline catalogs the Guidelines view is hidden (and a link to it shows Trials).
+  const guidelines = useQuery(metaOptions()).data?.guidelines !== false;
+  const chosen = route.useSearch({ select: (s) => s.view ?? "trials" });
+  const view = chosen === "guidelines" && !guidelines ? "trials" : chosen;
   const navigate = route.useNavigate();
   const guidelineJob = usePatientValue(
     (s) => s.job?.kind === "retrieve" || s.job?.kind === "workup",
@@ -37,9 +42,11 @@ export function PatientPage() {
       <PageHeader title="Patient-centric search">
         <p>
           Choose a patient, enter a summary, or add clinical notes. Trials matches the patient's
-          cancer summary against the open trials' cohorts; Guidelines finds the guideline
-          populations that fit the patient and checks the documented workup in the notes; Structured
-          data shows the clinical facts extracted from the notes.
+          cancer summary against the open trials' cohorts;{" "}
+          {guidelines
+            ? "Guidelines finds the guideline populations that fit the patient and checks the documented workup in the notes; "
+            : null}
+          Structured data shows the clinical facts extracted from the notes.
         </p>
       </PageHeader>
       <PatientInput />
@@ -61,14 +68,16 @@ export function PatientPage() {
           <TabsTrigger value="trials" className="flex-none px-3">
             Trials
           </TabsTrigger>
-          <TabsTrigger value="guidelines" className="flex-none px-3">
-            Guidelines
-            {guidelineJob ? (
-              <Spinner className="size-3.5" />
-            ) : spaces !== null ? (
-              <Badge variant="secondary">{spaces}</Badge>
-            ) : null}
-          </TabsTrigger>
+          {guidelines ? (
+            <TabsTrigger value="guidelines" className="flex-none px-3">
+              Guidelines
+              {guidelineJob ? (
+                <Spinner className="size-3.5" />
+              ) : spaces !== null ? (
+                <Badge variant="secondary">{spaces}</Badge>
+              ) : null}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="records" className="flex-none px-3">
             Structured data
             {recordsJob ? <Spinner className="size-3.5" /> : null}
@@ -78,9 +87,11 @@ export function PatientPage() {
         <TabsContent value="trials" keepMounted className="pt-2">
           <TrialsView active={view === "trials"} />
         </TabsContent>
-        <TabsContent value="guidelines" className="pt-2">
-          <GuidelinesView />
-        </TabsContent>
+        {guidelines ? (
+          <TabsContent value="guidelines" className="pt-2">
+            <GuidelinesView />
+          </TabsContent>
+        ) : null}
         <TabsContent value="records" className="pt-2">
           <RecordsView />
         </TabsContent>

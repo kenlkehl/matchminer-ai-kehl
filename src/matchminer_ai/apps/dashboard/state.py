@@ -397,10 +397,17 @@ class DashState:
 
     # ------------------------------------------------------------------ status
 
+    def guidelines_available(self) -> bool:
+        """Whether the guideline library has a finalized catalog (none: the guideline features are hidden)."""
+        try:
+            return bool(self.guidelines.catalogs.list())
+        except Exception:  # an unreadable catalog folder: the library is empty
+            return False
+
     def tabs(self) -> list[str]:
-        """The frontend's tabs in this mode: Benchmarking only when there are runs to show; How this works
-        (``docs``) always."""
-        tabs = ["trials", "population", "patient", "assistant"]
+        """The frontend's tabs in this mode: Guideline concordance reporting (``population``) only with guideline
+        catalogs, Benchmarking only when there are runs to show; How this works (``docs``) always."""
+        tabs = ["trials", *(["population"] if self.guidelines_available() else []), "patient", "assistant"]
         benchmarks = getattr(self, "benchmarks", None)
         if benchmarks is not None and benchmarks.available():
             tabs.append("benchmarking")

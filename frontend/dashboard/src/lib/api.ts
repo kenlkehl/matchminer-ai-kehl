@@ -257,6 +257,8 @@ export interface Meta {
   tabs: AppTabName[];
   /** Whether this server asks for the access token (always in real mode). */
   sign_in: boolean;
+  /** Whether the guideline library has catalogs; without them the Guidelines views are hidden. */
+  guidelines: boolean;
   built_at: number;
   counts: {
     trials: number;

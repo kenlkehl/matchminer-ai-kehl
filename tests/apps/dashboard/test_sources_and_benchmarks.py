@@ -29,6 +29,21 @@ def test_synthetic_mode_shows_the_runs_trials_with_the_rounds_cohort_vectors(dat
     assert meta["mode"] == "synthetic" and "benchmarking" not in meta["tabs"] and not meta["sign_in"]
     found = client.post("/api/match/trials-for-patient", json={"patient_id": "patient_a", "k": 3}).json()
     assert found["results"] and found["results"][0]["cohort"]["cohort_id"] in corpus_cohorts
+    # No guideline catalogs (the library's folder does not exist): the guideline views are hidden, not broken.
+    assert not meta["guidelines"] and "population" not in meta["tabs"]
+    assert client.get("/api/guidelines/catalogs").json() == {"catalogs": [], "spaces": 0}
+    import json
+
+    folder = state.guidelines.catalogs.root / "fictional"
+    folder.mkdir(parents=True)
+    for name, value in (("validation.json", {"status": "passed", "paradigms": 1}),
+                        ("status.json", {"status": "complete", "updated_utc": "2026-09-01"}),
+                        ("sources.json", {"disease": "fictional", "title": "Fictional", "version": "1"})):
+        (folder / name).write_text(json.dumps(value))
+    (folder / "paradigms.jsonl").write_text("{}")
+    state.guidelines.catalogs.list(refresh=True)
+    meta = client.get("/api/meta").json()
+    assert meta["guidelines"] and "population" in meta["tabs"]
 
 
 def test_real_mode_reads_the_oa_trials_and_always_signs_in(dataset, fake_model, tmp_path):
