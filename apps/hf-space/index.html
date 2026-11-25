@@ -1135,6 +1135,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-llm-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The LLM server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#after-a-dataset-update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2127,6 +2138,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-llm-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The LLM server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#after-a-dataset-update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2192,11 +2214,13 @@
 
 <h1 id="hugging-face-space">Hugging Face Space<a class="headerlink" href="#hugging-face-space" title="Permanent link">&para;</a></h1>
 <p><a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226"><code>ksg-dfci/matchminer-ai-1226</code></a> runs the
-<a href="../dashboard/">dashboard</a> in synthetic mode as a public Docker Space, on one L40S (48 GB) that sleeps after an hour
-without visitors. Everything it shows comes from the Hub: the trials, patients, corpus and guideline catalogs of
-<a href="https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226">mmai-synthetic-1226</a>, TrialSpace-1226 and
-MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Bolt GGUF for every LLM task, run by
-llama.cpp on the Space's GPU. It reaches no other model service, needs no sign-in and has no Benchmarking tab.</p>
+<a href="../dashboard/">dashboard</a> in synthetic mode as a public Docker Space, on one RTX PRO 6000 (96 GB, Blackwell) that
+sleeps after five hours without visitors. Everything it shows comes from the Hub: the trials, patients, corpus and
+guideline catalogs of <a href="https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226">mmai-synthetic-1226</a>,
+TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Super NVFP4 (the
+training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GPU under 90 GB (an L40S, say) the
+same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. It reaches no other model service, needs no
+sign-in and has no Benchmarking tab.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
 <p>The Space's files are <code>deploy/hf_space/space/</code> in this repository:</p>
 <table>
@@ -2213,7 +2237,7 @@ llama.cpp on the Space's GPU. It reaches no other model service, needs no sign-i
 </tr>
 <tr>
 <td><code>Dockerfile</code></td>
-<td>Four stages: the source at <code>MMAI_COMMIT</code> (from GitHub), its React frontend, <code>llama-server</code> built for compute capability 8.9 (a pinned llama.cpp commit), and the Python runtime (CUDA runtime image, Python 3.13, the package with <code>apps</code> and <code>sql</code>)</td>
+<td>Four stages: the source at <code>MMAI_COMMIT</code> (from GitHub), its React frontend, <code>llama-server</code> built for compute capabilities 8.9 and 12.0 (a pinned llama.cpp commit), and the Python runtime (CUDA runtime image with a C/C++ compiler for vLLM's kernel builds, Python 3.13, vLLM 0.33 and the package with <code>apps</code> and <code>sql</code>)</td>
 </tr>
 <tr>
 <td><code>constraints.txt</code></td>
@@ -2225,7 +2249,11 @@ llama.cpp on the Space's GPU. It reaches no other model service, needs no sign-i
 </tr>
 <tr>
 <td><code>entrypoint.sh</code></td>
-<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there</td>
+<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there; it logs the GPU and torch's view of it, falls back to Bolt on a GPU under 90 GB, and starts <code>prefetch.py</code></td>
+</tr>
+<tr>
+<td><code>prefetch.py</code></td>
+<td>Downloads the local model server's weights while the app starts (the files the server would download itself)</td>
 </tr>
 </tbody>
 </table>
@@ -2267,13 +2295,57 @@ folder the revision does not have reads as a missing path, so that feature is un
 <li><code>dashboard.guideline_catalogs</code>: the dataset's <code>guideline_catalogs/pdq/</code>, the NCI PDQ catalogs, shown in the
   Patient-centric Guidelines sub-tab and Guideline concordance reporting. While the dataset has none, both are
   hidden. Catalogs derived from licensed guidelines (NCCN) must never be published there.</li>
-<li><code>dashboard.synthetic.local_server</code>: the only model connection, started at boot: Bolt with llama.cpp on GPU 0, its
-  recipe chosen by the GPU's free memory (<code>presets/local_servers.yaml</code>). Bolt's GGUF and its draft model download on
-  first start.</li>
+<li><code>dashboard.synthetic.local_server</code>: the only model connection, started once the decision model has loaded: vLLM
+  serving Nemotron 3.5 Super NVFP4 (below).</li>
 <li><code>dashboard.synthetic.frame_ancestors</code>: <code>https://huggingface.co</code>, so the Space page can show the app.</li>
 </ul>
 <p>Clinical trial management's file (<code>no_phi/dashboard_trial_management/</code> under the data root) starts empty and is shared
 by everyone using the Space.</p>
+<h2 id="the-llm-server">The LLM server<a class="headerlink" href="#the-llm-server" title="Permanent link">&para;</a></h2>
+<p><code>site.yaml</code>'s <code>local_server.autostart</code> is a full vLLM spec, so it needs no recipe in the package:
+- <strong>Model:</strong> <code>nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4</code> at a pinned revision, text only
+  (<code>--language-model-only</code>), served under its own ID. So the package's Super profile applies: the <code>nemotron_v3</code>
+  reasoning parser, the <code>qwen3_coder</code> tool parser and NVIDIA's sampling, as for the training teacher.
+- <strong>Flags:</strong> those of NVIDIA's single-GPU recipes on the model card and of the production servers: remote code,
+  prefix caching, the hybrid Mamba cache settings, MTP speculative decoding with 5 tokens (the card's RTX PRO 6000
+  setting), 8,192 batched tokens, blocks of 64, asynchronous scheduling.
+- <strong>Memory (96 GB, about 95 GiB usable):</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>GiB</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vLLM's share (<code>gpu_memory_utilization</code> 0.84)</td>
+<td>~80</td>
+</tr>
+<tr>
+<td>— Super's weights (the language model)</td>
+<td>~70</td>
+</tr>
+<tr>
+<td>— activations, CUDA graphs</td>
+<td>~3</td>
+</tr>
+<tr>
+<td>— KV and Mamba caches</td>
+<td>~7</td>
+</tr>
+<tr>
+<td>The app: decision model (~6), and TrialSpace when guideline or population retrieval runs (up to ~12 in all)</td>
+<td>~15 left</td>
+</tr>
+</tbody>
+</table>
+<p>The KV cache is small for this hybrid model: 8 of its 88 layers are attention layers with 2 KV heads, about 9 KB
+  per token (2.25 GiB for one 262,144-token context), and each sequence's Mamba state is about 80 MiB. So
+  <code>max_model_len</code> 262,144 and <code>max_num_seqs</code> 8 fit, with the default (bf16) KV cache.
+- <strong>Engine:</strong> vLLM 0.33.0, whose wheels carry SM 12.0 kernels (the card lists vLLM on one RTX PRO 6000), with torch
+  2.14 (CUDA 13: host driver 580 or later; <code>entrypoint.sh</code> logs torch's view of the GPU). vLLM compiles some kernels
+  at start with the pip CUDA toolkit, which the local server finds by itself.</p>
 <h2 id="after-a-dataset-update">After a dataset update<a class="headerlink" href="#after-a-dataset-update" title="Permanent link">&para;</a></h2>
 <p>A new dataset commit (new guideline catalogs, published vectors, a new extraction store) needs only a restart, no
 rebuild:</p>
@@ -2285,18 +2357,23 @@ for <code>publish.py</code>. A restart repeats the startup below.</p>
 <h2 id="startup">Startup<a class="headerlink" href="#startup" title="Permanent link">&para;</a></h2>
 <p>A Space has no persistent disk unless a storage bucket is mounted, so every start after sleep repeats the work:</p>
 <ol>
-<li>Download the dataset's files (about 15 GB, mostly the notes) and the models into the Hugging Face cache.</li>
+<li>Download the dataset's files (about 15 GB, mostly the notes) and the models into the Hugging Face cache. Super's
+   weights (75 GB) download at the same time (<code>prefetch.py</code>), over Xet's high-performance mode without its chunk
+   cache.</li>
 <li>Build the run folder and, unless the dataset publishes the vectors, embed about 88,000 patients and 15,000
-   cohorts with TrialSpace on the GPU: by far the longest step (about 14 minutes on a shared H100, so expect several
-   times that on an L40S). With published vectors the folder takes under a minute.</li>
-<li>Load the decision model and build the trial store; then serve. The local model server downloads Bolt (about
-   23 GB) and starts in the background; Data and models shows its progress.</li>
+   cohorts with TrialSpace on the GPU (about 14 minutes on a shared H100). With the published vectors the folder takes
+   under a minute.</li>
+<li>Load the decision model and build the trial store; then serve. The local model server then starts vLLM: loading
+   about 70 GiB of weights, compiling kernels and capturing CUDA graphs (nothing is cached between starts); Data and
+   models shows its progress, and the LLM tasks wait for it.</li>
 <li>Embed the trial cohorts that have no TrialSpace vector of the round, in the background. The run's own 5,000 trials
    take theirs from the round, so nothing is embedded now; another trial set is embedded at every start (its vectors
    live in the data root), by the query encoder on <code>--embedding-device</code> (<code>MMAI_DASH_EMBEDDING_DEVICE</code>; CPU by default,
-   far too slow for tens of thousands of cohorts, while the GPU must leave Bolt's memory free).</li>
+   far too slow for tens of thousands of cohorts, while the GPU must leave vLLM's memory free).</li>
 </ol>
-<p>The card's <code>startup_duration_timeout</code> allows for this. With a storage bucket mounted at <code>/data</code>
+<p>Expected cold start, not measured (camus has no Blackwell GPU): the app serves after about 5–10 minutes, mostly
+downloads at the Hub's internal bandwidth, and the LLM is ready after about 15–30 minutes. That is why the Space
+sleeps only after five hours without visitors. The card's <code>startup_duration_timeout</code> allows for this. With a storage bucket mounted at <code>/data</code>
 (<code>HfApi.set_space_volumes</code>), <code>entrypoint.sh</code> keeps the data root and the Hugging Face cache there, and a restart
 skips steps 1 and 2.</p>
 <h2 id="testing-without-docker">Testing without Docker<a class="headerlink" href="#testing-without-docker" title="Permanent link">&para;</a></h2>
@@ -2306,11 +2383,12 @@ point <code>paths.data_root</code> at a scratch folder, and run</p>
 <span class="w">  </span>mmai-dashboard<span class="w"> </span>--mode<span class="w"> </span>synthetic<span class="w"> </span>--port<span class="w"> </span>&lt;port&gt;<span class="w"> </span>--allow-downloads<span class="w"> </span>--device<span class="w"> </span>cuda:0<span class="w"> </span>serve
 </code></pre></div>
 <p><code>mmai-dashboard --mode synthetic prepare</code> stops after the run folder is built. A smaller local model (for example
-<code>Qwen/Qwen3-0.6B</code>) in <code>local_server.autostart</code> checks the server path on a smaller GPU.</p>
+<code>Qwen/Qwen3-0.6B</code> with a small <code>gpu_memory_utilization</code>) in <code>local_server.autostart</code> checks the vLLM path on another
+GPU; Super itself needs about 80 GiB on a Blackwell GPU.</p>
 <h2 id="licenses">Licenses<a class="headerlink" href="#licenses" title="Permanent link">&para;</a></h2>
 <p>The code, TrialSpace-1226 and the dataset are CC BY-NC-ND 4.0; MatchEval-1226 is under the LFM Open License v1.0;
-Nemotron 3.5 Bolt and its draft model are under OpenMDW-1.1, which permits use and redistribution with the license
-kept. The Space card lists them.</p>
+Nemotron 3.5 Super and Bolt (with Bolt's draft model) are under OpenMDW-1.1, which permits use and redistribution with
+the license kept. The Space card lists them.</p>
 
 
 
