@@ -104,9 +104,16 @@ model (by default `nvidia/nemotron-3.5-super-vl`, the same Nemotron 3.5 Super). 
 - **Engine:** vLLM 0.33.0, whose wheels carry SM 12.0 kernels (the card lists vLLM on one RTX PRO 6000), with torch
   2.14 (CUDA 13: host driver 580 or later; `entrypoint.sh` logs torch's view of the GPU). FlashInfer's precompiled
   kernels for SM 12.0 are installed (`flashinfer-cubin`, and `flashinfer-jit-cache` with its `sm120f` provider), so
-  vLLM loads them instead of compiling them. What it still compiles at start uses the pip CUDA toolkit, which the
-  local server finds by itself; `constraints.txt` pins its compiler to torch's CUDA 13.0, since a newer nvcc than
-  the 13.0 headers fails CCCL's check ("CUDA compiler and CUDA toolkit headers are incompatible").
+  vLLM loads them instead of compiling them. The one FlashInfer kernel the jit-cache cannot hold, the Mamba state
+  update with site.yaml's flashinfer Mamba backend (fp16 state cache, Philox-5 stochastic rounding, 6 tokens per
+  step), is compiled during the image build (about 40 s on 8 cores) into FlashInfer's cache, with the settings vLLM's
+  run-time build uses, so a cold start loads it. Anything still compiled at start uses the pip CUDA toolkit, which
+  the local server finds by itself:
+  - `constraints.txt` pins its compiler to torch's CUDA 13.0, since a newer nvcc than the 13.0 headers fails CCCL's
+    check ("CUDA compiler and CUDA toolkit headers are incompatible");
+  - the Dockerfile gives it the layout FlashInfer's and nvcc's links expect: `lib64` (a link to the wheels' `lib`),
+    unversioned names such as `libcudart.so` beside the versioned libraries, and the CUDA toolkit's driver stub as
+    `lib/stubs/libcuda.so` (only linked against; the host driver's `libcuda.so.1` is loaded at run time).
 
 ## After a dataset update
 

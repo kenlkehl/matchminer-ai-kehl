@@ -35,6 +35,8 @@ RUN cd /llama.cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LI
     && jobs="$(nproc)" && if [ "$jobs" -gt 8 ]; then jobs=8; fi \
     && cmake --build build --target llama-server -j"$jobs" \
     && ! ldd build/bin/llama-server | grep -E "libllama|libggml|libmtmd|libnccl"
+# The toolkit's driver stub, which the runtime's pip CUDA toolkit lacks (see the runtime stage).
+RUN cp /usr/local/cuda/lib64/stubs/libcuda.so /libcuda-stub.so
 
 # ---------------------------------------------------------------------------------------------- the source
 FROM alpine:3 AS source
@@ -83,6 +85,25 @@ RUN uv pip install --python /home/user/venv/bin/python --no-deps --index-url htt
         "flashinfer-jit-cache==0.7.2.post1+cu130" "flashinfer-jit-cache-sm120f==0.7.2.post1+cu130" \
     && uv pip install --python /home/user/venv/bin/python --no-deps --index-url https://flashinfer.ai/whl \
         "flashinfer-cubin==0.7.2.post1"
+# The pip CUDA toolkit as kernels built at run time link against it. FlashInfer links with -L$CUDA_HOME/lib64
+# -L$CUDA_HOME/lib64/stubs -lcudart -lcuda (some modules also -lnvrtc, -lcublas, -lcublasLt); nvcc's own links, as
+# tilelang's, search the same two folders. The wheels ship only lib/, with versioned names. So: lib64 -> lib, an
+# unversioned name beside each versioned library, and the CUDA toolkit's driver stub as lib/stubs/libcuda.so. The stub
+# is only linked against (its SONAME is libcuda.so.1); at run time the host driver's libcuda.so.1 is loaded.
+ARG CUDA_PIP=/home/user/venv/lib/python3.13/site-packages/nvidia/cu13
+COPY --from=llama --chown=user /libcuda-stub.so ${CUDA_PIP}/lib/stubs/libcuda.so
+RUN cd "${CUDA_PIP}" && ln -s lib lib64 \
+    && for f in lib/lib*.so.*; do b="${f%%.so.*}.so"; [ -e "$b" ] || ln -s "${f#lib/}" "$b"; done \
+    && for l in cudart nvrtc cublas cublasLt; do test -e "lib64/lib$l.so"; done && test -e lib64/stubs/libcuda.so
+# The FlashInfer kernel vLLM compiles at start that the jit-cache cannot hold, being built per model: the Mamba state
+# update for Nemotron 3.5 Super with site.yaml's flashinfer Mamba backend (fp16 state cache, Philox-5 stochastic
+# rounding; head dim 64, state 128, 6 tokens per step: MTP's 5 and 1). Built here (nvcc needs no GPU) into FlashInfer's
+# cache with what vLLM's run-time build uses (the CUDA_HOME the local server sets, SM 12.0), so a cold start loads it
+# instead of compiling it. Any other such kernel is still compiled when first needed.
+RUN CUDA_HOME="${CUDA_PIP}" FLASHINFER_CUDA_ARCH_LIST=12.0f MAX_JOBS=4 python -c "import torch; \
+from flashinfer.jit.mamba import gen_selective_state_update_sm100_module as gen; \
+gen(torch.float16, torch.bfloat16, torch.bfloat16, torch.float32, torch.int32, None, 64, 128, 6, torch.int32, \
+torch.int32, philox_rounds=5).build()"
 COPY --from=llama --chown=user /llama.cpp/build/bin/llama-server /home/user/bin/llama-server
 # The package at MMAI_COMMIT, with its built frontend.
 COPY --from=frontend --chown=user /src /home/user/matchminer-ai-kehl
