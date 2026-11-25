@@ -99,6 +99,10 @@ def main(argv=None) -> int:
             api.whoami()
         except Exception:
             sys.exit("No Hugging Face token: set HF_TOKEN (the GitHub secret of the same name) or log in.")
+        if not args.create and not api.repo_exists(args.space, repo_type="space"):
+            # Before the Space is created (publish.py --create), a push to main has nothing to rebuild.
+            print(f"::warning::{args.space} does not exist yet; create it with deploy/hf_space/publish.py --create")
+            return 0
         if args.create:
             # The GPU before the first upload, so the first build runs on it.
             api.create_repo(args.space, repo_type="space", space_sdk="docker", private=False, exist_ok=True,
