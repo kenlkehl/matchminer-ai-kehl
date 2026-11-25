@@ -263,10 +263,11 @@ def test_only_named_origins_may_frame_the_app(dash, tmp_path):
         assert "samesite=strict" in response.headers["set-cookie"].lower()
     dash.settings.frame_ancestors = ("https://huggingface.co",)
     with TestClient(create_app(dash), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/meta")
+        response = client.get("/api/meta", headers={"x-forwarded-proto": "https"})  # https at the Space's proxy
         assert "frame-ancestors 'self' https://huggingface.co;" in response.headers["content-security-policy"]
         cookie = response.headers["set-cookie"].lower()
         assert "samesite=none" in cookie and "secure" in cookie and "partitioned" in cookie
+        assert "samesite=strict" in client.get("/api/meta").headers["set-cookie"].lower()  # plain http
     with pytest.raises(ValueError, match="Real mode"):
         DashSettings(mode="real", store_dir=tmp_path / "s", device="cpu", frame_ancestors=("https://huggingface.co",))
     with pytest.raises(ValueError, match="https origin"):

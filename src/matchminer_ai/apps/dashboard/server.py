@@ -8,8 +8,8 @@
 - **Sessions:** every response sets a random session cookie; jobs, model connections, the patient workspace and
   populations belong to it (``routes.common.owner``).
 - **Frames:** no other site may frame the app, except the origins of ``settings.frame_ancestors`` (synthetic mode,
-  e.g. a Hugging Face Space page); the session cookie is then partitioned (SameSite=None, Secure, Partitioned), the
-  form browsers send to a framed site.
+  e.g. a Hugging Face Space page); over https (here or at a proxy) the session cookie is then partitioned
+  (SameSite=None, Secure, Partitioned), the form browsers send to a framed site.
 - **Errors:** bodies are ``{"error": message}``; ``InputError`` messages are written for the user (400),
   ``BusyError`` means a job is already running for the session (409).
 """
@@ -80,15 +80,16 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
                 session = secrets.token_urlsafe(32)
             request.state.owner = session
             response = await call_next(request)
-            if framed:
+            # https here or at the proxy in front (a Space's proxy says so in X-Forwarded-Proto).
+            https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            if framed and https:
                 # In another site's frame this is a third-party cookie: browsers keep it only with SameSite=None,
-                # Secure and, increasingly, Partitioned (the framed page is https, even when a proxy forwards plain
-                # http). Written by hand: Python's cookie module knows Partitioned only from 3.14.
+                # Secure and, increasingly, Partitioned. Written by hand: Python's cookie module knows Partitioned
+                # only from 3.14. Plain http (a local test) keeps the strict cookie, which an http client sends back.
                 response.headers.append("set-cookie", f"{SESSION_COOKIE}={session}; HttpOnly; Path=/; SameSite=none; "
                                                       "Secure; Partitioned")
             else:
-                response.set_cookie(SESSION_COOKIE, session, httponly=True, samesite="strict",
-                                    secure=request.url.scheme == "https")
+                response.set_cookie(SESSION_COOKIE, session, httponly=True, samesite="strict", secure=https)
         response.headers.update(headers_for_all)
         if path.startswith("/api/") or path == "/login":
             response.headers["Cache-Control"] = "no-store"
