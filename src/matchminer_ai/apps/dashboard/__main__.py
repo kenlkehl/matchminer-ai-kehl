@@ -4,6 +4,7 @@
 Real mode serves on loopback only and always asks for the access token; synthetic mode may serve beyond loopback
 and asks for a token only with ``--require-token`` (``settings``)."""
 import os
+import signal
 import sys
 import threading
 
@@ -62,7 +63,19 @@ def main(argv=None):
         print(f"Decision model loaded on {decisions.device} in {result['load_seconds']} s", flush=True)
         return result
 
-    state.jobs.submit("load", "decision model", preload, device=decisions.device)
+    loading = state.jobs.submit("load", "decision model", preload, device=decisions.device)
+    if state.local_server.enabled:
+        import atexit
+
+        atexit.register(state.local_server.shutdown)
+        # uvicorn re-raises SIGTERM after its graceful exit with the handler it found; Python's default would end the
+        # process before the cleanup below, leaving the server on the GPU.
+        signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+        print("Local model server: offered on Data and models (anyone using the app may start and stop it)",
+              flush=True)
+        if settings.local_server_autostart:
+            threading.Thread(target=autostart, args=(state, settings.local_server_autostart, loading),
+                             name="local-server-autostart", daemon=True).start()
     state.embed_cohorts()
     threading.Thread(target=state.corpus.warm_search, name="search-index", daemon=True).start()
     stop = threading.Event()
@@ -77,8 +90,24 @@ def main(argv=None):
         uvicorn.run(create_app(state, access_token=token), host=settings.host, port=settings.port, log_level="warning")
     finally:
         stop.set()
+        state.local_server.shutdown()  # never leave a server on the GPU
         state.encoder.close()
         state.registry.shutdown()
+
+
+def autostart(state, value, loading):
+    """Start the autostart spec once the decision model's load has ended, so vLLM's memory profile sees it."""
+    from concurrent.futures import wait
+
+    from .local_server import load_spec
+
+    try:
+        spec = load_spec(value)
+        if loading.future is not None:
+            wait([loading.future])
+        state.local_server.start(spec, fill=True)  # engine, model and GPUs are enough
+    except Exception as exc:
+        print(f"Local model server: autostart failed: {type(exc).__name__}: {exc}", flush=True)
 
 
 if __name__ == "__main__":

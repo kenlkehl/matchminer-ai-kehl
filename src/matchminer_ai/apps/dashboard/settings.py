@@ -110,6 +110,15 @@ class DashSettings(Settings):
     # other accounts on this machine, which can reach a loopback port; on request in synthetic mode.
     require_token: bool = False
     device_notice: str | None = None
+    # The local model server (Data and models; ``local_server``): off unless asked for (--local-server, or the site
+    # config's dashboard.<mode>.local_server.enabled). Anyone using the app may then start, stop and configure it.
+    local_server: bool = False
+    # A server spec (JSON, or a JSON/YAML file) started at boot, after the decision model has loaded.
+    local_server_autostart: str | None = None
+    # Once ready, the server becomes the default connection of every task in sessions that chose none.
+    local_server_default: bool = False
+    # The llama-server binary (default: $MMAI_LLAMA_SERVER, else llama-server on PATH).
+    llama_server: str | None = None
 
     def __post_init__(self):
         if self.mode not in MODES:
@@ -175,6 +184,29 @@ def guideline_settings(dash: "DashSettings", decision_model: dict | None = None)
     return GuidelineSettings(phi=dash.real, llm_backend=backend, endpoint=dash.llm_endpoint or "http://localhost:8000/v1",
                              model=dash.llm_model, tokenizer=dash.llm_tokenizer or dash.llm_model, device=dash.device,
                              decision_model=dict(decision_model or {}), task_connections=default_task_connections())
+
+
+def _flag(name: str) -> bool:
+    return (_env(name) or "").lower() in ("1", "true", "yes")
+
+
+def local_server_settings(args, mode: str) -> dict:
+    """The local model server's settings: the command line, then MMAI_DASH_* variables (LOCAL_SERVER,
+    LOCAL_SERVER_AUTOSTART, LOCAL_SERVER_DEFAULT, LLAMA_SERVER), then the site config's
+    ``dashboard.<mode>.local_server`` (``enabled``, ``autostart``, ``default``, ``llama_server``)."""
+    import json
+
+    site = load_site_config().get(f"dashboard.{mode}.local_server") or {}
+    if not isinstance(site, dict):
+        site = {}
+    autostart = args.local_server_autostart or _env("local_server_autostart") or site.get("autostart")
+    if isinstance(autostart, dict):
+        autostart = json.dumps(autostart)
+    return {"local_server": bool(args.local_server or _flag("local_server") or site.get("enabled")),
+            "local_server_autostart": autostart or None,
+            "local_server_default": bool(args.local_server_default or _flag("local_server_default")
+                                         or site.get("default")),
+            "llama_server": args.llama_server or _env("llama_server") or site.get("llama_server") or None}
 
 
 def default_device() -> tuple[str, str | None]:
@@ -259,6 +291,16 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     parser.add_argument("--auto-score-n", type=int, help="pairs scored automatically per search (default 10)")
     parser.add_argument("--round-poll-seconds", type=float)
     parser.add_argument("--allow-downloads", action="store_true")
+    parser.add_argument("--local-server", action="store_true", help="offer the local model server on Data and models: "
+                        "start a vLLM or llama.cpp server on this machine's GPUs for the LLM tasks (anyone using the "
+                        "app may start, stop and configure it; default: the site config's "
+                        "dashboard.<mode>.local_server.enabled)")
+    parser.add_argument("--local-server-autostart", metavar="JSON|PATH", help="with --local-server: start this server "
+                        "spec (JSON, or a JSON or YAML file) once the decision model has loaded")
+    parser.add_argument("--local-server-default", action="store_true", help="with --local-server: once the server is "
+                        "ready, make it the default connection of every task in sessions that chose none")
+    parser.add_argument("--llama-server", help="the llama-server binary (default: $MMAI_LLAMA_SERVER, else "
+                        "llama-server on PATH)")
     args = parser.parse_args(argv)
     # Before any default reads them.
     if args.site_config:
@@ -283,6 +325,7 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
         values["embedding_caches"] = tuple(args.embedding_cache)
     values["allow_downloads"] = bool(args.allow_downloads or (_env("allow_downloads") or "").lower() in ("1", "true"))
     values["require_token"] = bool(args.require_token or (_env("require_token") or "").lower() in ("1", "true"))
+    values.update(local_server_settings(args, args.mode))
     hosts = args.allowed_hosts or _env("allowed_hosts")
     if hosts:
         values["allowed_hosts"] = tuple(h.strip() for h in hosts.split(",") if h.strip())

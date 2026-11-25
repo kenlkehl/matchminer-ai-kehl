@@ -1,6 +1,6 @@
 """What the app holds: the trial store (rebuilt as its sources change), the patient corpus and its vectors, the
-trial cohorts' vectors, the encoder, the decision model, the guideline features, the Assistant tab's chat agent and
-the background jobs.
+trial cohorts' vectors, the encoder, the decision model, the guideline features, the Assistant tab's chat agent,
+the local model server (with ``--local-server``) and the background jobs.
 
 The mode picks the sources (``settings``):
 
@@ -123,6 +123,12 @@ class DashState:
         self.llm_decisions = LLMDecisions(self.guidelines.settings.ttl, jobs=self.llm.jobs,
                                           metadata_dir=settings.cache_dir / "llm_model_metadata")
         self.guidelines.llm_decisions = self.llm_decisions
+        # ---- the local model server of Data and models (offered only with --local-server)
+        from .local_server import LocalServerControl
+
+        self.local_server = LocalServerControl(settings, self.guidelines, self.llm, log=log)
+        if self.local_server.enabled:
+            self.guidelines.local_server = self.local_server
         self.custom: dict[str, dict] = {}
         self.seed_cohort_vectors()
         # ---- benchmarks: evaluation runs under the mode's roots (Benchmarking tab)

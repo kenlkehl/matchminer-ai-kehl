@@ -41,6 +41,8 @@ class GuidelineState:
         # The LLM decision checks (``apps.dashboard.llm_decisions``), for the guideline searches' LLM rankings; the
         # app sets them.
         self.llm_decisions = None
+        # The local model server's control (``apps.dashboard.local_server``) when the app offers one; the app sets it.
+        self.local_server = None
         self.workspace_settings: dict[str, dict] = {}
         self.lock = threading.RLock()
 
@@ -78,14 +80,34 @@ class GuidelineState:
 
     def patient_inference(self, owner: str, task: str):
         """The task's inference worker, bound now to the session's connections."""
-        workspace = self.current_settings(owner)
+        with self.lock:  # the base settings and their worker as one pair (set_default_connection)
+            workspace = self.current_settings(owner)
+            base, inference = self.settings, self.inference
         selected = workspace.for_task(task)
-        worker = self.inference if selected is self.settings else self.inference.with_settings(selected)
+        worker = inference if selected is base else inference.with_settings(selected)
         if isinstance(worker, Inference) and task == "workup":
             worker = worker.with_workup_backups(
                 full=workspace.for_task("workup_full_backup"), agent=workspace.for_task("workup_agent_backup"),
             ).with_extractions(self.session_extractions, owner, self.records)
         return worker
+
+    def set_default_connection(self, values: dict, task_connections: dict | None = None) -> tuple[Settings, object]:
+        """Make ``values`` (``llm_backend``, ``endpoint``, ``model``, ``tokenizer``, ...) the app's default connection
+        for every task (``task_connections``: the per-task defaults, none by default), in sessions that chose none.
+
+        The base settings and the default inference worker change together, under the lock:
+        ``patient_inference`` uses the bound worker only while a session's settings are the base ones. Returns the
+        previous ``(settings, inference)`` for ``restore_default_connection``."""
+        with self.lock:
+            previous = (self.settings, self.inference)
+            settings = replace(self.settings, **values, task_connections=dict(task_connections or {}))
+            rebind = getattr(self.inference, "with_settings", None)
+            self.settings, self.inference = settings, rebind(settings) if rebind else self.inference
+            return previous
+
+    def restore_default_connection(self, previous: tuple[Settings, object]) -> None:
+        with self.lock:
+            self.settings, self.inference = previous
 
     def update(self, owner: str, values: dict, *, task: str | None, apply_to_all: bool) -> Settings:
         """Save a session's connection for ``task`` (or, with ``apply_to_all``, for every task)."""
@@ -123,6 +145,7 @@ class GuidelineState:
             claude_profiles={key: {**profile, "label": CLAUDE_LABELS[key], "databricks_profile": databricks_profile()}
                              for key, profile in claude_backends().items()},
             local_defaults={"endpoint": settings.endpoint, "model": settings.model, "tokenizer": settings.tokenizer},
+            local_server=self.local_server.connection_view() if self.local_server is not None else {"enabled": False},
             device=settings.device,
             ttl_minutes=settings.ttl // 60,
             max_upload_mb=settings.max_upload // 1024**2,

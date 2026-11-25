@@ -127,6 +127,10 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       setModel((task === "assistant" ? claude.models.opus : undefined) ?? claude.model);
   }, [claude, model, task]);
   const isBackup = BACKUP_TASKS.includes(task);
+  // The local model server (Data and models, with --local-server), once it is ready.
+  const localServer = config.local_server;
+  const localReady =
+    localServer.enabled && localServer.state === "ready" && Boolean(localServer.endpoint);
   const body = (applyToAll: boolean) => ({
     llm_backend: backend,
     endpoint: vertex?.endpoint ?? claude?.endpoint ?? endpoint,
@@ -181,7 +185,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
               } else setBackend(value as Backend);
             }}
           >
-            <option value="local">OpenAI-compatible server (vLLM)</option>
+            <option value="local">OpenAI-compatible server (vLLM, llama.cpp)</option>
             {vertexKeys.length ? (
               <option value={VERTEX}>Google Vertex / Agent Platform</option>
             ) : null}
@@ -240,7 +244,22 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
         ) : (
           <>
             <label className="flex min-w-72 flex-1 flex-col gap-1">
-              <span className="text-xs text-gray-500">Endpoint (/v1 base URL)</span>
+              <span className="flex items-center justify-between text-xs text-gray-500">
+                <span>Endpoint (/v1 base URL)</span>
+                {localReady ? (
+                  <button
+                    type="button"
+                    className="text-brand-blue hover:underline"
+                    onClick={() => {
+                      setEndpoint(localServer.endpoint ?? "");
+                      setModel(localServer.model ?? "");
+                      setTokenizer(localServer.tokenizer ?? "");
+                    }}
+                  >
+                    Use the local server
+                  </button>
+                ) : null}
+              </span>
               <Input
                 value={endpoint}
                 onChange={(e) => {

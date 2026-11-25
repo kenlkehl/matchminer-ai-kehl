@@ -156,6 +156,10 @@ def create_app(state: DashState, access_token: str | None = None) -> FastAPI:
         app.include_router(module.router(state.guidelines))
     app.include_router(benchmarking.router(state.benchmarks))
     app.include_router(docs.router())
+    if state.local_server.enabled:  # only with --local-server
+        from .routes import local_server
+
+        app.include_router(local_server.router(state.local_server))
 
     # ------------------------------------------------------------------ the frontend (after every API route)
 

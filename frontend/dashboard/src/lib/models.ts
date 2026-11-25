@@ -46,6 +46,14 @@ export interface ModelConfig extends TaskConnection {
     }
   >;
   local_defaults: { endpoint: string; model: string; tokenizer: string };
+  /** The local model server (--local-server): offered or not and, once ready, its connection. */
+  local_server: {
+    enabled: boolean;
+    state?: string | null;
+    endpoint?: string | null;
+    model?: string | null;
+    tokenizer?: string | null;
+  };
   device: string;
   ttl_minutes: number;
   max_upload_mb: number;

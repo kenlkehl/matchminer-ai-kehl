@@ -72,11 +72,13 @@ def job(client, route, body, status="done", timeout=15.0):
 
 @pytest.fixture
 def make_client(dataset, trial_data, fake_model, fake_ncit, tmp_path):  # noqa: F811
-    """``make_client(settings=None, inference=None, access_token=None, mode=None)``: a client of the whole app.
+    """``make_client(settings=None, inference=None, access_token=None, mode=None, **dash)``: a client of the whole
+    app.
 
     ``settings`` are the guideline features' settings (``guidelines.settings.Settings``); the app's mode follows
     them (``settings.mode``), else ``mode`` (default synthetic), and without them the app derives its own.
-    ``inference`` replaces the guideline inference adapter. With ``access_token`` the client is signed in.
+    ``inference`` replaces the guideline inference adapter. With ``access_token`` the client is signed in. ``dash``:
+    more of the app's settings (``DashSettings``), such as ``local_server=True``.
     """
     from matchminer_ai.apps.dashboard.server import create_app
     from matchminer_ai.apps.dashboard.settings import DashSettings
@@ -84,12 +86,12 @@ def make_client(dataset, trial_data, fake_model, fake_ncit, tmp_path):  # noqa: 
 
     states, clients = [], []
 
-    def make(settings=None, inference=None, access_token=None, mode=None):
+    def make(settings=None, inference=None, access_token=None, mode=None, **extra):
         mode = settings.mode if settings is not None else (mode or "synthetic")
         dash = DashSettings(mode=mode, synthetic_run=dataset["root"], store_dir=tmp_path / f"store-{len(states)}",
                             trial_data=trial_data["root"], oa_db=trial_data["db"],
                             good_options_catalog=trial_data["catalog"], embedding_caches=(tmp_path / "hf",),
-                            embedding_python=tmp_path / "missing-python", device="cpu")
+                            embedding_python=tmp_path / "missing-python", device="cpu", **extra)
         state = DashState(dash, encoder=FakeEncoder(), guideline_settings=settings, guideline_inference=inference,
                           patient_source="training", log=lambda *_: None)
         states.append(state)
@@ -103,6 +105,7 @@ def make_client(dataset, trial_data, fake_model, fake_ncit, tmp_path):  # noqa: 
     for client in clients:
         client.close()
     for state in states:
+        state.local_server.shutdown()
         state.registry.shutdown()
 
 
