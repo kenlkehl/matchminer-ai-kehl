@@ -311,3 +311,15 @@ def test_split_stops_at_unresolved_singletons_without_claiming_success(tmp_path,
     assert not values
     assert len(calls) == 3
     assert set(failures) == {"catalog-content-0001-part0001", "catalog-content-0001-part0002"}
+
+
+def test_exhausted_validation_findings_split_batches_and_transport_errors_do_not():
+    from matchminer_ai.trials._guideline_batching import can_split
+    from matchminer_ai.trials._guideline_extraction_batches import can_split as can_split_packet
+
+    finding = ("EndpointError: catalog-content-0001-part0001: saved attempts exhausted: 'Synthetic state': "
+               "the treatment-line boundary is only in the name.")
+    transport = "EndpointError: catalog-content-0001: exhausted 6 attempts: Endpoint HTTP 500 for /chat/completions"
+    assert can_split(finding, 3) and can_split_packet(finding, 3)
+    assert not can_split(finding, 1) and not can_split_packet(finding, 1)
+    assert not can_split(transport, 3) and not can_split_packet(transport, 3)

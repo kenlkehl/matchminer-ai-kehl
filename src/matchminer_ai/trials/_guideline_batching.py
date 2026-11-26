@@ -1,26 +1,31 @@
 """Split exhausted consolidation batches without changing clinical content."""
 
+import re
+
 from matchminer_ai._storage import atomic_json, digest, read_json
 
 VERSION = "adaptive-canonical-batches-v1"
 MAX_RETRY_BATCH = 12
 
 
+# Failures a smaller batch cannot answer: transport and server errors, credentials, cancellation, and degenerate
+# repetition (an abort, not a validation finding).
+NOT_VALIDATION = re.compile(
+    r"Endpoint request failed|\bHTTP \d{3}\b|streaming error event|Expected one streamed completion choice"
+    r"|Inference stopped|credentials|unavailable|timed out|client_aborted_repetition",
+    re.I,
+)
+
+
+def exhausted_validation(error):
+    """A call that used up its attempts on the pipeline's own validation findings (each fed back to the next attempt)."""
+    return "exhausted" in error and NOT_VALIDATION.search(error) is None
+
+
 def can_split(error, size):
-    """Split exhausted validation or output-limit failures, never transport errors."""
-    return size > 1 and "exhausted" in error and any(
-        marker in error
-        for marker in (
-            "Catalog omitted or broadened",
-            "mixes AND and OR",
-            "evidence may not consist entirely of blank lines",
-            "nonexistent source line IDs",
-            "Unknown or unsupplied evidence page:",
-            "Each state and option needs at least one source-line citation",
-            "cite 1-12 distinct source line numbers per evidence item",
-            "Incomplete response: finish_reason='length'",
-        )
-    )
+    """Split a multi-population batch whose attempts were exhausted by validation findings, down to single
+    populations; never for transport errors. Smaller batches give each retry fewer states to correct."""
+    return size > 1 and exhausted_validation(error)
 
 
 def validate_ledger(ledger, guideline, candidates):

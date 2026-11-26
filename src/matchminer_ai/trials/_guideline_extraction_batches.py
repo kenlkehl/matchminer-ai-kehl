@@ -1,20 +1,20 @@
 """Split exhausted extraction tasks while preserving one owner per source page."""
 
 from matchminer_ai._storage import atomic_json, read_json
+from ._guideline_batching import exhausted_validation
 from ._guideline_ownership import page_owners
 
 VERSION = "adaptive-extraction-packets-v1"
 
 
 def can_split(error, size):
+    """Split a multi-page packet that exceeded the input budget or exhausted its attempts on validation findings,
+    down to single pages; never for transport errors."""
     return size > 1 and (
-        "exhausted" in error or "Required evidence and instructions exceed input budget" in error
-    ) and any(marker in error for marker in (
-        "page_coverage must account", "states_extracted requires", "mixes AND and OR",
-        "Unknown or unsupplied evidence page:", "nonexistent source line IDs",
-        "Retry prompt exceeds input budget", "Required evidence and instructions exceed input budget",
-        "Incomplete response: finish_reason='length'",
-    ))
+        exhausted_validation(error)
+        or "Required evidence and instructions exceed input budget" in error
+        or "Retry prompt exceeds input budget" in error
+    )
 
 
 def validate_ledger(ledger, guideline):
