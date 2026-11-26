@@ -68,6 +68,7 @@ def summarize_guidelines(
     return_qc: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     allow_endpoint_change: bool = False,
+    retry_failed: bool = False,
 ) -> (
     pd.DataFrame
     | tuple[pd.DataFrame, dict]
@@ -113,6 +114,9 @@ def summarize_guidelines(
         unchanged generation settings. Accepted checkpoints retain their original
         provenance; subsequent requests record the new transport. Different
         models or context windows require a separate output directory.
+    retry_failed : bool, optional
+        On resume, retry fresh every request whose saved attempts all failed, instead of replaying those failures.
+        Its failed attempts are moved aside (``retired-<time>/`` in its checkpoint); accepted answers are kept.
 
     Returns
     -------
@@ -187,6 +191,7 @@ def summarize_guidelines(
         workers=workers,
         packet_pages=packet_pages,
         progress_callback=progress_callback,
+        retry_failed=retry_failed,
         finalize=lambda: audit_guideline_catalog(
             source_directory, disease=disease, output_dir=output
         ),

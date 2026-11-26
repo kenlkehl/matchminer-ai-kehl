@@ -119,7 +119,8 @@ def main():
     parser.add_argument(
         "--retry-failed",
         action="store_true",
-        help="Resume only failed diseases from collection.json; write recovery.json",
+        help="Resume only failed diseases from collection.json, retrying their failed requests fresh "
+        "(accepted answers are kept); write recovery.json",
     )
     args = parser.parse_args()
     if args.concurrency < 1 or (
@@ -289,6 +290,7 @@ def main():
                 output_dir=output / disease,
                 config=disease_config,
                 progress_callback=lambda message: update(disease, progress=message),
+                retry_failed=args.retry_failed,
             )
             update(disease, status="complete", spaces=len(frame))
         except Exception as exc:

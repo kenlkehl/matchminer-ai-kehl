@@ -15,7 +15,7 @@ from ._pdq_sources import pdq_url
 
 def run_collection(jobs, *, output_dir, config, source_workers=2,
                    disease_workers=None, allow_endpoint_change=False,
-                   progress_callback=None, parent_collection=None):
+                   progress_callback=None, parent_collection=None, retry_failed=False):
     """Run a caller-owned plan; downloading one source does not block ready catalogs."""
     from .pdq import _sources, prepare_pdq_library, summarize_pdq
 
@@ -150,6 +150,7 @@ def run_collection(jobs, *, output_dir, config, source_workers=2,
                     output_dir=job["output_directory"], config=config,
                     allow_endpoint_change=allow_endpoint_change, return_metadata=True,
                     progress_callback=lambda message: update(disease, progress=message),
+                    retry_failed=retry_failed,
                 )
                 update(disease, status="complete", stage="export", spaces=len(frame),
                        audit=metadata["validation"]["status"])

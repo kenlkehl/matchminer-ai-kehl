@@ -290,6 +290,32 @@ def read_chat_stream(lines, *, guards=()):
     return result
 
 
+def retire_failed_attempts(cache_dir, *, label=None):
+    """Set aside the saved failed attempts of every checkpointed request that has no accepted answer.
+
+    A resumed request otherwise replays its saved failures (``reuse_exhausted``) instead of asking again. Its request
+    identity is unchanged, so the next run retries it fresh; accepted answers and token counts are untouched. The
+    attempts move into the request's ``retired-<label>/`` folder rather than being deleted. Returns the number of
+    requests retired.
+    """
+    from datetime import UTC, datetime
+
+    label = label or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    retired = 0
+    for folder in sorted(Path(cache_dir).glob("*")):
+        if not (folder / "request.json").is_file() or (folder / "accepted.json").exists():
+            continue
+        if not any(folder.glob("failure-*.json")):
+            continue
+        target = folder / f"retired-{label}"
+        target.mkdir()
+        for pattern in ("failure-*.json", "attempt-*.json", "request-attempt-*.json"):
+            for path in folder.glob(pattern):
+                path.rename(target / path.name)
+        retired += 1
+    return retired
+
+
 class StructuredClient:
     def __init__(self, config: StructuredConfig, cache_dir: Path | None):
         self.config = config

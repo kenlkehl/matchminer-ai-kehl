@@ -231,3 +231,31 @@ def test_retry_prompt_compatibility_still_rejects_real_changes(completed, change
     atomic_json(output / 'run_config.json', saved)
     with pytest.raises(ValueError, match='settings changed'):
         pipeline.run_guideline(guideline, output, config, finalize=finalize)
+
+
+def test_retry_failed_asks_exhausted_requests_again_and_keeps_answers(tmp_path, monkeypatch):
+    from matchminer_ai.llm.structured import EndpointError, StructuredClient, retire_failed_attempts
+
+    monkeypatch.setattr("matchminer_ai.llm.structured.cancel_sleep", lambda _: None)
+    answers = iter(["draft", "draft", "final"])
+
+    def respond(self, endpoint, body, **kwargs):
+        content = json.dumps({"value": next(answers)})
+        return {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
+
+    monkeypatch.setattr(StructuredClient, "_http", respond)
+    cache = tmp_path / "checkpoints"
+    client = StructuredClient(StructuredConfig(model="synthetic", tokenizer_mode="bytes", attempts=2), cache)
+
+    def validate(value):
+        if value["value"] != "final":
+            raise ValueError("Synthetic validation finding")
+
+    call = ("job", [{"role": "user", "content": "Synthetic task."}],
+            {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}, validate)
+    for expected in ("exhausted 2 attempts", "saved attempts exhausted"):
+        with pytest.raises(EndpointError, match=expected):
+            client.complete(*call, reuse_exhausted=True)
+    assert retire_failed_attempts(cache, label="test") == 1
+    assert client.complete(*call, reuse_exhausted=True) == {"value": "final"}
+    assert retire_failed_attempts(cache) == 0 and len(list(cache.glob("*/retired-test/failure-*.json"))) == 2

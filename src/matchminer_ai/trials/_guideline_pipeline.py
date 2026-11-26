@@ -100,9 +100,19 @@ def run_guideline(
     context_chars=None,
     progress_callback=None,
     finalize=None,
+    retry_failed=False,
 ):
     output.mkdir(parents=True, exist_ok=True)
     with directory_lock(output):
+        if retry_failed:
+            from matchminer_ai.llm.structured import retire_failed_attempts
+
+            retired = retire_failed_attempts(output / "checkpoints")
+            if progress_callback and retired:
+                try:
+                    progress_callback(f"{guideline.disease}: retrying {retired} failed requests fresh")
+                except Exception:
+                    logging.getLogger(__name__).exception('Guideline progress callback failed')
         while True:
             try:
                 status = _run(
@@ -579,10 +589,12 @@ def _run(
                     )
                 materialize_quoted_state(v, supplied)
 
-            repair = lambda v, error: repair_quoted_response(
+            def repair(v, error):
+                return repair_quoted_response(
                     client, guideline, supplied, key, v, error, validate,
                     output=output, notify=notify,
                 )
+
             try:
                 value = client.complete(key, messages, QUOTED_DETAIL, validate,
                                         repair_handler=repair, reuse_exhausted=True)

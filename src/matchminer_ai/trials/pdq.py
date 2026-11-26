@@ -231,6 +231,7 @@ def summarize_pdq(
     return_qc: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     allow_endpoint_change: bool = False,
+    retry_failed: bool = False,
 ) -> pd.DataFrame | tuple:
     """Extract a PDQ catalog with the shared guideline pipeline and return conventions.
 
@@ -260,6 +261,7 @@ def summarize_pdq(
         return_qc=return_qc,
         progress_callback=progress_callback,
         allow_endpoint_change=allow_endpoint_change,
+        retry_failed=retry_failed,
     )
 
 
@@ -269,6 +271,7 @@ def summarize_pdq_collection(
     disease_workers: int | None = None, allow_endpoint_change: bool = False,
     progress_callback: Callable[[dict], None] | None = None,
     parent_collection: str | Path | None = None,
+    retry_failed: bool = False,
 ) -> dict:
     """Run independent PDQ catalogs under one process-wide endpoint request cap.
 
@@ -290,6 +293,7 @@ def summarize_pdq_collection(
     For a failed subset, ``parent_collection`` names the original collection.json;
     a directory lock prevents a competing dispatcher, validates job ownership,
     and keeps its disease statuses synchronized without rerunning other catalogs.
+    ``retry_failed`` retries fresh the requests whose saved attempts all failed (see ``summarize_guidelines``).
     """
     from matchminer_ai.config import MMAIConfig, load_default_preset
     from ._pdq_collection import run_collection
@@ -302,4 +306,5 @@ def summarize_pdq_collection(
         disease_workers=disease_workers, allow_endpoint_change=allow_endpoint_change,
         progress_callback=progress_callback,
         parent_collection=parent_collection,
+        retry_failed=retry_failed,
     )

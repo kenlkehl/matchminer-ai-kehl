@@ -1,7 +1,7 @@
 """Run a resumable PDQ job plan with overlapping catalogs and bounded downloads.
 
 Each job maps a disease slug to source_directory, output_directory and optional
-urls. Ctrl-C, SIGTERM or output-dir/STOP cancels requests with checkpoints intact.
+urls. --retry-failed retries fresh the requests whose saved attempts all failed. Ctrl-C, SIGTERM or output-dir/STOP cancels requests with checkpoints intact.
 Use a new collection output directory when expanding a plan; per-disease paths
 can stay unchanged. The endpoint is always an explicit operator choice.
 """
@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--allow-endpoint-change", action="store_true")
     parser.add_argument("--parent-collection", type=Path,
                         help="Failed parent collection.json to keep synchronized during subset recovery")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="Retry fresh the requests whose saved attempts all failed (accepted answers are kept)")
     args = parser.parse_args()
     if min(args.concurrency, args.source_workers, args.request_timeout) <= 0 or (
         args.disease_workers is not None and args.disease_workers <= 0
@@ -64,6 +66,7 @@ def main():
                 allow_endpoint_change=args.allow_endpoint_change,
                 progress_callback=lambda item: print(json.dumps(item), flush=True),
                 parent_collection=args.parent_collection,
+                retry_failed=args.retry_failed,
             )
         return 0 if state["status"] == "complete" else 1
     except InferenceCancelled:

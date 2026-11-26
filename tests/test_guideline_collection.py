@@ -33,7 +33,7 @@ def test_collection_records_failures_and_continues_other_diseases(
     module = runner_module()
     calls = []
 
-    def summarize(source, *, disease, output_dir, config, progress_callback):
+    def summarize(source, *, disease, output_dir, config, progress_callback, retry_failed=False):
         calls.append(disease)
         assert config.remote["max_concurrent_requests"] == 32
         assert config.guideline["sampling_profile"] == "auto"
@@ -193,7 +193,7 @@ def test_verified_source_override_preserves_endpoint_and_requires_same_edition(t
     module = runner_module()
     calls = []
 
-    def summarize(source, *, disease, output_dir, config, progress_callback):
+    def summarize(source, *, disease, output_dir, config, progress_callback, retry_failed=False):
         calls.append((str(source), disease, config.remote["server_urls"]))
         return [1]
 
