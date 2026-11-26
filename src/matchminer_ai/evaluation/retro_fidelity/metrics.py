@@ -26,6 +26,15 @@ every query, with CIs from bootstrapping clusters of queries (patient-centric: t
 trial-centric: the cohorts of one trial); the decision-model tables cover every labeled pair of the merged union, as
 always. Without ``--criteria-labels`` and ``--decide-criteria`` (run.py --no-criteria) there are no per-criterion
 rows.
+
+By ranker (v4; user, 2026-11-26: the decision model against the teacher "on the A (embedding gemma only) and B
+(trialspace only) denominators"): ``decision.by_ranker.<ranker>`` holds the same tables (``pooled``,
+``patient_centric``, ``trial_centric``; the five match labels and boilerplate, no per-criterion rows) over one
+ranker's own top-20 lists instead of the merged union, with the same clusters, and ``counts``: the ranker's list rows,
+unique pairs and pairs with match labels, and its boilerplate combinations (every combination among its pairs whose
+cohort has boilerplate criteria), those with a decision score and those with a teacher label (the boilerplate rows'
+n). A run without new boilerplate labels (run.py --no-new-boilerplate) covers only the combinations an earlier run
+labeled.
 """
 import argparse
 import json
@@ -37,9 +46,15 @@ import numpy as np
 from matchminer_ai.evaluation.retro_fidelity.common import (RANKERS, TOP, WORKFLOWS, full_denominator, log, private, queries, read_jsonl,  # noqa: E402
                     run_stage, stage, write_json)
 
-VERSION = 'retro-fidelity-metrics-v3'  # v3: clustered comparison CIs in a full-denominator corpus
+VERSION = 'retro-fidelity-metrics-v4'  # v4: decision-model tables by ranker (v3: clustered comparison CIs)
 LABELS = ('reasonableness', 'cancer_type', 'burden', 'treatment_history', 'biomarker')
 EPS = 1e-6
+
+
+def ranker_label(ranker, k=None):
+    """The plain name of a ranker's top-``TOP`` denominator (``k``: ranker (c)'s retriever depth, lists_c's K)."""
+    return {RANKERS[0]: f'A: EmbeddingGemma 2 top {TOP}', RANKERS[1]: f'B: TrialSpace top {TOP}',
+            RANKERS[2]: f'C: TrialSpace top {k or "K"} reranked by the decision model'}[ranker]
 
 
 # --------------------------------------------------------------------------- #
@@ -240,8 +255,10 @@ def point_metrics(y, p, bins=10):
 
 
 def clustered_bootstrap(y, p, clusters, *, draws=1000, seed=42, bins=10, alpha=0.05):
-    """Point metrics with percentile CIs from resampling whole clusters with replacement."""
+    """Point metrics with percentile CIs from resampling whole clusters with replacement (no rows: n 0 only)."""
     y, p, clusters = np.asarray(y, dtype=bool), np.asarray(p, dtype=float), np.asarray(clusters)
+    if not len(y):
+        return dict(n=0, clusters=0, bootstrap_draws=draws)
     point = point_metrics(y, p, bins)
     _, inverse = np.unique(clusters, return_inverse=True)
     # each cluster's row indices in ascending order (a stable sort by cluster, split at the cluster boundaries)
@@ -300,6 +317,21 @@ def read_labels(directory, fields):
     return rows
 
 
+def text_codes(texts):
+    """id -> the same integer for identical texts (an exact stand-in for decide.py's digest of the text)."""
+    codes = {}
+    return {key: codes.setdefault(text, len(codes)) for key, text in texts.items()}
+
+
+def combination_count(pairs, patient_code, cohort_code):
+    """The boilerplate combinations among ``pairs`` (patient_id, cohort_id): decide.py's scoring units, one per
+    distinct pair of texts, for the pairs whose cohort has boilerplate criteria (``cohort_code`` holds only those)."""
+    import pandas as pd
+    codes = pd.DataFrame(dict(patient=pairs.patient_id.map(patient_code).to_numpy(),
+                              cohort=pairs.cohort_id.map(cohort_code).to_numpy()))
+    return int(len(codes.dropna().drop_duplicates()))
+
+
 def table_rows(metrics):
     def cell(value):
         if not value or value.get('value') is None:
@@ -320,7 +352,8 @@ def table_rows(metrics):
     return lines
 
 
-def report(result, design):
+def report(result, design, k=None):
+    """report.md; ``k``: ranker (c)'s retriever depth (lists_c's K), for the by-ranker section's names."""
     names = {RANKERS[0]: '(a) EmbeddingGemma 2 (base)', RANKERS[1]: '(b) TrialSpace round 2',
              RANKERS[2]: '(c) TrialSpace round 2 top-K + decision reasonableness'}
     r = result['retrieval']
@@ -394,6 +427,27 @@ def report(result, design):
     out += table_rows(result['decision']['pooled'])
     out += ['', '### Reliability tables (equal-mass bins of P(yes), pooled)', '']
     out += reliability_tables(result['decision']['pooled'])
+    by_ranker = result['decision'].get('by_ranker') or {}
+    if by_ranker:
+        scopes = dict(pooled='Both workflows pooled (95% CIs bootstrap patients)',
+                      patient_centric=f'{titles["patient_centric"]} (95% CIs bootstrap queries)',
+                      trial_centric=f'{titles["trial_centric"]} (95% CIs bootstrap queries)')
+        out += ['## Decision model by ranker denominator', '',
+                'The tables above, over one ranker\'s own top-20 lists instead of the merged union: one row per unique '
+                'pair of its lists (boilerplate: per unique combination of the two boilerplate texts); no per-criterion '
+                f'rows. {note}', '']
+        for ranker, entry in by_ranker.items():
+            c = entry['counts']
+            share = (f" ({c['boilerplate_combinations_labeled'] / c['boilerplate_combinations']:.1%})"
+                     if c['boilerplate_combinations'] else '')
+            out += [f"### {ranker_label(ranker, k)}", '',
+                    f"{c['list_rows']:,} list rows, {c['pairs']:,} unique pairs, {c['pairs_with_match_labels']:,} with "
+                    f"teacher match labels. Boilerplate: {c['boilerplate_combinations']:,} combinations among its pairs, "
+                    f"{c['boilerplate_combinations_scored']:,} with a decision score, "
+                    f"{c['boilerplate_combinations_labeled']:,} with a teacher label{share}.", '']
+            for scope, title in scopes.items():
+                if entry.get(scope):
+                    out += [f'**{title}**', '', *table_rows(entry[scope]), '']
     out += ['## Caveats', '',
             '- The gold standard is one teacher model\'s judgments (Nemotron 3.5 Super), not clinician review; '
             'P@20 measures agreement with the teacher, not true eligibility.',
@@ -464,7 +518,9 @@ def main(argv=None):
 
     def work():
         import pandas as pd
-        persons = {row['id']: row['person'] for row in read_jsonl(Path(args.corpus) / 'patients.jsonl')}
+        patient_rows = read_jsonl(Path(args.corpus) / 'patients.jsonl')
+        cohort_rows = read_jsonl(Path(args.corpus) / 'cohorts.jsonl')
+        persons = {row['id']: row['person'] for row in patient_rows}
         sample = json.loads((Path(args.corpus) / 'sample.json').read_text())
         full = full_denominator(sample)
         lists = pd.read_parquet(Path(args.lists) / 'lists.parquet')
@@ -480,7 +536,7 @@ def main(argv=None):
                                   for w in WORKFLOWS], ignore_index=True)
         clusters = None
         if full:
-            trial_of = {row['id']: row['trial_id'] for row in read_jsonl(Path(args.corpus) / 'cohorts.jsonl')}
+            trial_of = {row['id']: row['trial_id'] for row in cohort_rows}
             clusters = dict(patient_centric=persons.__getitem__, trial_centric=trial_of.__getitem__)
         result = dict(retrieval=retrieval_metrics(compared, teacher, seed=args.seed, cluster_of=clusters))
         if full:
@@ -520,13 +576,29 @@ def main(argv=None):
                                                  seed=args.seed, bins=args.bins)
             return out
 
+        def boilerplate_table(combos, clusters):
+            return clustered_bootstrap([bp_teacher[c]['yes'] for c in combos.combination], combos.p_boilerplate.to_numpy(),
+                                       clusters, draws=args.draws, seed=args.seed, bins=args.bins)
+
+        def person_boilerplate_table(combos):  # pooled: clustered by the labeled combination's patient
+            return boilerplate_table(combos, [bp_teacher[c]['person'] for c in combos.combination])
+
+        def workflow_tables(frame, workflow):
+            """One workflow's match and boilerplate tables over the labeled pairs of ``frame`` (the union's or one
+            ranker's list rows), clustered by query; and each pair's query."""
+            rows = frame[frame.workflow == workflow]
+            rows = rows[[k in teacher for k in zip(rows.patient_id, rows.cohort_id)]]
+            query_of = dict(zip(zip(rows.patient_id, rows.cohort_id), rows.query_id))
+            tables = decision_tables(rows.drop_duplicates(['patient_id', 'cohort_id']), lambda k: query_of[k])
+            w_bp = bp.merge(rows[['patient_id', 'cohort_id', 'query_id']], on=['patient_id', 'cohort_id'])
+            w_bp = w_bp[w_bp.combination.isin(bp_teacher)].drop_duplicates('combination')
+            tables['boilerplate'] = boilerplate_table(w_bp, w_bp.query_id.to_numpy())
+            return tables, query_of
+
         pooled = decision_tables(labeled, lambda k: persons[k[0]])
         combos = bp.drop_duplicates('combination')
         combos = combos[combos.combination.isin(bp_teacher)]
-        pooled['boilerplate'] = clustered_bootstrap([bp_teacher[c]['yes'] for c in combos.combination],
-                                                    combos.p_boilerplate.to_numpy(),
-                                                    [bp_teacher[c]['person'] for c in combos.combination],
-                                                    draws=args.draws, seed=args.seed, bins=args.bins)
+        pooled['boilerplate'] = person_boilerplate_table(combos)
         for name, subset in (() if crit is None else (
                 ('criterion (all lines)', crit), ('criterion (inclusion lines)', crit[crit.criterion_type == 'inclusion']),
                 ('criterion (exclusion lines)', crit[crit.criterion_type == 'exclusion']))):
@@ -535,15 +607,7 @@ def main(argv=None):
                                                seed=args.seed, bins=args.bins)
         result['decision'] = dict(pooled=pooled)
         for workflow in WORKFLOWS:
-            rows = union[union.workflow == workflow]
-            rows = rows[[k in teacher for k in zip(rows.patient_id, rows.cohort_id)]]
-            query_of = dict(zip(zip(rows.patient_id, rows.cohort_id), rows.query_id))
-            tables = decision_tables(rows.drop_duplicates(['patient_id', 'cohort_id']), lambda k: query_of[k])
-            w_bp = bp.merge(rows[['patient_id', 'cohort_id', 'query_id']], on=['patient_id', 'cohort_id'])
-            w_bp = w_bp[w_bp.combination.isin(bp_teacher)].drop_duplicates('combination')
-            tables['boilerplate'] = clustered_bootstrap([bp_teacher[c]['yes'] for c in w_bp.combination],
-                                                        w_bp.p_boilerplate.to_numpy(), w_bp.query_id.to_numpy(),
-                                                        draws=args.draws, seed=args.seed, bins=args.bins)
+            tables, query_of = workflow_tables(union, workflow)
             w_crit = None if crit is None else crit[crit.stratum.str.startswith(workflow + '/')]
             for name, subset in (() if w_crit is None else (
                     ('criterion (all lines)', w_crit),
@@ -554,6 +618,31 @@ def main(argv=None):
                     [query_of.get((a, b), a) for a, b in zip(subset.patient_id, subset.cohort_id)],
                     draws=args.draws, seed=args.seed, bins=args.bins)
             result['decision'][workflow] = tables
+        # --- the same tables over each ranker's own lists (no per-criterion rows)
+        patient_code = text_codes({row['id']: row.get('boilerplate') or '' for row in patient_rows})
+        cohort_code = text_codes({row['id']: row['boilerplate'] for row in cohort_rows
+                                  if (row.get('boilerplate') or '').strip()})
+        by_ranker = result['decision']['by_ranker'] = {}
+        for ranker in RANKERS:
+            part = lists.loc[lists.ranker == ranker, ['workflow', 'query_id', 'patient_id', 'cohort_id']].drop_duplicates()
+            if part.empty:
+                continue
+            r_pairs = part[['patient_id', 'cohort_id']].drop_duplicates()
+            r_labeled = r_pairs[[k in teacher for k in zip(r_pairs.patient_id, r_pairs.cohort_id)]]
+            r_scored = bp.merge(r_pairs, on=['patient_id', 'cohort_id']).drop_duplicates('combination')
+            r_combos = r_scored[r_scored.combination.isin(bp_teacher)]
+            entry = dict(counts=dict(list_rows=int((lists.ranker == ranker).sum()), pairs=int(len(r_pairs)),
+                                     pairs_with_match_labels=int(len(r_labeled)),
+                                     boilerplate_combinations=combination_count(r_pairs, patient_code, cohort_code),
+                                     boilerplate_combinations_scored=int(len(r_scored)),
+                                     boilerplate_combinations_labeled=int(len(r_combos))))
+            entry['pooled'] = decision_tables(r_labeled, lambda k: persons[k[0]])
+            entry['pooled']['boilerplate'] = person_boilerplate_table(r_combos)
+            for workflow in WORKFLOWS:
+                if (part.workflow == workflow).any():
+                    entry[workflow] = workflow_tables(part, workflow)[0]
+            by_ranker[ranker] = entry
+            log(f'metrics by ranker: {ranker}: {entry["counts"]}')
         counts = dict(union_pairs=int(len(pairs)), union_pairs_with_match_labels=int(len(labeled)),
                       boilerplate_combinations_scored=int(bp.combination.nunique()),
                       boilerplate_combinations_labeled=int(len(combos)))
@@ -565,7 +654,8 @@ def main(argv=None):
         design = json.loads((output.parent / 'design_notes.json').read_text()) if (output.parent / 'design_notes.json').exists() else []
         if full:
             design = design + coverage(sample, criteria)
-        (output / 'report.md').write_text(report(result, design + [f'{k}: {v:,}' for k, v in counts.items()]))
+        depth = ((stage.read_receipt(args.lists) or {}).get('content') or {}).get('k')
+        (output / 'report.md').write_text(report(result, design + [f'{name}: {v:,}' for name, v in counts.items()], depth))
         log(f'metrics: {counts}')
         return counts
 

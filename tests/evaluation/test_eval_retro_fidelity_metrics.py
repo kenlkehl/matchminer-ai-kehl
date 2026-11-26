@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import random
-import sys
 
 import numpy as np
 import pandas as pd
@@ -239,7 +238,7 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
     out = tmp_path / 'metrics'
     rf_metrics.main(['--corpus', corpus, '--lists', str(tmp_path / 'lists_c'), '--lists-ab', str(tmp_path / 'lists_ab'),
                      '--retrieval', retrieval, '--match-labels', *match,
-                     '--boilerplate-labels', made(tmp_path / 'bp', [('labels.jsonl', bp)]),
+                     '--boilerplate-labels', made(tmp_path / 'bp', [('labels.jsonl', bp[1:])]),  # one unlabeled
                      '--decide-match', decide, '--decide-boilerplate',
                      made(tmp_path / 'decide_bp', [('scores.parquet', pd.DataFrame(bp_scores))]),
                      '--draws', '20', '--output', str(out)])
@@ -256,3 +255,23 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
     assert not any(k.startswith('criterion') for k in result['decision']['pooled']) and 'criteria_lines' not in result['counts']
     assert 'decide_criteria' not in stage.read_receipt(out)['identity']['inputs']
     assert 'Full pipeline over every query' in (out / 'report.md').read_text()
+    # each ranker's own lists: its pairs, its boilerplate combinations scored and labeled
+    by_ranker = result['decision']['by_ranker']
+    assert list(by_ranker) == list(rf_metrics.RANKERS)
+    labeled_combos = {row['boilerplate_combination'] for row in bp[1:]}
+    for ranker, entry in by_ranker.items():
+        mine = lists[lists.ranker == ranker]
+        mine_pairs = set(zip(mine.patient_id, mine.cohort_id))
+        mine_combos = {stage.digest([boilerplate[p], boilerplate[k]]) for p, k in mine_pairs if boilerplate[k]}
+        assert entry['counts'] == dict(list_rows=len(mine), pairs=len(mine_pairs), pairs_with_match_labels=len(mine_pairs),
+                                       boilerplate_combinations=len(mine_combos),
+                                       boilerplate_combinations_scored=len(mine_combos),
+                                       boilerplate_combinations_labeled=len(mine_combos & labeled_combos))
+        assert entry['pooled']['reasonableness']['n'] == len(mine_pairs)
+        assert entry['pooled']['boilerplate']['n'] == len(mine_combos & labeled_combos)
+        for workflow in ('patient_centric', 'trial_centric'):
+            rows = mine[mine.workflow == workflow]
+            assert entry[workflow]['reasonableness']['n'] == len(set(zip(rows.patient_id, rows.cohort_id)))
+            assert entry[workflow]['reasonableness']['clusters'] == rows.query_id.nunique()
+    assert '## Decision model by ranker denominator' in (out / 'report.md').read_text()
+    assert 'C: TrialSpace top 24 reranked by the decision model' in (out / 'report.md').read_text()  # lists_c's K
