@@ -13,7 +13,11 @@ from ._guideline_schema import (
     validate_state,
 )
 
-VERSION = "source-excerpts-v1"
+VERSION = "source-excerpts-v2"
+# The excerpt-matching rule of each recorded detail_citations version: v1 matches whitespace only, v2 also matches an
+# excerpt's visible words across the page's markup. A catalog re-audits under the rule its run config records, so
+# catalogs built under v1 keep their exact v1 audit.
+MARKUP_MATCHING = {"source-excerpts-v1": False, VERSION: True}
 QUOTED_EVIDENCE = arr(obj({"page_id": STRING, "source_text": STRING}))
 QUOTED_DETAIL = copy.deepcopy(STATE)
 QUOTED_DETAIL["properties"]["evidence"] = QUOTED_EVIDENCE
@@ -23,12 +27,26 @@ for _kind in ("diagnostic_workup", "treatment_options"):
     )
 
 
-def resolve_excerpt(page, excerpt):
-    """Match whitespace only; never fuzzy-match words or guess an ambiguous location."""
+# An HTML tag in a source page (PDQ tables, links and inline markup are kept as HTML).
+MARKUP = r"<[A-Za-z/!][^<>]*>"
+
+
+def resolve_excerpt(page, excerpt, *, markup=False):
+    """Match whitespace only; never fuzzy-match words or guess an ambiguous location.
+
+    With ``markup``, when the words occur nowhere with whitespace alone between them, markup is skipped too: an excerpt
+    quoting a table row or linked text by its visible words matches across the page's HTML tags (and tags the excerpt
+    itself carries are skipped, so their attribute quoting need not match). The returned quote is always the page's
+    own text.
+    """
     if not isinstance(excerpt, str) or not excerpt.strip():
         raise ValueError("Citation source_text must be a nonempty verbatim excerpt")
     pattern = re.compile(r"\s+".join(re.escape(word) for word in excerpt.split()))
     matches = list(pattern.finditer(page.text))
+    words = re.sub(MARKUP, " ", excerpt).split() if markup else []
+    if not matches and words:
+        separator = rf"(?:\s|{MARKUP})+"
+        matches = list(re.finditer(separator.join(re.escape(word) for word in words), page.text))
     if not matches:
         raise ValueError(
             f"{page.id}: source_text does not occur verbatim on this supplied page: "
@@ -54,7 +72,7 @@ def _owners(state):
         yield from state[kind]
 
 
-def materialize_quoted_state(state, pages):
+def materialize_quoted_state(state, pages, *, markup=MARKUP_MATCHING[VERSION]):
     """Derive addresses and displayed quotations in code, preserving all clinical fields."""
     validate_shape(state, QUOTED_DETAIL)
     result = copy.deepcopy(state)
@@ -66,7 +84,7 @@ def materialize_quoted_state(state, pages):
             try:
                 if item["page_id"] not in pages:
                     raise ValueError(f"Unknown or unsupplied evidence page: {item['page_id']}")
-                ids, quote = resolve_excerpt(pages[item["page_id"]], item["source_text"])
+                ids, quote = resolve_excerpt(pages[item["page_id"]], item["source_text"], markup=markup)
             except ValueError as exc:
                 errors.append(f"{owner['name']} excerpt {number}: {exc}")
                 continue

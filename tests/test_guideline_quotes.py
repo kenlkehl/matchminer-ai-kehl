@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from matchminer_ai.trials._guideline_quotes import (
-    materialize_quoted_state, resolve_excerpt,
+    MARKUP_MATCHING, VERSION, materialize_quoted_state, resolve_excerpt,
 )
 from matchminer_ai.trials._guideline_sources import Page
 from test_guideline_extraction import quoted_state
@@ -63,6 +63,22 @@ def test_only_whitespace_normalization_is_permitted_and_original_bytes_are_retur
     assert quote == altered.text
     with pytest.raises(ValueError, match="does not occur verbatim"):
         resolve_excerpt(altered, "Use Synthetic panel B.")
+
+
+def test_markup_matching_is_gated_and_returns_the_source_markup(page):
+    row = '<tr><td rowspan="3">I</td><td>T1, N0, M0</td><td>T1 = Synthetic tumor size.</td></tr>'
+    table = replace(page, text=f"Table 1.\n{row}\n<tr><td>II</td><td>T2 = Synthetic tumor size.</td></tr>\n")
+    for excerpt in ("I T1, N0, M0 T1 = Synthetic tumor size.",
+                    "<tr><td rowspan='3'>I</td><td>T1, N0, M0</td><td>T1 = Synthetic tumor size.</td></tr>"):
+        with pytest.raises(ValueError, match="does not occur verbatim"):
+            resolve_excerpt(table, excerpt)  # v1 catalogs re-audit with whitespace-only matching
+        ids, quote = resolve_excerpt(table, excerpt, markup=True)
+        assert ids == [2] and quote in row and quote.startswith("I</td>")
+    with pytest.raises(ValueError, match="occurs 2 times"):
+        resolve_excerpt(table, "Synthetic tumor size.", markup=True)
+    with pytest.raises(ValueError, match="does not occur verbatim"):
+        resolve_excerpt(table, "I T1, N0, M0 T1 = Synthetic tumour size.", markup=True)
+    assert MARKUP_MATCHING == {"source-excerpts-v1": False, VERSION: True}
 
 
 def test_unsupplied_page_and_excessive_spans_are_rejected(page):

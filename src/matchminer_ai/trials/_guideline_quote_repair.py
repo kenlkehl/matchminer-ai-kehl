@@ -10,7 +10,8 @@ from matchminer_ai._storage import atomic_json, digest
 from matchminer_ai.llm.structured import EndpointError
 
 from ._guideline_context import pack_messages
-from ._guideline_quotes import QUOTED_DETAIL, QUOTED_EVIDENCE, resolve_excerpt
+from ._guideline_quotes import MARKUP_MATCHING, QUOTED_DETAIL, QUOTED_EVIDENCE, resolve_excerpt
+from ._guideline_quotes import VERSION as QUOTE_VERSION
 from ._guideline_quote_selection import (
     PROMPT as SELECTION_PROMPT,
     audit_selection,
@@ -21,6 +22,9 @@ from ._guideline_sources import render_pages
 from .prompt_builder import load_prompt_text
 
 VERSION = "focused-excerpt-repair-v1"
+# A repair receipt records the excerpt-matching rule its repair used, so the audit replays it under that rule (receipts
+# without the field date from whitespace-only matching).
+MARKUP_RECEIPT = "markup"
 PROMPT_FILES = ("guideline.quote_repair.txt", SELECTION_PROMPT)
 REPAIR = obj({"evidence": QUOTED_EVIDENCE, "unresolved": STRINGS})
 
@@ -40,7 +44,7 @@ def repair_assertion(record, owner_index, evidence_index, diagnostic):
     }
 
 
-def targets(record, pages):
+def targets(record, pages, *, markup=MARKUP_MATCHING[QUOTE_VERSION]):
     """Find invalid references; positions remain code-side, never in model prompts."""
     result = []
     for owner_index, owner in enumerate(owners(record)):
@@ -48,13 +52,13 @@ def targets(record, pages):
             try:
                 if ref["page_id"] not in pages:
                     raise ValueError("The cited page was not supplied")
-                resolve_excerpt(pages[ref["page_id"]], ref["source_text"])
+                resolve_excerpt(pages[ref["page_id"]], ref["source_text"], markup=markup)
             except ValueError as exc:
                 result.append((owner_index, evidence_index, str(exc)))
     return result
 
 
-def validate_replacement(value, pages):
+def validate_replacement(value, pages, *, markup=MARKUP_MATCHING[QUOTE_VERSION]):
     validate_shape(value, REPAIR)
     if value["unresolved"] or not value["evidence"]:
         raise ValueError(
@@ -63,7 +67,7 @@ def validate_replacement(value, pages):
     for ref in value["evidence"]:
         if ref["page_id"] not in pages:
             raise ValueError("Replacement cites an unsupplied page")
-        resolve_excerpt(pages[ref["page_id"]], ref["source_text"])
+        resolve_excerpt(pages[ref["page_id"]], ref["source_text"], markup=markup)
 
 
 def apply_replacements(original, replacements):
@@ -230,6 +234,7 @@ def repair_quoted_response(
         output / "quote_repairs" / (digest(value) + ".json"),
         {
             "version": VERSION,
+            **({"excerpt_matching": MARKUP_RECEIPT} if MARKUP_MATCHING[QUOTE_VERSION] else {}),
             "original_sha256": digest(value),
             "result_sha256": digest(result),
             "replacements": replacements,
@@ -246,7 +251,8 @@ def audit_repair(original, repaired, receipt, accepted_repairs, pages):
         or receipt.get("result_sha256") != digest(repaired)
     ):
         raise ValueError("Excerpt repair receipt differs from its clinical record")
-    diagnostics = {(i, j): error for i, j, error in targets(original, pages)}
+    markup = receipt.get("excerpt_matching") == MARKUP_RECEIPT
+    diagnostics = {(i, j): error for i, j, error in targets(original, pages, markup=markup)}
     expected = set(diagnostics)
     replacements = receipt["replacements"]
     if {(r["owner_index"], r["evidence_index"]) for r in replacements} != expected:
@@ -254,7 +260,7 @@ def audit_repair(original, repaired, receipt, accepted_repairs, pages):
             "Excerpt repair must account for exactly the invalid citations"
         )
     for item in replacements:
-        validate_replacement(item["result"], pages)
+        validate_replacement(item["result"], pages, markup=markup)
         if digest(item["result"]) != item["result_sha256"]:
             raise ValueError("Excerpt repair lacks an accepted model response")
         if "selection" in item:

@@ -25,8 +25,7 @@ from ._guideline_completeness import VERSION as COVERAGE_VERSION
 from ._guideline_completeness import validate_report as validate_coverage_report
 from ._guideline_ownership import VERSION as OWNERSHIP_VERSION
 from ._guideline_ownership import branch_ledger
-from ._guideline_quotes import VERSION as QUOTE_VERSION
-from ._guideline_quotes import materialize_quoted_state, resolve_excerpt
+from ._guideline_quotes import MARKUP_MATCHING, materialize_quoted_state, resolve_excerpt
 from ._guideline_quote_repair import VERSION as QUOTE_REPAIR_VERSION
 from ._guideline_quote_repair import audit_repair
 from ._guideline_schema import (
@@ -102,7 +101,10 @@ def audit_catalog(guideline, output):
     history_path = output / "endpoint_history.json"
     endpoint_history = read_json(history_path) if history_path.exists() else []
     validate_transport_record(settings, settings, endpoint_history)
-    quoted_details = config.get("stage_versions", {}).get("detail_citations") == QUOTE_VERSION
+    # Quoted-excerpt catalogs re-audit under the excerpt-matching rule their run recorded (MARKUP_MATCHING).
+    citation_version = config.get("stage_versions", {}).get("detail_citations")
+    quoted_details = citation_version in MARKUP_MATCHING
+    markup = MARKUP_MATCHING.get(citation_version, False)
     current_json = (
         config.get("stage_versions", {}).get("json_normalization")
         == JSON_NORMALIZATION_VERSION
@@ -127,8 +129,11 @@ def audit_catalog(guideline, output):
                 if accepted["job"].startswith(kind + "-"):
                     result = accepted["result"]
                     if kind == "detail" and "space" in result:
-                        materialize = materialize_quoted_state if quoted_details else materialize_evidence
-                        normalized_results[kind].add(digest(materialize(result, guideline.pages)))
+                        if quoted_details:
+                            materialized = materialize_quoted_state(result, guideline.pages, markup=markup)
+                        else:
+                            materialized = materialize_evidence(result, guideline.pages)
+                        normalized_results[kind].add(digest(materialized))
                     elif kind == "extract" and "candidates" in result:
                         normalized_results[kind].add(digest(result))
     rows = [
@@ -545,7 +550,7 @@ def audit_catalog(guideline, output):
         ),
         "treatment_options": treatment_count,
         "verified_evidence_items": evidence_count,
-        "detail_citation_format": QUOTE_VERSION if quoted_details else "legacy-line-ids",
+        "detail_citation_format": citation_version if quoted_details else "legacy-line-ids",
         "covered_content_pages": len(covered),
         **({"source_kind": "nci_pdq", "source_sections": len(guideline.pages)}
            if guideline.metadata.get("source_kind") == "nci_pdq"
