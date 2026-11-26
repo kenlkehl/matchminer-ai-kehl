@@ -4,7 +4,7 @@ import json
 
 from . import _guideline_prompts as prompts
 from ._guideline_canonical import LEAN_STATE, VERSION, clinical_candidate
-from ._guideline_context import pack_messages
+from ._guideline_context import ContextBudgetError, pack_messages
 from ._guideline_schema import format_space
 from ._guideline_quotes import QUOTED_DETAIL
 
@@ -33,26 +33,40 @@ def build_detail_call(client, guideline, group, candidates, context_chars=None):
         "version": guideline.metadata["version"],
         "catalog_version": VERSION,
     }
-    clinical = {
-        "canonical_group": {k: group[k] for k in LEAN_STATE["properties"]},
-        "tentative_candidates": candidate_menus(group, candidates),
-    }
-    if "population_names" in group:
-        clinical["canonical_group"]["population_names"] = group["population_names"]
-    tail = (
-        "FINAL FIXED POPULATION AND CANDIDATE MENUS TO REVIEW:\n"
-        + json.dumps(clinical, ensure_ascii=False)
-        + "\n\n"
-        + prompts.DETAIL_TASK
-    )
-    return pack_messages(
-        client,
-        guideline,
-        {e["page_id"] for e in group["evidence"]},
-        format_space(group["space"]),
-        prompts.DETAIL_TASK,
-        payload,
-        QUOTED_DETAIL,
-        context_chars,
-        tail=tail,
-    )
+    menus = candidate_menus(group, candidates)
+
+    def call(offered):
+        clinical = {
+            "canonical_group": {k: group[k] for k in LEAN_STATE["properties"]},
+            "tentative_candidates": offered,
+        }
+        if "population_names" in group:
+            clinical["canonical_group"]["population_names"] = group["population_names"]
+        tail = (
+            "FINAL FIXED POPULATION AND CANDIDATE MENUS TO REVIEW:\n"
+            + json.dumps(clinical, ensure_ascii=False)
+            + "\n\n"
+            + prompts.DETAIL_TASK
+        )
+        return pack_messages(
+            client,
+            guideline,
+            {e["page_id"] for e in group["evidence"]},
+            format_space(group["space"]),
+            prompts.DETAIL_TASK,
+            payload,
+            QUOTED_DETAIL,
+            context_chars,
+            tail=tail,
+        )
+
+    count = len(menus)
+    while True:
+        try:
+            return call(menus[:count])
+        except ContextBudgetError:
+            # The population's own evidence pages stay required. The tentative candidate menus are review material:
+            # offer the first half of them, down to none, rather than fail the population.
+            if count == 0:
+                raise
+            count //= 2

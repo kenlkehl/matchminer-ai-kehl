@@ -7,7 +7,7 @@ from dataclasses import replace
 from matchminer_ai._storage import digest
 from matchminer_ai.llm.structured import EndpointError
 
-from ._guideline_context import pack_messages
+from ._guideline_context import ContextBudgetError, pack_messages
 from ._guideline_quotes import resolve_excerpt
 from ._guideline_schema import STRINGS, arr, obj, validate_shape
 from .prompt_builder import load_prompt_text
@@ -129,26 +129,38 @@ def selected_patch(value, candidates, pages):
 
 
 def select_literal_passages(client, guideline, pages, assertion):
-    candidates = literal_choices(pages, assertion)
-    if not candidates:
+    ranked = literal_choices(pages, assertion)
+    if not ranked:
         raise EndpointError("No literal source passages available for citation repair")
-    payload = {"assertion": assertion, "candidates": candidates}
-    source_ids = {item["page_id"] for item in candidates}
-    source_ids.update(
-        r["page_id"] for r in assertion["existing_evidence"] if r["page_id"] in pages
-    )
-    context, _, messages = pack_messages(
-        client,
-        replace(guideline, pages={k: p for k, p in pages.items() if k in source_ids}),
-        source_ids,
-        assertion["assertion"]["name"],
-        load_prompt_text(PROMPT),
-        {},
-        SELECTION,
-        tail=MARKER + json.dumps(payload, ensure_ascii=False),
-        population_guidance=False,
-        system_message=load_prompt_text("guideline.citation_system.txt"),
-    )
+    existing = {r["page_id"] for r in assertion["existing_evidence"] if r["page_id"] in pages}
+    count = len(ranked)
+    while True:
+        candidates = ranked[:count]
+        payload = {"assertion": assertion, "candidates": candidates}
+        source_ids = {item["page_id"] for item in candidates} | existing
+        # Every offered passage's whole page is required; the assertion's existing evidence pages are too, unless the
+        # choices had to be narrowed, when they join only if they fit.
+        required = source_ids if count == len(ranked) else {item["page_id"] for item in candidates}
+        try:
+            context, _, messages = pack_messages(
+                client,
+                replace(guideline, pages={k: p for k, p in pages.items() if k in source_ids}),
+                required,
+                assertion["assertion"]["name"],
+                load_prompt_text(PROMPT),
+                {},
+                SELECTION,
+                tail=MARKER + json.dumps(payload, ensure_ascii=False),
+                population_guidance=False,
+                system_message=load_prompt_text("guideline.citation_system.txt"),
+            )
+            break
+        except ContextBudgetError:
+            # Long table passages can put the ranked choices and their pages over the input budget: offer the
+            # best-ranked half, down to a single choice, rather than fail the repair.
+            if count == 1:
+                raise
+            count //= 2
     supplied = {p.id: p for p in context}
     job = "quote-select-" + digest(messages)[:20]
     result = client.complete(

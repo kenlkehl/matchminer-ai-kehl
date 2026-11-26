@@ -9,7 +9,7 @@ from dataclasses import replace
 from matchminer_ai._storage import atomic_json, digest
 from matchminer_ai.llm.structured import EndpointError
 
-from ._guideline_context import pack_messages
+from ._guideline_context import ContextBudgetError, pack_messages
 from ._guideline_quotes import MARKUP_MATCHING, QUOTED_DETAIL, QUOTED_EVIDENCE, resolve_excerpt
 from ._guideline_quotes import VERSION as QUOTE_VERSION
 from ._guideline_quote_selection import (
@@ -142,14 +142,15 @@ def repair_quoted_response(
             else [set(pages)]
         )
         selection = None
-        for scope in scopes:
-            context, _, messages = pack_messages(
+
+        def pack(scope, needed):
+            return pack_messages(
                 client,
                 replace(
                     guideline,
                     pages={p: page for p, page in pages.items() if p in scope},
                 ),
-                required,
+                needed,
                 owner["name"],
                 load_prompt_text(PROMPT_FILES[0]),
                 {"repair_version": VERSION},
@@ -158,6 +159,19 @@ def repair_quoted_response(
                 population_guidance=False,
                 system_message=load_prompt_text("guideline.citation_system.txt"),
             )
+
+        for scope in scopes:
+            try:
+                context, _, messages = pack(scope, required)
+            except ContextBudgetError:
+                # The whole pages this assertion and its population cite do not fit with the output reserve. Require
+                # only the rejected citation's page (the others join if they fit); else select literal passages.
+                if not focus_ids or focus_ids == required:
+                    continue
+                try:
+                    context, _, messages = pack(scope, focus_ids)
+                except ContextBudgetError:
+                    continue
             supplied = {p.id: p for p in context}
             repair_job = "quote-repair-" + digest(messages)[:20]
             try:

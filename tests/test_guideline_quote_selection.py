@@ -12,11 +12,13 @@ from matchminer_ai.trials._guideline_audit import audit_catalog
 from matchminer_ai.trials._guideline_generation import Client
 from matchminer_ai.trials._guideline_pipeline import run_guideline
 from matchminer_ai.trials._guideline_quote_repair import REPAIR
+from matchminer_ai.trials._guideline_context import ContextBudgetError
 from matchminer_ai.trials._guideline_quote_selection import (
     MARKER,
     PROMPT,
     SELECTION,
     literal_choices,
+    select_literal_passages,
     selected_patch,
 )
 from matchminer_ai.trials._guideline_quotes import resolve_excerpt
@@ -49,6 +51,33 @@ def assertion(text):
         "assertion": {"name": "Synthetic test A"},
         "rejected_evidence": {"page_id": "p0002", "source_text": text},
     }
+
+
+def test_selection_narrows_ranked_choices_until_their_pages_fit(setup, tmp_path, monkeypatch):
+    guideline, _ = setup
+    base = guideline.pages["p0002"]
+    filler = "Unrelated fictional filler line.\n" * 40
+    pages = {}
+    for n in range(1, 17):
+        pid = f"p{n:04d}"
+        pages[pid] = replace(base, id=pid, number=n, path=f"pages/{pid}.md",
+                             text=f"Synthetic test A option {n}.\n" + filler)
+    source = replace(guideline, pages=pages)
+    wanted = {**assertion("Synthetic test A"), "existing_evidence": []}
+    ranked = literal_choices(pages, wanted)
+
+    def client_with(chars):
+        client = Client(StructuredConfig(model="synthetic", tokenizer_mode="bytes", max_prompt_chars=chars),
+                        tmp_path / f"checkpoints-{chars}")
+        monkeypatch.setattr(client, "complete", lambda *a, **k: {"selected_passages": [1], "unresolved": []})
+        return client
+
+    patch, proof = select_literal_passages(client_with(15000), source, pages, wanted)
+    offered = proof["payload"]["candidates"]
+    assert 1 <= len(offered) < len(ranked) and offered == ranked[:len(offered)]
+    assert patch["evidence"] == [{k: offered[0][k] for k in ("page_id", "source_text")}]
+    with pytest.raises(ContextBudgetError):
+        select_literal_passages(client_with(500), source, pages, wanted)
 
 
 def test_duplicate_table_cells_gain_literal_branch_context(setup):
