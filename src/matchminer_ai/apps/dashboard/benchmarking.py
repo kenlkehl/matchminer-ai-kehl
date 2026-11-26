@@ -2,7 +2,8 @@
 
 - **Distillation fidelity** (``matchminer_ai.evaluation.retro_fidelity``): a run directory with ``run_status.json``.
   The tab shows its stage states, the stage receipts' counts and ``metrics/metrics.json`` (retrieval P@20 and mean
-  teacher score with intervals; the decision model's discrimination and calibration per question family). **Export
+  teacher score with intervals; the decision model's discrimination and calibration per question family, and by
+  ranker denominator when the metrics have ``decision.by_ranker``). **Export
   results** (``export``, a background job) draws the page's results as a PDF (``fidelity_report``) into the run's
   ``reports/`` (owner-only); in real mode it adds Table 1 and the metrics by demographic group
   (``matchminer_ai.evaluation.demographics``, from the EHR extract at the site config's ``paths.retro_source_root``,

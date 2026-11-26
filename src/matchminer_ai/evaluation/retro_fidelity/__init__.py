@@ -9,7 +9,8 @@ What it measures, with the teacher (training's labeler and label contracts) as t
 - retrieval: P@20 and the mean teacher 0-6 score of three rankers' top-20 lists, (a) base EmbeddingGemma 2,
   (b) TrialSpace round 2 and (c) TrialSpace's top K reranked by the fine-tuned decision model's reasonableness;
 - the decision model: AUROC, AUPRC, Brier score and calibration of its P(yes) for the five match questions, the
-  boilerplate question and the per-criterion question, on the merged top-20 pairs.
+  boilerplate question and the per-criterion question, on the merged top-20 pairs, and (metrics v4) the match and
+  boilerplate questions on each ranker's own top-20 lists.
 
 Full-denominator mode (``run.py --all-queries --comparison-patient-queries N --comparison-cohort-queries M``): every
 patient and cohort is a query of ranker (c), (a) and (b) run for the seeded comparison subset only, and the metrics

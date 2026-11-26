@@ -47,6 +47,17 @@ Its Design section says which queries each table covers. `--no-criteria` (or `--
 per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
 rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.
 
+**By ranker denominator (metrics v4, 2026-11-26).** Besides the merged union of the three rankers' top-20 lists, the
+metrics stage scores the decision model against the teacher on each ranker's own lists: `decision.by_ranker.<ranker>`
+in `metrics.json` (A `embeddinggemma2`, B `trialspace_round2`, C `trialspace_round2_decision`), with `pooled`,
+`patient_centric` and `trial_centric` tables of the five match questions and boilerplate (no per-criterion rows), the
+union tables' fields and clusters, and `counts`: list rows, unique pairs, pairs with match labels, and the boilerplate
+combinations among the ranker's pairs, those scored and those labeled. `report.md` has a section per ranker. A run
+with `--no-new-boilerplate` has boilerplate labels only for the combinations an earlier run labeled, so a ranker's
+boilerplate rows can cover only part of its combinations; the counts give that coverage. The union tables are
+unchanged. To add the section to a finished run, move its `metrics/` aside and rerun the metrics stage alone with the
+same arguments (its receipt's `provenance.argv`).
+
 ### Demographics
 
 `evaluation.demographics.run_demographics(run_dir, extract_root)` gives a real fidelity run's Table 1 and its

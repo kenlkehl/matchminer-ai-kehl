@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
+import { cn } from "cn";
 import { DownloadIcon } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 
@@ -32,6 +33,8 @@ import { BackToRuns, Section, StateBar } from "./common";
 import { count, duration, interval, num, signed, stamp, words } from "./format";
 import { fidelityOptions, table1Options } from "./queries";
 import type {
+  DecisionScope,
+  DecisionTables,
   ExportResult,
   FamilyMetrics,
   FidelityJob,
@@ -39,6 +42,7 @@ import type {
   FidelityRun,
   MeanInterval,
   PipelineRow,
+  RankerDecision,
   Share,
   StageReceipt,
   Table1Cell,
@@ -77,6 +81,14 @@ const FAMILY_LABELS: Record<string, string> = {
   "criterion (inclusion lines)": "Criteria: inclusion",
   "criterion (exclusion lines)": "Criteria: exclusion",
 };
+/** The rankers' own top-20 denominators (metrics.py ranker_label); ``k`` is (c)'s retriever depth. */
+function denominatorLabel(ranker: string, k: number | null): string {
+  if (ranker === "embeddinggemma2") return "A: EmbeddingGemma 2 top 20";
+  if (ranker === "trialspace_round2") return "B: TrialSpace top 20";
+  if (ranker === "trialspace_round2_decision")
+    return `C: TrialSpace top ${k === null ? "K" : String(k)} reranked by the decision model`;
+  return ranker;
+}
 const BANDS = ["1-20", "21-50", "51-80", "81-100"];
 /** Rank bands of the retriever's list: an ordinal blue ramp, nearest ranks darkest (validated --ordinal). */
 const BAND_COLORS = ["#0d366b", "#1c5cab", "#3987e5", "#86b6ef"];
@@ -113,7 +125,7 @@ export function FidelityRunPage() {
         <>
           <Stages run={run} />
           {run.metrics ? (
-            <Results metrics={run.metrics} kBinding={run.k_binding} />
+            <Results metrics={run.metrics} kBinding={run.k_binding} k={retrieverDepth(run)} />
           ) : (
             <p className="text-sm text-gray-600">
               The results appear here when the metrics stage has run.
@@ -518,19 +530,31 @@ function Receipt({ receipt }: { receipt: StageReceipt | undefined }) {
 
 // --------------------------------------------------------------------------- results
 
+/** Ranker (c)'s retriever depth K, from the lists (c) stage receipt. */
+function retrieverDepth(run: FidelityRun): number | null {
+  const k = run.stages.lists_c?.content?.k;
+  return typeof k === "number" ? k : null;
+}
+
 function Results({
   metrics,
   kBinding,
+  k,
 }: {
   metrics: FidelityMetrics;
   kBinding: FidelityRun["k_binding"];
+  k: number | null;
 }) {
+  const byRanker = metrics.decision?.by_ranker;
   return (
     <>
       {metrics.retrieval ? (
         <Retrieval retrieval={metrics.retrieval} full={metrics.full_pipeline} kBinding={kBinding} />
       ) : null}
       {metrics.decision ? <Decision decision={metrics.decision} /> : null}
+      {byRanker && Object.keys(byRanker).length ? (
+        <DecisionByRanker byRanker={byRanker} k={k} />
+      ) : null}
     </>
   );
 }
@@ -935,7 +959,7 @@ function KBinding({ values, top }: { values: Record<string, number>; top: number
 
 // --------------------------------------------------------------------------- decision model
 
-const SCOPES: [string, string][] = [
+const SCOPES: [DecisionScope, string][] = [
   ["pooled", "Both workflows pooled"],
   ["patient_centric", "Trials for a patient"],
   ["trial_centric", "Patients for a trial"],
@@ -943,7 +967,7 @@ const SCOPES: [string, string][] = [
 
 function Decision({ decision }: { decision: NonNullable<FidelityMetrics["decision"]> }) {
   const scopes = SCOPES.filter(([s]) => decision[s]);
-  const [scope, setScope] = useState(scopes[0]?.[0] ?? "pooled");
+  const [scope, setScope] = useState<DecisionScope>(scopes[0]?.[0] ?? "pooled");
   const tables = decision[scope] ?? {};
   const families = Object.entries(tables);
   const draws = families.find(([, m]) => m.bootstrap_draws)?.[1].bootstrap_draws;
@@ -967,20 +991,7 @@ function Decision({ decision }: { decision: NonNullable<FidelityMetrics["decisio
         </>
       }
     >
-      <Tabs
-        value={scope}
-        onValueChange={(value) => {
-          setScope(String(value));
-        }}
-      >
-        <TabsList>
-          {scopes.map(([s, label]) => (
-            <TabsTrigger key={s} value={s} className="px-3">
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <ScopeTabs scopes={scopes} scope={scope} onChange={setScope} />
       <Table variant="list" className="[&_td]:px-2 [&_th]:px-2">
         <TableHeader>
           <TableRow>
@@ -1052,6 +1063,194 @@ function Decision({ decision }: { decision: NonNullable<FidelityMetrics["decisio
         </TableFooter>
       </Table>
       <Reliability tables={tables} />
+    </Section>
+  );
+}
+
+function ScopeTabs({
+  scopes,
+  scope,
+  onChange,
+}: {
+  scopes: [DecisionScope, string][];
+  scope: DecisionScope;
+  onChange: (scope: DecisionScope) => void;
+}) {
+  return (
+    <Tabs
+      value={scope}
+      onValueChange={(value) => {
+        const found = scopes.find(([s]) => s === value);
+        if (found) onChange(found[0]);
+      }}
+    >
+      <TabsList>
+        {scopes.map(([s, label]) => (
+          <TabsTrigger key={s} value={s} className="px-3">
+            {label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
+}
+
+/**
+ * The decision model against the teacher on each ranker's own top-20 lists (metrics v4 decision.by_ranker): per
+ * question, one row per denominator, A, B and C, and each ranker's boilerplate coverage.
+ */
+function DecisionByRanker({
+  byRanker,
+  k,
+}: {
+  byRanker: Record<string, RankerDecision>;
+  k: number | null;
+}) {
+  const rankers = [
+    ...RANKERS.map(([r]) => r).filter((r) => byRanker[r]),
+    ...Object.keys(byRanker).filter((r) => !RANKERS.some(([known]) => known === r)),
+  ];
+  const scopes = SCOPES.filter(([s]) => rankers.some((r) => byRanker[r]?.[s]));
+  const [scope, setScope] = useState<DecisionScope>(scopes[0]?.[0] ?? "pooled");
+  const tablesOf = (ranker: string): DecisionTables => byRanker[ranker]?.[scope] ?? {};
+  const families = [...new Set(rankers.flatMap((r) => Object.keys(tablesOf(r))))];
+  const cells = rankers.flatMap((r) => Object.values(tablesOf(r)));
+  const draws = cells.find((m) => m.bootstrap_draws)?.bootstrap_draws;
+  const aurocDomain = domainOf(
+    cells.flatMap((m) => [m.auroc?.low, m.auroc?.high]),
+    [1],
+  );
+  const partial = rankers.filter((r) => {
+    const c = byRanker[r]?.counts;
+    return c && c.boilerplate_combinations_labeled < c.boilerplate_combinations;
+  });
+  return (
+    <Section
+      title="Decision model by ranker denominator"
+      description={
+        <>
+          The decision model against the teacher on each ranker's own top {20} lists instead of
+          their merged union: one row per unique pair of the ranker's lists (boilerplate: per unique
+          combination of the two boilerplate texts). Prevalence is the teacher's yes rate. 95%
+          intervals{draws ? ` from ${draws.toLocaleString()} draws` : ""} resample{" "}
+          {scope === "pooled" ? "patients" : "queries"}.
+        </>
+      }
+    >
+      <ScopeTabs scopes={scopes} scope={scope} onChange={setScope} />
+      <Table variant="list" className="[&_td]:px-2 [&_th]:px-2">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Question</TableHead>
+            <TableHead>Denominator</TableHead>
+            <TableHead className="text-right whitespace-normal">n (clusters)</TableHead>
+            <TableHead className="text-right">Prevalence</TableHead>
+            <TableHead>AUROC</TableHead>
+            <TableHead />
+            <TableHead>AUPRC (yes)</TableHead>
+            <TableHead>Brier</TableHead>
+            <TableHead>ECE</TableHead>
+            <TableHead className="whitespace-normal">Cal. intercept</TableHead>
+            <TableHead>Cal. slope</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {families.map((family, f) => (
+            <Fragment key={family}>
+              {rankers.map((ranker, i) => {
+                const m = tablesOf(ranker)[family];
+                const label = denominatorLabel(ranker, k);
+                return (
+                  <TableRow
+                    key={ranker}
+                    className={cn(
+                      f % 2 ? "bg-gray-50 even:bg-gray-50" : "even:bg-transparent",
+                      i === 0 && f > 0 && "border-t border-gray-200",
+                    )}
+                  >
+                    {i === 0 ? (
+                      <TableCell
+                        rowSpan={rankers.length}
+                        className="align-top font-medium whitespace-nowrap"
+                      >
+                        {FAMILY_LABELS[family] ?? family}
+                      </TableCell>
+                    ) : null}
+                    <TableCell className="min-w-60 whitespace-normal">{label}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{count(m?.n ?? 0)}</div>
+                      {m?.n ? (
+                        <div className="text-xs text-gray-500">({count(m.clusters)})</div>
+                      ) : null}
+                    </TableCell>
+                    {m?.n ? (
+                      <>
+                        <TableCell className="text-right tabular-nums">
+                          {num(m.prevalence_yes)}
+                        </TableCell>
+                        <MetricCell m={m.auroc} />
+                        <TableCell>
+                          <IntervalMark
+                            value={m.auroc?.value}
+                            low={m.auroc?.low}
+                            high={m.auroc?.high}
+                            domain={aurocDomain}
+                            width={96}
+                            label={`AUROC, ${FAMILY_LABELS[family] ?? family}, ${label}`}
+                          />
+                        </TableCell>
+                        <MetricCell m={m.auprc_yes} />
+                        <MetricCell m={m.brier} />
+                        <MetricCell m={m.ece} />
+                        <MetricCell m={m.calibration_intercept} sign />
+                        <MetricCell m={m.calibration_slope} />
+                      </>
+                    ) : (
+                      <TableCell colSpan={8} className="text-gray-500">
+                        no rows
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </Fragment>
+          ))}
+        </TableBody>
+        <TableFooter className="border-t-0 bg-transparent font-normal">
+          <TableRow>
+            <TableCell colSpan={5} />
+            <TableCell className="pt-0">
+              <IntervalAxis domain={aurocDomain} width={96} />
+            </TableCell>
+            <TableCell colSpan={5} />
+          </TableRow>
+        </TableFooter>
+      </Table>
+      <div className="flex max-w-4xl flex-col gap-1 text-sm text-gray-600">
+        <p>
+          <span className="font-medium text-gray-900">Boilerplate coverage.</span>{" "}
+          {rankers
+            .map((r) => {
+              const c = byRanker[r]?.counts;
+              if (!c) return null;
+              const share = c.boilerplate_combinations
+                ? ` (${num((100 * c.boilerplate_combinations_labeled) / c.boilerplate_combinations, 1)}%)`
+                : "";
+              return `${denominatorLabel(r, k)}: ${count(c.boilerplate_combinations_labeled)} of ${count(c.boilerplate_combinations)} combinations labeled${share}`;
+            })
+            .filter(Boolean)
+            .join("; ")}
+          .
+        </p>
+        {partial.length ? (
+          <p>
+            Boilerplate rows cover only the combinations with a teacher label. Where that is fewer
+            than all of a ranker's combinations (a run that labels no new boilerplate and reuses an
+            earlier run's labels), its boilerplate metrics describe that labeled subset, not all of
+            its pairs.
+          </p>
+        ) : null}
+      </div>
     </Section>
   );
 }

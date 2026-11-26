@@ -6,9 +6,10 @@ distillation fidelity exercise? and can that also include the Table 1 ... separa
 ``build_report`` draws the PDF from what the run page shows (``Benchmarks.fidelity``: metrics.json, design notes,
 receipts) and, for a real run, the demographic tables of ``matchminer_ai.evaluation.demographics`` (aggregates,
 already suppressed). Sections: a title page (the eval, the models, the denominators), retrieval and the decision model
-with the page's tables and charts, Table 1, the metrics by demographic group, a methods note, counts and design, and
-the stages. Charts follow the page's (one brand-blue series, grey hairline axes; every value is in the table beside
-it). Built with reportlab's own fonts and drawing, so no plotting library is needed.
+with the page's tables and charts (the decision model also by ranker denominator, when the metrics have it), Table 1,
+the metrics by demographic group, a methods note, counts and design, and the stages. Charts follow the page's (one
+brand-blue series, grey hairline axes; every value is in the table beside it). Built with reportlab's own fonts and
+drawing, so no plotting library is needed.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (CondPageBreak, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
                                 TableStyle)
 
+from matchminer_ai.evaluation.demographics import SMALL as SMALL_COUNT
 from matchminer_ai.evaluation.demographics import TABLE1_METHOD, table1_intro
 
 RANKERS = (("embeddinggemma2", "(a) EmbeddingGemma 2 (base)"),
@@ -45,6 +47,7 @@ FAMILY_LABELS = {"reasonableness": "Reasonableness", "cancer_type": "Cancer type
 SCOPES = (("pooled", "Both workflows pooled"), ("patient_centric", "Trials for a patient"),
           ("trial_centric", "Patients for a trial"))
 BANDS = ("1-20", "21-50", "51-80", "81-100")
+
 BAND_COLORS = ("#0d366b", "#1c5cab", "#3987e5", "#86b6ef")  # the page's ordinal ramp, nearest ranks darkest
 STAGE_LABELS = {"extraction": "Cohort extraction", "patients": "Patients", "cohort_table": "Cohort table",
                 "corpus": "Corpus and query samples", "retrieve": "Retrieval", "lists_ab": "Lists (a) and (b)",
@@ -519,6 +522,88 @@ def decision_section(metrics: dict) -> list:
     return out
 
 
+def denominator_label(ranker: str, k=None) -> str:
+    """A ranker's own top-20 denominator (retro_fidelity.metrics.ranker_label); ``k``: (c)'s retriever depth."""
+    labels = {"embeddinggemma2": "A: EmbeddingGemma 2 top 20", "trialspace_round2": "B: TrialSpace top 20",
+              "trialspace_round2_decision": f"C: TrialSpace top {k or 'K'} reranked by the decision model"}
+    return labels.get(ranker, ranker)
+
+
+def decision_by_ranker_section(metrics: dict, k=None, *, mode: str = "real") -> list:
+    """The decision model by ranker denominator (metrics v4 ``decision.by_ranker``; nothing for older runs): per scope,
+    per question, a row for each of A, B and C, and the boilerplate coverage. In real mode a row with fewer than 11
+    pairs (or combinations) or clusters shows n as <11 and no metrics, as the demographic groups do."""
+    by_ranker = (metrics.get("decision") or {}).get("by_ranker") or {}
+    if not by_ranker:
+        return []
+    rankers = [r for r, _ in RANKERS if r in by_ranker] + [r for r in by_ranker if r not in dict(RANKERS)]
+    out = [Spacer(1, 10), CondPageBreak(260), p("Decision model by ranker denominator", H1),
+           p("The decision model against the teacher on each ranker's own top-20 lists instead of their merged union: "
+             "one row per unique pair of the ranker's lists (boilerplate: per unique combination of the two boilerplate "
+             "texts). Prevalence is the teacher's yes rate. 95% intervals resample patients (pooled) or queries (per "
+             "workflow)." + (f" Rows with fewer than {SMALL_COUNT} pairs or clusters show n&lt;{SMALL_COUNT}."
+                             if mode == "real" else ""), BODY)]
+    head = ["Question", "Denominator", "n (clusters)", "Prevalence", "AUROC", "", "AUPRC (yes)", "Brier", "ECE",
+            "Cal. intercept", "Cal. slope"]
+    for scope, title in SCOPES:
+        tables = {r: (by_ranker[r].get(scope) or {}) for r in rankers}
+        families = list(dict.fromkeys(f for t in tables.values() for f in t))
+        if not families:
+            continue
+        cells = [m for t in tables.values() for m in t.values()]
+        domain = domain_of([v for m in cells for v in ((m.get("auroc") or {}).get("low"),
+                                                       (m.get("auroc") or {}).get("high"))], [1])
+        data, spans = [[p(h, HEAD_RIGHT if i in (2, 3) else HEAD) for i, h in enumerate(head)]], []
+        for family in families:
+            spans.append(((0, len(data)), (0, len(data) + len(rankers) - 1)))
+            for i, ranker in enumerate(rankers):
+                m = tables[ranker].get(family) or {}
+                first = [p(f"<b>{escape(FAMILY_LABELS.get(family, family))}</b>") if i == 0 else "",
+                         p(escape(denominator_label(ranker, k)))]
+                n, clusters = m.get("n") or 0, m.get("clusters") or 0
+                if not n:
+                    data.append(first + [p("0", CELL_RIGHT), "no rows"] + [""] * 7)
+                    continue
+                if mode == "real" and (n < SMALL_COUNT or clusters < SMALL_COUNT):
+                    data.append(first + [p(f"&lt;{SMALL_COUNT}", CELL_RIGHT), p(f"n&lt;{SMALL_COUNT}")] + [""] * 7)
+                    continue
+
+                def cell(key, sign=False):
+                    v = m.get(key) or {}
+                    return estimate(v.get("value"), v.get("low"), v.get("high"), sign=sign)
+                a = m.get("auroc") or {}
+                data.append(first + [
+                    p(f"{count(n)}<br/><font size=6.5 color='#6b7280'>({count(clusters)})</font>", CELL_RIGHT),
+                    p(num(m.get("prevalence_yes")), CELL_RIGHT), cell("auroc"),
+                    interval_mark(a.get("value"), a.get("low"), a.get("high"), domain, width=64),
+                    cell("auprc_yes"), cell("brier"), cell("ece"), cell("calibration_intercept", sign=True),
+                    cell("calibration_slope")])
+        data.append(["", "", "", "", "", interval_axis(domain, 64), "", "", "", "", ""])
+        out += [CondPageBreak(200), p(title, H2),
+                table(data, [72, 120, 54, 52, 60, 64, 58, 54, 54, 58, 54], right=(2, 3), spans=spans)]
+    def small(v):  # real mode: counts of 1 to 10 hidden
+        return mode == "real" and 0 < v < SMALL_COUNT
+
+    coverage = []
+    for ranker in rankers:
+        c = by_ranker[ranker].get("counts") or {}
+        total, labeled = c.get("boilerplate_combinations"), c.get("boilerplate_combinations_labeled")
+        if total is None or labeled is None:
+            continue
+        share = f" ({100 * labeled / total:.1f}%)" if total and not small(labeled) and not small(total) else ""
+        shown = [f"<{SMALL_COUNT}" if small(v) else count(v) for v in (labeled, total)]
+        coverage.append(f"{denominator_label(ranker, k)}: {shown[0]} of {shown[1]} combinations labeled{share}")
+    if coverage:
+        out += [Spacer(1, 6), p("<b>Boilerplate coverage.</b> " + escape("; ".join(coverage)) + ".", SMALL)]
+        if any((by_ranker[r].get("counts") or {}).get("boilerplate_combinations_labeled", 0)
+               < (by_ranker[r].get("counts") or {}).get("boilerplate_combinations", 0) for r in rankers):
+            out.append(p("Boilerplate rows cover only the combinations with a teacher label. Where that is fewer than "
+                         "all of a ranker's combinations (a run that labels no new boilerplate and reuses an earlier "
+                         "run's labels), its boilerplate metrics describe that labeled subset, not all of its pairs.",
+                         SMALL))
+    return out
+
+
 def demographic_cell(cell: dict) -> str:
     if cell.get("text"):
         return cell["text"]
@@ -620,6 +705,10 @@ def methods_section(metrics: dict, demographics: bool) -> list:
         "<b>Decision model.</b> AUROC, AUPRC, Brier score, expected calibration error (equal-mass bins), calibration "
         "intercept and slope of its P(yes) against the teacher's answers, on the pairs of the merged top-20 lists; "
         "selection-conditioned on retrieval.",
+        *(["<b>By ranker denominator.</b> The same decision-model metrics over each ranker's own top-20 lists (A: "
+           "EmbeddingGemma 2, B: TrialSpace, C: TrialSpace's top K reranked by the decision model) instead of their "
+           "union; boilerplate rows cover the combinations with a teacher label."]
+          if (metrics.get("decision") or {}).get("by_ranker") else []),
         "<b>Intervals.</b> Percentile bootstraps: queries for the ranker comparison"
         + ("; persons or trials for the full pipeline over every query" if full else "")
         + "; patients (pooled) or queries (per workflow) for the decision model.",
@@ -710,6 +799,8 @@ def build_report(run: dict, directory: Path, *, mode: str, demographics: dict | 
     if metrics:
         story += retrieval_section(metrics, run.get("k_binding"))
         story += decision_section(metrics)
+        k = (((run.get("stages") or {}).get("lists_c") or {}).get("content") or {}).get("k")
+        story += decision_by_ranker_section(metrics, k, mode=mode)
     else:
         story.append(p("The results appear here when the metrics stage has run.", BODY))
     if demographics is not None:
@@ -725,4 +816,4 @@ def build_report(run: dict, directory: Path, *, mode: str, demographics: dict | 
     return buffer.getvalue()
 
 
-__all__ = ["build_report", "eval_of", "models"]
+__all__ = ["build_report", "decision_by_ranker_section", "eval_of", "models"]

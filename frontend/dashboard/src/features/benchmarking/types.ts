@@ -119,9 +119,38 @@ export interface FidelityMetrics {
     clusters: Record<string, string>;
     table: Record<string, PipelineRow>;
   };
-  /** "pooled", "patient_centric", "trial_centric": question family -> metrics. */
-  decision?: Record<string, Record<string, FamilyMetrics>>;
+  decision?: DecisionMetrics;
   counts?: Record<string, number>;
+}
+
+export type DecisionScope = "pooled" | "patient_centric" | "trial_centric";
+
+/** Question family -> metrics. */
+export type DecisionTables = Record<string, FamilyMetrics>;
+
+/** The decision model against the teacher: on the merged top 20 per scope, and on each ranker's own lists. */
+export interface DecisionMetrics {
+  pooled?: DecisionTables;
+  patient_centric?: DecisionTables;
+  trial_centric?: DecisionTables;
+  /** metrics v4: ranker -> the same tables over that ranker's own top-20 lists (absent in older runs). */
+  by_ranker?: Record<string, RankerDecision>;
+}
+
+export interface RankerDecision {
+  counts: {
+    list_rows: number;
+    pairs: number;
+    pairs_with_match_labels: number;
+    /** Boilerplate combinations among the ranker's pairs (cohorts with boilerplate criteria). */
+    boilerplate_combinations: number;
+    boilerplate_combinations_scored: number;
+    /** The boilerplate rows' n. */
+    boilerplate_combinations_labeled: number;
+  };
+  pooled?: DecisionTables;
+  patient_centric?: DecisionTables;
+  trial_centric?: DecisionTables;
 }
 
 export interface FidelityRun {

@@ -75,9 +75,16 @@ TrialSpace model and says so on Data and models if they differ.
   question family), LLM-as-judge runs (cost, agreement, results), and adjudication of the units the two judges
   disagree on. Compare and metrics can be rerun from the tab; the runs themselves start from the command line
   ([Evaluation](../evaluation/index.md)).
+  - A fidelity run whose metrics have it (metrics v4, `decision.by_ranker`) also shows **Decision model by ranker
+    denominator**: per question, the decision model against the teacher on each ranker's own top-20 lists (A:
+    EmbeddingGemma 2 top 20; B: TrialSpace top 20; C: TrialSpace top K reranked by the decision model), with n,
+    prevalence, AUROC, AUPRC (yes), Brier, ECE and calibration intercept and slope with their 95% intervals, pooled or
+    per workflow, and each ranker's boilerplate coverage (combinations with a teacher label of all its combinations).
+    Older and synthetic runs without it show no such section.
   - **Export results** on a fidelity run draws its results as a PDF and downloads it: a title page (the eval, the
-    models, the denominators), the page's retrieval and decision-model tables and charts, a methods note, counts and
-    design, and the stages. A background job builds it into the run's `reports/fidelity_report.pdf` (owner-only);
+    models, the denominators), the page's retrieval and decision-model tables and charts (with the by-ranker tables
+    when the run has them; in real mode a row with fewer than 11 pairs or clusters shows n<11), a methods note, counts
+    and design, and the stages. A background job builds it into the run's `reports/fidelity_report.pdf` (owner-only);
     `GET /api/benchmarks/fidelity/{run_id}/report.pdf` downloads the last one.
   - In real mode the PDF also has **Table 1** of the eval's patients and treatment starts (age at treatment start,
     race, ethnicity, sex, cancer type) and the **headline metrics by demographic group** (the full pipeline's P@20 and

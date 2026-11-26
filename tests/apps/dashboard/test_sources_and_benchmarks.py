@@ -145,3 +145,36 @@ def test_fidelity_export_builds_and_downloads_a_pdf_without_demographics_in_synt
     assert pdf.content.startswith(b"%PDF") and "fidelity-fidelity_run.pdf" in pdf.headers["content-disposition"]
     assert stat.S_IMODE(os.stat(run / "reports" / "fidelity_report.pdf").st_mode) == 0o600
     assert client.get(f"/api/benchmarks/fidelity/{found['id']}").json()["report"]["bytes"] == len(pdf.content)
+    from matchminer_ai.apps.dashboard.fidelity_report import decision_by_ranker_section
+
+    assert decision_by_ranker_section(benchmarks.fidelity(found["id"])["metrics"]) == []  # metrics before v4
+
+
+def test_fidelity_pdf_has_the_decision_model_by_ranker_with_small_rows_suppressed_in_real_mode(tmp_path):
+    from reportlab.platypus import Paragraph, Table
+
+    from matchminer_ai.apps.dashboard.fidelity_report import build_report, decision_by_ranker_section
+
+    value = dict(value=0.9, low=0.85, high=0.95)
+    family = dict(n=200, clusters=40, prevalence_yes=0.6, auroc=value, auprc_yes=value, brier=value, ece=value,
+                  calibration_intercept=value, calibration_slope=value)
+    counts = dict(list_rows=200, pairs=200, pairs_with_match_labels=200, boilerplate_combinations=50,
+                  boilerplate_combinations_scored=50, boilerplate_combinations_labeled=20)
+    by_ranker = {"embeddinggemma2": dict(counts=counts, pooled=dict(reasonableness=family)),
+                 "trialspace_round2_decision": dict(counts=dict(counts, boilerplate_combinations_labeled=50),
+                                                    pooled=dict(reasonableness=dict(family, n=8, clusters=3)))}
+    metrics = {"decision": {"pooled": dict(reasonableness=family), "by_ranker": by_ranker}}
+
+    def texts(flowables):
+        out = []
+        for f in flowables:
+            cells = [c for row in f._cellvalues for c in row] if isinstance(f, Table) else [f]
+            out += [c.getPlainText() if isinstance(c, Paragraph) else str(c) for c in cells]
+        return out
+
+    real = texts(decision_by_ranker_section(metrics, 100, mode="real"))
+    assert "C: TrialSpace top 100 reranked by the decision model" in real and "n<11" in real and "<11" in real
+    assert any(t.startswith("200") for t in real) and any("20 of 50 combinations labeled (40.0%)" in t for t in real)
+    assert "n<11" not in texts(decision_by_ranker_section(metrics, 100, mode="synthetic"))
+    run = dict(name="run", metrics=metrics, stages={"lists_c": {"content": {"k": 100}}})
+    assert build_report(run, tmp_path, mode="real", note="No demographics here.").startswith(b"%PDF")
