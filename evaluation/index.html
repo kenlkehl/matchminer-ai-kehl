@@ -2176,7 +2176,7 @@ authorized, with LLM endpoints approved for it (the site config's <code>endpoint
 </tr>
 <tr>
 <td><code>evaluation.retro_fidelity</code></td>
-<td>Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of three rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family.</td>
+<td>Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of four rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model's P(reasonable); TrialSpace reranked by the app's composite match score), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family, pooled and per ranker.</td>
 </tr>
 <tr>
 <td><code>evaluation.demographics</code></td>
@@ -2218,16 +2218,62 @@ persons, or trials for the trial-centric workflow), and the decision-model metri
 Its Design section says which queries each table covers. <code>--no-criteria</code> (or <code>--criteria-lines 0</code>) leaves out
 per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
 rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.</p>
-<p><strong>By ranker denominator (metrics v4, 2026-11-26).</strong> Besides the merged union of the three rankers' top-20 lists, the
-metrics stage scores the decision model against the teacher on each ranker's own lists: <code>decision.by_ranker.&lt;ranker&gt;</code>
-in <code>metrics.json</code> (A <code>embeddinggemma2</code>, B <code>trialspace_round2</code>, C <code>trialspace_round2_decision</code>), with <code>pooled</code>,
+<p><strong>Rankers.</strong> Every run compares four rankers, each a top-20 list per query (<code>lists.py</code>; stages <code>lists_ab</code>,
+<code>lists_c</code>, <code>lists_d</code>):</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Ranker</th>
+<th>List</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td><code>embeddinggemma2</code></td>
+<td>base EmbeddingGemma 2, cosine top 20</td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>trialspace_round2</code></td>
+<td>TrialSpace round 2, cosine top 20</td>
+</tr>
+<tr>
+<td>C</td>
+<td><code>trialspace_round2_decision</code></td>
+<td>TrialSpace's top K (<code>--k</code>, 100) reranked by the decision model's P(reasonable)</td>
+</tr>
+<tr>
+<td>D</td>
+<td><code>trialspace_round2_composite</code></td>
+<td>the same top K reranked by the composite match score, as the app ranks</td>
+</tr>
+</tbody>
+</table>
+<p>D exists because C is not the ordering users see: <code>score_match_quality</code> and the dashboard rank pairs by
+<code>match_quality_score</code> = P(reasonable) x (1 + P(cancer type) + P(burden) + P(treatment history) + 2 P(biomarker)) / 6,
+the expected fraction of the teacher's 0-6 score (<code>matching.rerank</code>; <code>lists.py</code> calls the same formula). C and D
+rerank the same candidates, ties by TrialSpace rank, and both read the decision model's match scores, so D needs no
+new decision-model work. Each list stage adds the pairs the earlier ones did not have (<code>union_c_extra.jsonl</code>,
+<code>union_d_extra.jsonl</code>), and only those get new teacher labels (<code>labels/match_d</code>, <code>labels/boilerplate_d</code>); the
+boilerplate decisions cover the union of all four (<code>lists_d/union.jsonl</code>). D has no per-criterion strata. In
+full-denominator mode C and D rank every query and A and B the comparison subset (all of them with <code>--compare-all</code>).
+<code>--reuse-run</code> reuses an earlier run's decision scores and teacher labels for all four, so only new pairs are labeled.
+The retrieval tables and paired differences (D-C, D-B, D-A beside B-A, C-B, C-A) include D; the full-pipeline table
+over every query stays C's.</p>
+<p><strong>By ranker denominator (metrics v4, 2026-11-26; D since v5).</strong> Besides the merged union of the rankers' top-20 lists,
+the metrics stage scores the decision model against the teacher on each ranker's own lists:
+<code>decision.by_ranker.&lt;ranker&gt;</code> in <code>metrics.json</code> (A to D), with <code>pooled</code>,
 <code>patient_centric</code> and <code>trial_centric</code> tables of the five match questions and boilerplate (no per-criterion rows), the
 union tables' fields and clusters, and <code>counts</code>: list rows, unique pairs, pairs with match labels, and the boilerplate
 combinations among the ranker's pairs, those scored and those labeled. <code>report.md</code> has a section per ranker. A run
 with <code>--no-new-boilerplate</code> has boilerplate labels only for the combinations an earlier run labeled, so a ranker's
-boilerplate rows can cover only part of its combinations; the counts give that coverage. The union tables are
-unchanged. To add the section to a finished run, move its <code>metrics/</code> aside and rerun the metrics stage alone with the
-same arguments (its receipt's <code>provenance.argv</code>).</p>
+boilerplate rows can cover only part of its combinations; the counts give that coverage. To add D or these tables
+to a finished run, run <code>lists.py d</code> (and, for D's boilerplate rows, <code>decide.py boilerplate</code> over <code>lists_d/union.jsonl</code>
+with the run's own <code>--reuse</code>), label <code>union_d_extra.jsonl</code> like <code>labels/match_c</code>, move <code>metrics/</code> aside and rerun the
+metrics stage with <code>--lists lists_d</code> and the new label directory beside its receipt's other arguments
+(<code>provenance.argv</code>).</p>
 <h3 id="demographics">Demographics<a class="headerlink" href="#demographics" title="Permanent link">&para;</a></h3>
 <p><code>evaluation.demographics.run_demographics(run_dir, extract_root)</code> gives a real fidelity run's Table 1 and its
 headline metrics by demographic group, aggregates only, with small cells suppressed (the dashboard's Export results
