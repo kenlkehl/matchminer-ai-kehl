@@ -107,7 +107,12 @@ def run_guideline(
         if retry_failed:
             from matchminer_ai.llm.structured import retire_failed_attempts
 
-            retired = retire_failed_attempts(output / "checkpoints")
+            # The requests whose failure ended the last run, as each stage recorded them.
+            failed = set()
+            for name in ("extraction.json", "canonical_batches.json", "details.json"):
+                if (output / name).exists():
+                    failed.update(read_json(output / name).get("failures", {}))
+            retired = retire_failed_attempts(output / "checkpoints", failed)
             if progress_callback and retired:
                 try:
                     progress_callback(f"{guideline.disease}: retrying {retired} failed requests fresh")

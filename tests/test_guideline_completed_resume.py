@@ -233,14 +233,14 @@ def test_retry_prompt_compatibility_still_rejects_real_changes(completed, change
         pipeline.run_guideline(guideline, output, config, finalize=finalize)
 
 
-def test_retry_failed_asks_exhausted_requests_again_and_keeps_answers(tmp_path, monkeypatch):
+def test_retry_failed_asks_recorded_failures_again_and_keeps_answers(tmp_path, monkeypatch):
     from matchminer_ai.llm.structured import EndpointError, StructuredClient, retire_failed_attempts
 
     monkeypatch.setattr("matchminer_ai.llm.structured.cancel_sleep", lambda _: None)
-    answers = iter(["draft", "draft", "final"])
+    state = {"answer": "draft"}
 
     def respond(self, endpoint, body, **kwargs):
-        content = json.dumps({"value": next(answers)})
+        content = json.dumps({"value": state["answer"]})
         return {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
 
     monkeypatch.setattr(StructuredClient, "_http", respond)
@@ -251,11 +251,21 @@ def test_retry_failed_asks_exhausted_requests_again_and_keeps_answers(tmp_path, 
         if value["value"] != "final":
             raise ValueError("Synthetic validation finding")
 
-    call = ("job", [{"role": "user", "content": "Synthetic task."}],
-            {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}, validate)
-    for expected in ("exhausted 2 attempts", "saved attempts exhausted"):
-        with pytest.raises(EndpointError, match=expected):
-            client.complete(*call, reuse_exhausted=True)
-    assert retire_failed_attempts(cache, label="test") == 1
-    assert client.complete(*call, reuse_exhausted=True) == {"value": "final"}
-    assert retire_failed_attempts(cache) == 0 and len(list(cache.glob("*/retired-test/failure-*.json"))) == 2
+    def ask(job):
+        return client.complete(job, [{"role": "user", "content": f"Synthetic task {job}."}],
+                               {"type": "object", "properties": {"value": {"type": "string"}}}, validate,
+                               reuse_exhausted=True)
+
+    for job in ("job", "other", "early"):
+        with pytest.raises(EndpointError, match="exhausted 2 attempts"):
+            ask(job)
+    with pytest.raises(EndpointError, match="saved attempts exhausted"):
+        ask("job")
+    state["answer"] = "final"
+    ask("early-part0001")  # a part of "early" was answered after it was exhausted
+    # "other" is not named, and "early" led to an answered part: only "job" is asked again.
+    assert retire_failed_attempts(cache, {"job", "early"}, label="test") == 1
+    assert ask("job") == {"value": "final"}
+    with pytest.raises(EndpointError, match="saved attempts exhausted"):
+        ask("other")
+    assert len(list(cache.glob("*/retired-test/failure-*.json"))) == 2

@@ -115,8 +115,10 @@ def summarize_guidelines(
         provenance; subsequent requests record the new transport. Different
         models or context windows require a separate output directory.
     retry_failed : bool, optional
-        On resume, retry fresh every request whose saved attempts all failed, instead of replaying those failures.
-        Its failed attempts are moved aside (``retired-<time>/`` in its checkpoint); accepted answers are kept.
+        On resume, ask again the requests whose failure ended the last run (each stage's recorded failures, with
+        their fallbacks) instead of replaying their saved failures. Their attempts are moved aside
+        (``retired-<time>/`` in the checkpoint); accepted answers, and requests a fallback or split answered, are
+        kept.
 
     Returns
     -------

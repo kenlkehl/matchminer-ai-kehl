@@ -290,22 +290,40 @@ def read_chat_stream(lines, *, guards=()):
     return result
 
 
-def retire_failed_attempts(cache_dir, *, label=None):
-    """Set aside the saved failed attempts of every checkpointed request that has no accepted answer.
+def _saved_job(folder):
+    """The job name of a checkpointed request: the first key of its request.json, read without loading the body."""
+    with open(folder / "request.json", encoding="utf-8") as stream:
+        match = re.search(r'"job": "([^"]*)"', stream.read(4096))
+    return match.group(1) if match else ""
 
-    A resumed request otherwise replays its saved failures (``reuse_exhausted``) instead of asking again. Its request
-    identity is unchanged, so the next run retries it fresh; accepted answers and token counts are untouched. The
-    attempts move into the request's ``retired-<label>/`` folder rather than being deleted. Returns the number of
-    requests retired.
+
+def retire_failed_attempts(cache_dir, jobs, *, label=None):
+    """Set aside the saved failed attempts of the named requests, so that a resumed run asks them again.
+
+    A resumed request otherwise replays its saved failures (``reuse_exhausted``). ``jobs`` names the requests whose
+    failure ended the run; their fallbacks and parts (jobs that extend a name with "-") are included. A request with an
+    accepted answer is never touched, nor is one whose own fallback or part was answered (an accepted job extends its
+    name): its exhaustion is what led there, and asking it again would change an accepted path. The attempts move into
+    the request's ``retired-<label>/`` folder; the request identity is unchanged. Returns the number retired.
     """
     from datetime import UTC, datetime
 
+    names = set(jobs)
     label = label or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    retired = 0
+    answered, unanswered = set(), []
     for folder in sorted(Path(cache_dir).glob("*")):
-        if not (folder / "request.json").is_file() or (folder / "accepted.json").exists():
+        if not (folder / "request.json").is_file():
             continue
-        if not any(folder.glob("failure-*.json")):
+        job = _saved_job(folder)
+        if (folder / "accepted.json").exists():
+            answered.add(job)
+        elif any(folder.glob("failure-*.json")):
+            unanswered.append((folder, job))
+    retired = 0
+    for folder, job in unanswered:
+        if not any(job == name or job.startswith(name + "-") for name in names):
+            continue
+        if any(other.startswith(job + "-") for other in answered):
             continue
         target = folder / f"retired-{label}"
         target.mkdir()
