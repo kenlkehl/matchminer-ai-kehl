@@ -10,7 +10,7 @@ Install with the evaluation extra: `uv pip install -e ".[training,evaluation]"`.
 | Module | What it does |
 | --- | --- |
 | `evaluation.retro_cohorts` | Retrospective denominators from an institution's structured EHR extract (its location is the site config's `paths.retro_source_root`): trial-treatment starts and standard-of-care (SOC) treatment starts with their index dates (`pull_denominators`), the SOC trial sample (`sample_soc_trials`), note-level datasets cut before the index date with the event's own trial identifiers masked (`build_note_level_dataset`), and their serial summaries on the site's teacher server (`summarize_retro_cohorts`, `endpoints.teacher.url`). |
-| `evaluation.retro_fidelity` | Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of three rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family. |
+| `evaluation.retro_fidelity` | Distillation fidelity on those patients, with the teacher's labels as the reference: P@20 and the mean teacher score of four rankers' top-20 lists (base EmbeddingGemma 2; TrialSpace; TrialSpace reranked by the decision model's P(reasonable); TrialSpace reranked by the app's composite match score), and the decision model's AUROC, AUPRC, Brier score and calibration for every question family, pooled and per ranker. |
 | `evaluation.demographics` | Table 1 and fidelity metrics by demographic group for a real fidelity run (the dashboard's PDF export): links the run's patients to the EHR extract's registration and treatment plan tables, and suppresses small cells. |
 | `evaluation.dual_judge` | Two frontier LLM judges (Claude Opus through a Databricks AI Gateway and Gemini on Vertex AI; GPT on Azure before 2026-11-23) grade cohort extraction, patient summaries and the decision questions; the user adjudicates disagreements on the dashboard's Benchmarking tab. |
 | `evaluation.cohort_lineitems` | One row per cohort for a table of ctgov-style listings, extracted with training's ctgov extractor (`training.trials.extract_ctgov_cohorts`), under the column names the evaluations read. |
@@ -47,16 +47,40 @@ Its Design section says which queries each table covers. `--no-criteria` (or `--
 per-criterion checking entirely: no line sample, no teacher labels or decision scores for it, and no per-criterion
 rows in the metrics. Without these options a run's stages, identities and outputs are unchanged.
 
-**By ranker denominator (metrics v4, 2026-11-26).** Besides the merged union of the three rankers' top-20 lists, the
-metrics stage scores the decision model against the teacher on each ranker's own lists: `decision.by_ranker.<ranker>`
-in `metrics.json` (A `embeddinggemma2`, B `trialspace_round2`, C `trialspace_round2_decision`), with `pooled`,
+**Rankers.** Every run compares four rankers, each a top-20 list per query (`lists.py`; stages `lists_ab`,
+`lists_c`, `lists_d`):
+
+| | Ranker | List |
+| --- | --- | --- |
+| A | `embeddinggemma2` | base EmbeddingGemma 2, cosine top 20 |
+| B | `trialspace_round2` | TrialSpace round 2, cosine top 20 |
+| C | `trialspace_round2_decision` | TrialSpace's top K (`--k`, 100) reranked by the decision model's P(reasonable) |
+| D | `trialspace_round2_composite` | the same top K reranked by the composite match score, as the app ranks |
+
+D exists because C is not the ordering users see: `score_match_quality` and the dashboard rank pairs by
+`match_quality_score` = P(reasonable) x (1 + P(cancer type) + P(burden) + P(treatment history) + 2 P(biomarker)) / 6,
+the expected fraction of the teacher's 0-6 score (`matching.rerank`; `lists.py` calls the same formula). C and D
+rerank the same candidates, ties by TrialSpace rank, and both read the decision model's match scores, so D needs no
+new decision-model work. Each list stage adds the pairs the earlier ones did not have (`union_c_extra.jsonl`,
+`union_d_extra.jsonl`), and only those get new teacher labels (`labels/match_d`, `labels/boilerplate_d`); the
+boilerplate decisions cover the union of all four (`lists_d/union.jsonl`). D has no per-criterion strata. In
+full-denominator mode C and D rank every query and A and B the comparison subset (all of them with `--compare-all`).
+`--reuse-run` reuses an earlier run's decision scores and teacher labels for all four, so only new pairs are labeled.
+The retrieval tables and paired differences (D-C, D-B, D-A beside B-A, C-B, C-A) include D; the full-pipeline table
+over every query stays C's.
+
+**By ranker denominator (metrics v4, 2026-11-26; D since v5).** Besides the merged union of the rankers' top-20 lists,
+the metrics stage scores the decision model against the teacher on each ranker's own lists:
+`decision.by_ranker.<ranker>` in `metrics.json` (A to D), with `pooled`,
 `patient_centric` and `trial_centric` tables of the five match questions and boilerplate (no per-criterion rows), the
 union tables' fields and clusters, and `counts`: list rows, unique pairs, pairs with match labels, and the boilerplate
 combinations among the ranker's pairs, those scored and those labeled. `report.md` has a section per ranker. A run
 with `--no-new-boilerplate` has boilerplate labels only for the combinations an earlier run labeled, so a ranker's
-boilerplate rows can cover only part of its combinations; the counts give that coverage. The union tables are
-unchanged. To add the section to a finished run, move its `metrics/` aside and rerun the metrics stage alone with the
-same arguments (its receipt's `provenance.argv`).
+boilerplate rows can cover only part of its combinations; the counts give that coverage. To add D or these tables
+to a finished run, run `lists.py d` (and, for D's boilerplate rows, `decide.py boilerplate` over `lists_d/union.jsonl`
+with the run's own `--reuse`), label `union_d_extra.jsonl` like `labels/match_c`, move `metrics/` aside and rerun the
+metrics stage with `--lists lists_d` and the new label directory beside its receipt's other arguments
+(`provenance.argv`).
 
 ### Demographics
 

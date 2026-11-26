@@ -16,10 +16,16 @@ corpus instead of the extraction, patients and cohort-table stages, so the Bench
 synthetic mode has a run to show. ``--teacher-after`` holds the label jobs until the named files exist (other teacher
 work finishes first); ``--embed-device`` encodes on GPUs instead of the CPU.
 
+Rankers (lists.py): (a) EmbeddingGemma 2 and (b) TrialSpace top 20; (c) TrialSpace's top K reranked by the decision
+model's P(reasonable); (d) the same top K reranked by the composite match score the app ranks by (lists d, from the
+same decision scores). Every ranker's top-20 pairs get teacher labels (labels match_ab, match_c, match_d: each the
+pairs the earlier lists did not have), and metrics reports retrieval and the decision model per ranker as well as
+over their union.
+
 Full-denominator mode (``--all-queries`` with ``--comparison-patient-queries N --comparison-cohort-queries M``): every
-patient and every cohort is a query, the full pipeline (c) ranks and is labeled for all of them, and rankers (a) and
-(b) only for the seeded comparison subset (prepare.py corpus). ``--no-criteria`` (or ``--criteria-lines 0``) leaves out
-the per-criterion sample, its teacher labels and decision scores. ``--extraction-workers N`` passes ``--workers N`` to
+patient and every cohort is a query, the full pipeline (c) and the app's ordering (d) rank and are labeled for all of
+them, and rankers (a) and (b) only for the seeded comparison subset (prepare.py corpus). ``--no-criteria`` (or
+``--criteria-lines 0``) leaves out the per-criterion sample, its teacher labels and decision scores. ``--extraction-workers N`` passes ``--workers N`` to
 the extraction job (cohorts.py; part of its identity with ``--extraction-source``).
 """
 import argparse
@@ -40,7 +46,8 @@ MODEL = 'nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4'
 FP8 = 'RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8'
 # Per-job ceilings on each server (concurrency control files); the labelers' adaptive controllers work below them.
 CAPS = {'match_ab': (512, 6), 'boilerplate_ab': (320, 4), 'criteria_ab': (128, 2),
-        'match_c': (256, 2), 'boilerplate_c': (128, 1), 'criteria_c': (64, 1)}
+        'match_c': (256, 2), 'boilerplate_c': (128, 1), 'criteria_c': (64, 1),
+        'match_d': (256, 2), 'boilerplate_d': (128, 1)}
 
 
 class Job:
@@ -123,8 +130,12 @@ def plan(args):
                              '--decisions', e('decide', 'match'), '--lists-ab', e('lists_ab'), '--criteria-lines',
                              str(args.criteria_lines), '--seed', str(args.seed), '--output', e('lists_c')],
                  ['decide_match', 'lists_ab'], output=e('lists_c')),
-             Job('decide_boilerplate', decide + ['boilerplate', '--pairs', e('lists_c', 'union.jsonl'), '--output',
-                                                 e('decide', 'boilerplate')] + gpu, ['lists_c'], 'gpu',
+             # ranker (d): the same top K reranked by the app's composite match score (no new decision scores)
+             Job('lists_d', [*mod('lists'), 'd', '--retrieval', e('retrieval'), '--corpus', e('corpus'),
+                             '--decisions', e('decide', 'match'), '--lists-c', e('lists_c'), '--seed', str(args.seed),
+                             '--output', e('lists_d')], ['lists_c'], output=e('lists_d')),
+             Job('decide_boilerplate', decide + ['boilerplate', '--pairs', e('lists_d', 'union.jsonl'), '--output',
+                                                 e('decide', 'boilerplate')] + gpu, ['lists_d'], 'gpu',
                  e('decide', 'boilerplate')),
              *([] if args.no_criteria else [
                  Job('decide_criteria', decide + ['criteria', '--lines', e('lists_ab', 'criteria_lines.jsonl'),
@@ -144,6 +155,10 @@ def plan(args):
              ('match_c', 'match', e('lists_c', 'union_c_extra.jsonl'), ['lists_c'], []),
              ('boilerplate_c', 'boilerplate', e('lists_c', 'union_c_extra.jsonl'), ['lists_c', 'label_boilerplate_ab'],
               ['--skip-labeled', e('labels', 'boilerplate_ab')]),
+             ('match_d', 'match', e('lists_d', 'union_d_extra.jsonl'), ['lists_d'], []),
+             ('boilerplate_d', 'boilerplate', e('lists_d', 'union_d_extra.jsonl'),
+              ['lists_d', 'label_boilerplate_ab', 'label_boilerplate_c'],
+              ['--skip-labeled', e('labels', 'boilerplate_ab'), e('labels', 'boilerplate_c')]),
              ('criteria_c', 'criteria', e('lists_c', 'criteria_lines.jsonl'), ['lists_c'], [])]
     if args.no_criteria:
         specs = [spec for spec in specs if spec[1] != 'criteria']
@@ -155,10 +170,11 @@ def plan(args):
     labels = [f'label_{name}' for name, *_ in specs]
     criteria = [] if args.no_criteria else ['--criteria-labels', e('labels', 'criteria_ab'), e('labels', 'criteria_c')]
     decided = [] if args.no_criteria else ['--decide-criteria', e('decide', 'criteria')]
-    jobs.append(Job('metrics', [*mod('metrics'), '--corpus', e('corpus'), '--lists', e('lists_c'),
+    jobs.append(Job('metrics', [*mod('metrics'), '--corpus', e('corpus'), '--lists', e('lists_d'),
                                 '--lists-ab', e('lists_ab'), '--retrieval', e('retrieval'), '--match-labels',
-                                e('labels', 'match_ab'), e('labels', 'match_c'), '--boilerplate-labels',
-                                e('labels', 'boilerplate_ab'), e('labels', 'boilerplate_c'), *criteria,
+                                e('labels', 'match_ab'), e('labels', 'match_c'), e('labels', 'match_d'),
+                                '--boilerplate-labels', e('labels', 'boilerplate_ab'), e('labels', 'boilerplate_c'),
+                                e('labels', 'boilerplate_d'), *criteria,
                                 '--decide-match', e('decide', 'match'), '--decide-boilerplate',
                                 e('decide', 'boilerplate'), *decided, '--output', e('metrics')],
                     [*labels, *([] if args.no_criteria else ['decide_criteria']), 'decide_boilerplate'],
@@ -170,6 +186,7 @@ def plan(args):
 
 
 REUSED_LABELS = 'reused_labels.json'
+PARTS = ('ab', 'c', 'd')  # the label jobs' list stages: (a)(b), (c), (d)
 
 
 def label_dirs(run) -> dict:
@@ -178,7 +195,7 @@ def label_dirs(run) -> dict:
     run = Path(run)
     if (run / REUSED_LABELS).is_file():
         return json.loads((run / REUSED_LABELS).read_text())
-    return {task: [str(run / 'labels' / f'{task}_{part}') for part in ('ab', 'c')
+    return {task: [str(run / 'labels' / f'{task}_{part}') for part in PARTS
                    if (run / 'labels' / f'{task}_{part}' / 'stage_receipt.json').is_file()]
             for task in ('match', 'boilerplate')}
 
@@ -196,7 +213,7 @@ def reuse(args, jobs):
         jobs[f'decide_{task}'].command += ['--reuse', str(old / 'decide' / task / 'scores.parquet')]
         if task == 'boilerplate' and args.no_new_boilerplate:
             jobs['decide_boilerplate'].command.append('--reuse-only')
-            for part in ('ab', 'c'):
+            for part in PARTS:
                 del jobs[f'label_boilerplate_{part}']
             jobs['metrics'].deps = [d for d in jobs['metrics'].deps if not d.startswith('label_boilerplate')]
             command = jobs['metrics'].command
@@ -204,7 +221,7 @@ def reuse(args, jobs):
             end = next((i for i in range(at, len(command)) if command[i].startswith('--')), len(command))
             command[at:end] = earlier[task]
             continue
-        for part in ('ab', 'c'):
+        for part in PARTS:
             command = jobs[f'label_{task}_{part}'].command
             if '--skip-labeled' in command:
                 at = command.index('--skip-labeled') + 1
@@ -248,10 +265,11 @@ def query_note(args):
         return (f'{args.patient_queries} sampled for the patient-centric workflow and {args.cohort_queries} cohorts for '
                 f'the trial-centric one (seed {args.seed}; corpus/sample.json).')
     if args.compare_all:
-        return ('every one is a patient-centric query and every cohort a trial-centric one, and all three rankers '
-                '(a), (b) and (c) rank and are labeled for every query (full denominators, --compare-all).')
-    return ('every one is a patient-centric query and every cohort a trial-centric one (full denominator: ranker (c), '
-            'the full pipeline, ranks and is labeled for all of them); rankers (a) and (b) run only for a seeded '
+        return ('every one is a patient-centric query and every cohort a trial-centric one, and all four rankers '
+                '(a)-(d) rank and are labeled for every query (full denominators, --compare-all).')
+    return ('every one is a patient-centric query and every cohort a trial-centric one (full denominator: rankers (c), '
+            'the full pipeline, and (d), the app\'s ordering, rank and are labeled for all of them); rankers (a) and '
+            '(b) run only for a seeded '
             f'comparison subset of {args.comparison_patient_queries} of them and {args.comparison_cohort_queries} '
             f'cohorts (seed {args.seed}; corpus/sample.json comparison_patient_queries / comparison_cohort_queries).')
 
@@ -353,7 +371,7 @@ def start_proxy(args, root):
     return None
 
 
-def main(argv=None):
+def parser():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--root', required=True, help='The evaluation directory (PHI)')
     p.add_argument('--trials', help='The trial sample CSV (a real run)')
@@ -381,7 +399,7 @@ def main(argv=None):
     p.add_argument('--patient-queries', type=int, help='Sampled patient-centric queries (default 500)')
     p.add_argument('--cohort-queries', type=int, help='Sampled trial-centric queries (default 200)')
     p.add_argument('--all-queries', action='store_true', help='Full denominator: every patient and every cohort is a '
-                   'query of ranker (c); (a) and (b) only for the comparison queries')
+                   'query of rankers (c) and (d); (a) and (b) only for the comparison queries')
     p.add_argument('--comparison-patient-queries', type=int, help='With --all-queries: seeded patient-centric queries '
                    'of rankers (a) and (b)')
     p.add_argument('--comparison-cohort-queries', type=int, help='With --all-queries: seeded trial-centric queries of '
@@ -405,6 +423,11 @@ def main(argv=None):
                    "paths.hf_cache)")
     p.add_argument('--label-attempts', type=int, default=3)
     p.add_argument('--poll-seconds', type=int, default=30)
+    return p
+
+
+def main(argv=None):
+    p = parser()
     args = p.parse_args(argv)
     if not args.synthetic_corpus and not (args.trials and args.summaries and args.denominator):
         p.error('a real run needs --trials, --summaries and --denominator (or give --synthetic-corpus)')
@@ -464,7 +487,8 @@ def main(argv=None):
             f'summaries; {query_note(args)}',
             "Trials: the n=5000 run's ctgov cohorts (training's extraction; trialspace_corpus).",
             f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
-            f'(c) TrialSpace\'s top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
+            f'(c) TrialSpace\'s top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20; '
+            f'(d) the same top {args.k} reranked by the composite match score (as in the app), top 20. '
             f'Key texts, trialspace prompt profile, 4,096-token cap, encoded on {args.embed_device}.',
             'TrialSpace round 2 was fine-tuned on every synthetic patient (split policy all_synthetic_training), '
             'these included, so its retrieval results here are optimistic; the decision model never trained on the '
@@ -481,7 +505,9 @@ def main(argv=None):
             patients_note(args),
             trials_note(args),
             f'Rankers: (a) base google/embeddinggemma-2 @914f7f89 cosine top 20; (b) TrialSpace round 2 cosine top 20; '
-            f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20. '
+            f'(c) TrialSpace top {args.k} reranked by the decision model\'s reasonableness P(yes), top 20; '
+            f'(d) the same top {args.k} reranked by the composite match score (as in the app: P(reasonable) x (1 + '
+            'P(cancer type) + P(burden) + P(treatment history) + 2 P(biomarker)) / 6), top 20. '
             'Key texts, trialspace prompt profile, 4,096-token cap, '
             + ('CPU float32 encoding.' if args.embed_device == 'cpu' else
                f'encoded on {args.embed_device} (bf16 autocast).'),
@@ -494,8 +520,8 @@ def main(argv=None):
                'combinations it had no answer for were scored and labeled. Teacher labels are sampled (temperature '
                '1.0), so reused and new labels are draws of the same labeler.'] if args.reuse_run else []),
             *(['No boilerplate was labeled or scored anew (--no-new-boilerplate): the boilerplate tables cover the '
-               'combinations the earlier runs labeled, the pairs of every (c) list and of the earlier comparison '
-               'subset.'] if args.no_new_boilerplate else [])])
+               'combinations the earlier runs labeled, the pairs of every (c) and (d) list and of the earlier '
+               'comparison subset.'] if args.no_new_boilerplate else [])])
     proxy, released = None, False
     status_path = root / 'run_status.json'
     log(f'orchestrator started: {len(jobs)} jobs')

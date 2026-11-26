@@ -55,11 +55,16 @@ const RANKERS: [string, string][] = [
   ["embeddinggemma2", "(a) EmbeddingGemma 2 (base)"],
   ["trialspace_round2", "(b) TrialSpace round 2"],
   ["trialspace_round2_decision", "(c) TrialSpace round 2 top K + decision reasonableness"],
+  [
+    "trialspace_round2_composite",
+    "(d) TrialSpace round 2 top K + composite match score (as in the app)",
+  ],
 ];
 const SHORT: Record<string, string> = {
   embeddinggemma2: "(a)",
   trialspace_round2: "(b)",
   trialspace_round2_decision: "(c)",
+  trialspace_round2_composite: "(d)",
 };
 const WORKFLOWS: [string, string][] = [
   ["patient_centric", "Trials for a patient (patient-centric)"],
@@ -69,6 +74,9 @@ const DIFFERENCES: [string, string][] = [
   ["trialspace_round2", "embeddinggemma2"],
   ["trialspace_round2_decision", "trialspace_round2"],
   ["trialspace_round2_decision", "embeddinggemma2"],
+  ["trialspace_round2_composite", "trialspace_round2_decision"],
+  ["trialspace_round2_composite", "trialspace_round2"],
+  ["trialspace_round2_composite", "embeddinggemma2"],
 ];
 const FAMILY_LABELS: Record<string, string> = {
   reasonableness: "Reasonableness",
@@ -87,6 +95,8 @@ function denominatorLabel(ranker: string, k: number | null): string {
   if (ranker === "trialspace_round2") return "B: TrialSpace top 20";
   if (ranker === "trialspace_round2_decision")
     return `C: TrialSpace top ${k === null ? "K" : String(k)} reranked by the decision model`;
+  if (ranker === "trialspace_round2_composite")
+    return `D: TrialSpace top ${k === null ? "K" : String(k)} reranked by the composite match score (as in the app)`;
   return ranker;
 }
 const BANDS = ["1-20", "21-50", "51-80", "81-100"];
@@ -364,6 +374,7 @@ function stageLabel(job: string): string {
     retrieve: "Retrieval",
     lists_ab: "Lists (a) and (b)",
     lists_c: "Lists (c): decision rerank",
+    lists_d: "Lists (d): composite rerank",
     metrics: "Metrics",
   };
   if (fixed[job]) return fixed[job];
@@ -374,9 +385,9 @@ function stageLabel(job: string): string {
   }
   m = /^decide_(.+)$/.exec(job);
   if (m?.[1]) return `Decision model: ${words(m[1])}`;
-  m = /^label_(.+)_(ab|c)$/.exec(job);
+  m = /^label_(.+)_(ab|c|d)$/.exec(job);
   if (m?.[1] && m[2])
-    return `Teacher labels: ${words(m[1])}, lists ${m[2] === "ab" ? "(a)(b)" : "(c)"}`;
+    return `Teacher labels: ${words(m[1])}, lists ${m[2] === "ab" ? "(a)(b)" : `(${m[2]})`}`;
   return words(job);
 }
 
@@ -980,9 +991,9 @@ function Decision({ decision }: { decision: NonNullable<FidelityMetrics["decisio
       title="Decision model against the teacher"
       description={
         <>
-          On the merged top {20} pairs of the three rankers: one row per unique pair (boilerplate:
-          per unique combination of the two boilerplate texts; criteria: a stratified sample). Yes
-          means potentially eligible or not clearly failing; for the cancer type, burden, treatment
+          On the merged top {20} pairs of the rankers: one row per unique pair (boilerplate: per
+          unique combination of the two boilerplate texts; criteria: a stratified sample). Yes means
+          potentially eligible or not clearly failing; for the cancer type, burden, treatment
           history and biomarker questions, yes means the cohort specifically requires it and the
           patient is documented to meet it. AUPRC (no) scores 1 − P(yes) against the no class; its
           chance level is the no prevalence. 95% intervals

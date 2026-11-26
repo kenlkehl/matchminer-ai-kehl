@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""Stages lists-ab and lists-c: the three rankers' top-20 lists, their merged union, and the per-criterion sample.
+"""Stages lists-ab, lists-c and lists-d: the four rankers' top-20 lists, their merged union, and the per-criterion
+sample.
 
 Rankers (common.RANKERS), per workflow and query:
 - (a) ``embeddinggemma2``: base EmbeddingGemma 2's cosine top 20;
 - (b) ``trialspace_round2``: TrialSpace round 2's cosine top 20;
 - (c) ``trialspace_round2_decision``: TrialSpace's top K (retrieve.py ``--k``) reranked by the decision model's
-  reasonableness P(yes), ties by TrialSpace rank (``rerank``).
+  reasonableness P(yes), ties by TrialSpace rank (``rerank``);
+- (d) ``trialspace_round2_composite``: the same top K reranked by the composite match score the app ranks by
+  (``score_match_quality``'s ``match_quality_score``: P(reasonable) x (1 + P(cancer type) + P(burden) + P(treatment
+  history) + 2 P(biomarker)) / 6, ``composite``), ties by TrialSpace rank (user, 2026-11-26: "queue the composite
+  ranker").
 
 ``ab`` needs no GPU: lists (a) and (b), their union ``union_ab.jsonl`` (every pair once, with every list it is on in
 ``sources``) and the first part of the per-criterion sample. ``c`` follows the decision model's match scores:
-list (c), the full union ``union.jsonl``, the pairs it adds ``union_c_extra.jsonl``, and the sample's last part.
+list (c), the union so far ``union.jsonl``, the pairs it adds ``union_c_extra.jsonl``, and the sample's last part.
+``d`` reads the same scores (every top-K pair has them, so no new decision-model work): list (d), the full union
+``union.jsonl`` of the four rankers and the pairs it adds to lists c's ``union_d_extra.jsonl``; each stage's
+``lists.parquet`` holds its rankers and the earlier ones. (d) has no per-criterion strata.
 
 Full-denominator corpus (prepare.py corpus --all-queries): lists (a) and (b), and so ``union_ab.jsonl``, are those of
 the comparison queries only; list (c) is every query's, so ``union.jsonl`` is union_ab plus every query's (c) pairs
@@ -56,9 +64,9 @@ def comparison_lists(rankings, sample, top=TOP):
     return ab[keep].reset_index(drop=True)
 
 
-def rerank(candidates, probability, top=TOP):
-    """Ranker (c): each query's candidates (rows with workflow, query_id, rank, patient_id, cohort_id) ordered by
-    ``probability[(patient_id, cohort_id)]`` descending, ties by the retriever's rank; the first ``top`` kept."""
+def rerank(candidates, probability, top=TOP, ranker=RANKERS[2]):
+    """Rankers (c) and (d): each query's candidates (rows with workflow, query_id, rank, patient_id, cohort_id) ordered
+    by ``probability[(patient_id, cohort_id)]`` descending, ties by the retriever's rank; the first ``top`` kept."""
     import pandas as pd
     frame = candidates.copy()
     frame['retriever_rank'] = frame['rank']
@@ -66,9 +74,18 @@ def rerank(candidates, probability, top=TOP):
     frame = frame.sort_values(['workflow', 'query_id', 'score', 'retriever_rank'], ascending=[True, True, False, True],
                               kind='mergesort')
     frame['rank'] = frame.groupby(['workflow', 'query_id']).cumcount() + 1
-    frame = frame[frame['rank'] <= top].assign(ranker=RANKERS[2])
+    frame = frame[frame['rank'] <= top].assign(ranker=ranker)
     return pd.DataFrame(frame[['workflow', 'query_id', 'ranker', 'rank', 'patient_id', 'cohort_id', 'score',
                                'retriever_rank']]).reset_index(drop=True)
+
+
+def composite(scores):
+    """Ranker (d)'s score of each pair of a decide.py match ``scores`` frame: the app's ``match_quality_score``
+    (matching.rerank's own formula over the five p_<label> columns), keyed by (patient_id, cohort_id)."""
+    from matchminer_ai.matching.match_labels import LABELS
+    from matchminer_ai.matching.rerank import _scores
+    values, _ = _scores([dict(zip(LABELS, row)) for row in zip(*(scores[f'p_{label}'] for label in LABELS))])
+    return dict(zip(zip(scores.patient_id, scores.cohort_id), values))
 
 
 def union(lists, trial_of):
@@ -111,7 +128,8 @@ def criteria_sample(lists, cohorts, strata, per_stratum, seed, taken=()):
 
 
 def k_binding(reranked, k):
-    """Where (c)'s picks sit in the retriever's ranking: shares of its top 20 from ranks 1-20, 21-50, 51-80, 81-k."""
+    """Where a reranker's picks sit in the retriever's ranking: shares of its top 20 from ranks 1-20, 21-50, 51-80,
+    81-k."""
     bins = [(1, 20), (21, 50), (51, 80), (81, k)]
     out = {}
     for workflow, group in reranked.groupby('workflow'):
@@ -126,16 +144,21 @@ def main(argv=None):
     sub = p.add_subparsers(dest='command', required=True)
     a = sub.add_parser('ab')
     c = sub.add_parser('c')
-    c.add_argument('--decisions', required=True, help='decide.py match stage directory')
+    d = sub.add_parser('d')
+    for q in (c, d):
+        q.add_argument('--decisions', required=True, help='decide.py match stage directory')
     c.add_argument('--lists-ab', required=True)
-    for q in (a, c):
+    d.add_argument('--lists-c', required=True)
+    for q in (a, c, d):
         q.add_argument('--retrieval', required=True)
         q.add_argument('--corpus', required=True)
-        q.add_argument('--criteria-lines', type=int, default=10000,
-                       help='Target lines over all six strata (0: no per-criterion sample)')
         q.add_argument('--seed', type=int, default=42)
         q.add_argument('--output', required=True)
         stage.add_check_arg(q)
+    for q in (a, c):
+        q.add_argument('--criteria-lines', type=int, default=10000,
+                       help='Target lines over all six strata (0: no per-criterion sample)')
+    d.set_defaults(criteria_lines=0)  # no per-criterion strata for (d)
     args = p.parse_args(argv)
     if args.criteria_lines < 0:
         p.error('--criteria-lines must be >= 0')
@@ -146,6 +169,9 @@ def main(argv=None):
                     corpus=stage.receipt_id(args.corpus), top=TOP, criteria_lines=args.criteria_lines, seed=args.seed)
     if args.command == 'c':
         identity.update(decisions=stage.receipt_id(args.decisions), lists_ab=stage.receipt_id(args.lists_ab))
+    elif args.command == 'd':
+        identity.update(decisions=stage.receipt_id(args.decisions), lists_c=stage.receipt_id(args.lists_c),
+                        score='matching.rerank match_quality_score')
     output = Path(args.output)
 
     def work():
@@ -157,7 +183,22 @@ def main(argv=None):
         ab = comparison_lists(rankings, sample)
         summary = {}
         rows = counts = None
-        if args.command == 'ab':
+        if args.command == 'd':
+            scores = pd.read_parquet(Path(args.decisions) / 'scores.parquet')
+            candidates = rankings[rankings.embedder == RANKERS[1]]
+            reranked = rerank(candidates, composite(scores), ranker=RANKERS[3])
+            reranked.to_parquet(output / 'lists_d.parquet', index=False)
+            lists = pd.concat([pd.read_parquet(Path(args.lists_c) / 'lists.parquet'),
+                               reranked.drop(columns='retriever_rank')], ignore_index=True)
+            lists.to_parquet(output / 'lists.parquet', index=False)
+            pairs = union(lists, trial_of)
+            write_jsonl(output / 'union.jsonl', pairs)
+            before = {(row['patient_id'], row['cohort_id']) for row in read_jsonl(Path(args.lists_c) / 'union.jsonl')}
+            extra = [row for row in pairs if (row['patient_id'], row['cohort_id']) not in before]
+            write_jsonl(output / 'union_d_extra.jsonl', extra)
+            k = int(rankings['rank'].max())
+            summary.update(union=len(pairs), union_d_extra=len(extra), k=k, k_binding=k_binding(reranked, k))
+        elif args.command == 'ab':
             ab.to_parquet(output / 'lists.parquet', index=False)
             pairs = union(ab, trial_of)
             write_jsonl(output / 'union_ab.jsonl', pairs)
@@ -197,12 +238,14 @@ def main(argv=None):
         log(f'lists {args.command}: {json.dumps(summary)}')
         return summary
 
-    names = (['lists.parquet', 'union_ab.jsonl'] if args.command == 'ab' else
-             ['lists.parquet', 'lists_c.parquet', 'union.jsonl', 'union_c_extra.jsonl'])
+    names = {'ab': ['lists.parquet', 'union_ab.jsonl'],
+             'c': ['lists.parquet', 'lists_c.parquet', 'union.jsonl', 'union_c_extra.jsonl'],
+             'd': ['lists.parquet', 'lists_d.parquet', 'union.jsonl', 'union_d_extra.jsonl']}[args.command]
     run_stage(output, f'retro-lists-{args.command}', identity,
               names + (['criteria_lines.jsonl', 'criteria_sample.json'] if criteria else []) + ['lists.json'], work,
               check=args.check,
-              upstream={k: v for k, v in identity.items() if k in ('retrieval', 'corpus', 'decisions', 'lists_ab')})
+              upstream={k: v for k, v in identity.items() if k in ('retrieval', 'corpus', 'decisions', 'lists_ab',
+                                                                    'lists_c')})
 
 
 if __name__ == '__main__':

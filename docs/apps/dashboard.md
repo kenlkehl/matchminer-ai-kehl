@@ -70,14 +70,15 @@ TrialSpace model and says so on Data and models if they differ.
     when neither exists. The store holds a sample of the patients (in synthetic mode, 1,000 of the corpus), so the
     patient search marks the patients it holds (**Structured records**) and, by default, lists only them.
 - **Assistant:** a chat over the mode's own data (see [Assistant](#assistant) below).
-- **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker, and the full
-  pipeline's over every query in a full-denominator run; the decision model's discrimination and calibration per
-  question family), LLM-as-judge runs (cost, agreement, results), and adjudication of the units the two judges
-  disagree on. Compare and metrics can be rerun from the tab; the runs themselves start from the command line
-  ([Evaluation](../evaluation/index.md)).
+- **Benchmarking:** distillation-fidelity runs (retrieval precision and teacher score per ranker, (a) to (d) when the
+  run has (d), the app's composite ordering, and the full pipeline's over every query in a full-denominator run; the
+  decision model's discrimination and calibration per question family, pooled and per ranker), LLM-as-judge runs
+  (cost, agreement, results), and adjudication of the units the two judges disagree on. Compare and metrics can be
+  rerun from the tab; the runs themselves start from the command line ([Evaluation](../evaluation/index.md)).
   - A fidelity run whose metrics have it (metrics v4, `decision.by_ranker`) also shows **Decision model by ranker
     denominator**: per question, the decision model against the teacher on each ranker's own top-20 lists (A:
-    EmbeddingGemma 2 top 20; B: TrialSpace top 20; C: TrialSpace top K reranked by the decision model), with n,
+    EmbeddingGemma 2 top 20; B: TrialSpace top 20; C: TrialSpace top K reranked by the decision model; D: TrialSpace
+    top K reranked by the composite match score, as in the app), with n,
     prevalence, AUROC, AUPRC (yes), Brier, ECE and calibration intercept and slope with their 95% intervals, pooled or
     per workflow, and each ranker's boilerplate coverage (combinations with a teacher label of all its combinations).
     Older and synthetic runs without it show no such section.

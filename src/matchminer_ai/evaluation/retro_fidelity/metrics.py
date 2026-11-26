@@ -3,13 +3,14 @@
 
 Gold standard: the Nemotron teacher's labels (label.py), one model's judgments.
 
-Retrieval, per workflow and ranker (lists.py): **P@20**, the mean over queries of the share of the query's top-20
+Retrieval, per workflow and ranker (lists.py: (a)-(c), and (d) when ``--lists`` is a lists d stage): **P@20**, the mean over queries of the share of the query's top-20
 list whose teacher reasonableness answer is yes (over the labeled pairs of the list; unlabeled pairs are counted),
 and the mean teacher 0-6 score of the list (0 unless reasonable, else 1 + cancer type + burden + treatment history +
 2 x biomarker), each with a percentile bootstrap CI over queries; paired differences between rankers resample the
-same queries; queries whose list has fewer than 20 pairs are counted.
+same queries ((b)-(a), (c)-(b), (c)-(a), and with (d) (d)-(c), (d)-(b), (d)-(a)); queries whose list has fewer than
+20 pairs are counted.
 
-Decision model, on the merged top-20 (the union of the three rankers' lists, both workflows): for each of the five
+Decision model, on the merged top-20 (the union of the rankers' lists, both workflows): for each of the five
 match labels, boilerplate (one row per unique combination of the two boilerplate texts; yes = potentially eligible,
 the teacher's ``excluded`` inverted) and the per-criterion lines (yes = the patient does not clearly fail the line;
 overall and by inclusion/exclusion type): prevalence of yes, AUROC, average precision of the yes class and of the no
@@ -35,6 +36,10 @@ unique pairs and pairs with match labels, and its boilerplate combinations (ever
 cohort has boilerplate criteria), those with a decision score and those with a teacher label (the boilerplate rows'
 n). A run without new boilerplate labels (run.py --no-new-boilerplate) covers only the combinations an earlier run
 labeled.
+
+Ranker (d) (v5; user, 2026-11-26: "queue the composite ranker"): TrialSpace's top K reranked by the composite
+``match_quality_score`` the app ranks by (lists.py d). With a lists d stage as ``--lists``, (d) joins the retrieval
+comparison, its paired differences, the merged union and ``decision.by_ranker``; ``full_pipeline`` stays (c)'s.
 """
 import argparse
 import json
@@ -46,7 +51,7 @@ import numpy as np
 from matchminer_ai.evaluation.retro_fidelity.common import (RANKERS, TOP, WORKFLOWS, full_denominator, log, private, queries, read_jsonl,  # noqa: E402
                     run_stage, stage, write_json)
 
-VERSION = 'retro-fidelity-metrics-v4'  # v4: decision-model tables by ranker (v3: clustered comparison CIs)
+VERSION = 'retro-fidelity-metrics-v5'  # v5: ranker (d); v4: decision-model tables by ranker; v3: clustered CIs
 LABELS = ('reasonableness', 'cancer_type', 'burden', 'treatment_history', 'biomarker')
 EPS = 1e-6
 
@@ -54,7 +59,8 @@ EPS = 1e-6
 def ranker_label(ranker, k=None):
     """The plain name of a ranker's top-``TOP`` denominator (``k``: ranker (c)'s retriever depth, lists_c's K)."""
     return {RANKERS[0]: f'A: EmbeddingGemma 2 top {TOP}', RANKERS[1]: f'B: TrialSpace top {TOP}',
-            RANKERS[2]: f'C: TrialSpace top {k or "K"} reranked by the decision model'}[ranker]
+            RANKERS[2]: f'C: TrialSpace top {k or "K"} reranked by the decision model',
+            RANKERS[3]: f'D: TrialSpace top {k or "K"} reranked by the composite match score (as in the app)'}[ranker]
 
 
 # --------------------------------------------------------------------------- #
@@ -119,7 +125,10 @@ def retrieval_metrics(lists, teacher, *, draws=2000, seed=42, top=TOP, cluster_o
                 unlabeled_pairs=sum(c['unlabeled'] for c in cells),
                 precision_at_top=mean([c['precision'] for c in cells], keys, workflow),
                 mean_score=mean([c['mean_score'] for c in cells], keys, workflow))
-        for first, second in ((RANKERS[1], RANKERS[0]), (RANKERS[2], RANKERS[1]), (RANKERS[2], RANKERS[0])):
+        pairs = [(RANKERS[1], RANKERS[0]), (RANKERS[2], RANKERS[1]), (RANKERS[2], RANKERS[0])]
+        if any(r == RANKERS[3] for w, r, _ in rows if w == workflow):  # (d) against each of the others
+            pairs += [(RANKERS[3], RANKERS[2]), (RANKERS[3], RANKERS[1]), (RANKERS[3], RANKERS[0])]
+        for first, second in pairs:
             both = [q for q in queries if (workflow, first, q) in rows and (workflow, second, q) in rows]
             for metric in ('precision', 'mean_score'):
                 deltas = [rows[(workflow, first, q)][metric] - rows[(workflow, second, q)][metric] for q in both]
@@ -355,7 +364,8 @@ def table_rows(metrics):
 def report(result, design, k=None):
     """report.md; ``k``: ranker (c)'s retriever depth (lists_c's K), for the by-ranker section's names."""
     names = {RANKERS[0]: '(a) EmbeddingGemma 2 (base)', RANKERS[1]: '(b) TrialSpace round 2',
-             RANKERS[2]: '(c) TrialSpace round 2 top-K + decision reasonableness'}
+             RANKERS[2]: '(c) TrialSpace round 2 top-K + decision reasonableness',
+             RANKERS[3]: '(d) TrialSpace round 2 top-K + composite match score (as in the app)'}
     r = result['retrieval']
     out = ['# Retrospective distillation fidelity', '',  # the Design lines name the patients
            f"Generated {time.strftime('%Y-%m-%d %H:%M %Z')} by `matchminer_ai.evaluation.retro_fidelity.metrics`. "
@@ -465,19 +475,20 @@ def report(result, design, k=None):
     return '\n'.join(out) + '\n'
 
 
-def coverage(sample, criteria):
-    """Design lines of a full-denominator report: which queries each table covers."""
+def coverage(sample, criteria, composite=False):
+    """Design lines of a full-denominator report: which queries each table covers (``composite``: with (d))."""
     counts = {w: (len(queries(sample, w)), len(queries(sample, w, comparison=True))) for w in WORKFLOWS}
     (patients, compared_p), (cohorts, compared_c) = counts['patient_centric'], counts['trial_centric']
     return [f'Queries (full denominator): every index event ({patients:,} patient-centric queries) and every cohort '
             f'({cohorts:,} trial-centric queries); seeded comparison subset: {compared_p:,} index events and '
             f'{compared_c:,} cohorts (corpus/sample.json comparison_patient_queries / comparison_cohort_queries).',
-            'Retrieval comparison tables ((a), (b), (c) and their paired differences): the comparison queries only; '
+            f'Retrieval comparison tables ((a)-({"d" if composite else "c"}) and their paired differences): the '
+            'comparison queries only; '
             '95% CIs bootstrap those queries.',
             'Full-pipeline tables ((c) alone): every query; 95% CIs bootstrap persons (patient-centric: all index '
             'events of one patient together) or trials (trial-centric: all cohorts of one trial together).',
             'Decision-model tables: every teacher-labeled pair of the merged union, that is (a) and (b) top 20 of the '
-            'comparison queries and (c) top 20 of every query' + (
+            f'comparison queries and {"(c) and (d)" if composite else "(c)"} top 20 of every query' + (
                 '; per-criterion lines: the stratified sample ((a) and (b) strata from the comparison queries, (c) '
                 'strata from every query).' if criteria else '; no per-criterion rows (not run).')]
 
@@ -485,7 +496,8 @@ def coverage(sample, criteria):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--corpus', required=True)
-    p.add_argument('--lists', required=True, help='lists.py c stage directory (all three rankers)')
+    p.add_argument('--lists', required=True, help='The last lists.py stage directory: d (rankers (a)-(d)), or c '
+                   '(a)-(c), for a run without (d)')
     p.add_argument('--lists-ab', required=True)
     p.add_argument('--retrieval', required=True)
     p.add_argument('--match-labels', nargs='+', required=True)
@@ -653,7 +665,7 @@ def main(argv=None):
         write_json(output / 'metrics.json', result)
         design = json.loads((output.parent / 'design_notes.json').read_text()) if (output.parent / 'design_notes.json').exists() else []
         if full:
-            design = design + coverage(sample, criteria)
+            design = design + coverage(sample, criteria, composite=RANKERS[3] in set(lists.ranker))
         depth = ((stage.read_receipt(args.lists) or {}).get('content') or {}).get('k')
         (output / 'report.md').write_text(report(result, design + [f'{name}: {v:,}' for name, v in counts.items()], depth))
         log(f'metrics: {counts}')

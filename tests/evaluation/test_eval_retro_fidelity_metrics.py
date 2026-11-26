@@ -1,7 +1,7 @@
 """Scoring contract of the retrospective distillation-fidelity evaluation, on fabricated data: P@20 and the 0-6
-score, the (c) rerank, the merged union and the per-criterion sample, label polarity, and the decision-model
+score, the (c) and (d) reranks, the merged union and the per-criterion sample, label polarity, and the decision-model
 metrics (AUROC, AUPRC, Brier, ECE, calibration intercept and slope, clustered bootstrap); the full-denominator mode
-(corpus identity, lists, metrics without per-criterion inputs)."""
+(corpus identity, lists, metrics without per-criterion inputs, by ranker); the orchestrator's default plan."""
 import json
 import os
 from pathlib import Path
@@ -209,25 +209,40 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
     rf_lists.main(['ab', *common, '--output', str(tmp_path / 'lists_ab')])
     rf_lists.main(['c', *common, '--decisions', decide, '--lists-ab', str(tmp_path / 'lists_ab'),
                    '--output', str(tmp_path / 'lists_c')])
-    lists = pd.read_parquet(tmp_path / 'lists_c' / 'lists.parquet')
-    ab, c = lists[lists.ranker != 'trialspace_round2_decision'], lists[lists.ranker == 'trialspace_round2_decision']
+    rf_lists.main(['d', '--retrieval', retrieval, '--corpus', corpus, '--decisions', decide, '--lists-c',
+                   str(tmp_path / 'lists_c'), '--output', str(tmp_path / 'lists_d')])
+    lists = pd.read_parquet(tmp_path / 'lists_d' / 'lists.parquet')
+    c, d = lists[lists.ranker == 'trialspace_round2_decision'], lists[lists.ranker == 'trialspace_round2_composite']
+    ab = lists[lists.ranker.isin(['embeddinggemma2', 'trialspace_round2'])]
     assert set(ab.query_id) == {'p03', 'p11', 'NCT4-ctgov-cohort-1'} and len(ab) == 2 * 3 * 20
     assert c.groupby(['workflow', 'query_id']).size().eq(20).all() and c.query_id.nunique() == 24 + 22
+    # (d): the same top K by the app's match_quality_score, ties by TrialSpace rank
+    from matchminer_ai.matching.rerank import _scores
+    one = scores.iloc[0]
+    expected = _scores([{label: one[f'p_{label}'] for label in rf_metrics.LABELS}])[0][0]
+    assert rf_lists.composite(scores)[(one.patient_id, one.cohort_id)] == pytest.approx(expected)
+    assert expected == pytest.approx(one.p_reasonableness * (1 + one.p_cancer_type + one.p_burden
+                                                             + one.p_treatment_history + 2 * one.p_biomarker) / 6)
+    first = d[(d.workflow == 'patient_centric') & (d.query_id == 'p00')]
+    assert len(first) == 20 and first.score.is_monotonic_decreasing and d.query_id.nunique() == 24 + 22
     keys = lambda name: {(r['patient_id'], r['cohort_id']) for r in rf_lists.read_jsonl(name)}  # noqa: E731
     union_ab = keys(tmp_path / 'lists_ab' / 'union_ab.jsonl')
     extra = keys(tmp_path / 'lists_c' / 'union_c_extra.jsonl')
     assert union_ab == set(zip(ab.patient_id, ab.cohort_id))
     assert extra == set(zip(c.patient_id, c.cohort_id)) - union_ab and keys(tmp_path / 'lists_c' / 'union.jsonl') == union_ab | extra
+    extra_d = keys(tmp_path / 'lists_d' / 'union_d_extra.jsonl')
+    assert extra_d and extra_d == set(zip(d.patient_id, d.cohort_id)) - union_ab - extra
+    assert keys(tmp_path / 'lists_d' / 'union.jsonl') == union_ab | extra | extra_d
     assert not list(tmp_path.glob('lists_*/criteria_*'))
     match, bp, combos, bp_scores = [], [], set(), []
-    for name, pair_set in (('match_ab', union_ab), ('match_c', extra)):
+    for name, pair_set in (('match_ab', union_ab), ('match_c', extra), ('match_d', extra_d)):
         rows = []
         for p, k in sorted(pair_set):
             answers = {label: draw.choice(['yes', 'no']) for label in rf_metrics.LABELS}
             rows.append(dict(patient_id=p, cohort_id=k, answers=answers, score=rf_metrics.match_score(answers)))
         match.append(made(tmp_path / name, [('scores.jsonl', rows)]))
     boilerplate = {r['id']: r['boilerplate'] for r in patients + cohorts}
-    for p, k in sorted(union_ab | extra):
+    for p, k in sorted(union_ab | extra | extra_d):
         if boilerplate[k]:
             combination = stage.digest([boilerplate[p], boilerplate[k]])
             bp_scores.append(dict(patient_id=p, cohort_id=k, combination=combination, p_boilerplate=draw.random()))
@@ -236,7 +251,7 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
                 bp.append(dict(task='boilerplate', boilerplate_combination=combination, excluded=draw.random() < 0.4,
                                patient_id=p))
     out = tmp_path / 'metrics'
-    rf_metrics.main(['--corpus', corpus, '--lists', str(tmp_path / 'lists_c'), '--lists-ab', str(tmp_path / 'lists_ab'),
+    rf_metrics.main(['--corpus', corpus, '--lists', str(tmp_path / 'lists_d'), '--lists-ab', str(tmp_path / 'lists_ab'),
                      '--retrieval', retrieval, '--match-labels', *match,
                      '--boilerplate-labels', made(tmp_path / 'bp', [('labels.jsonl', bp[1:])]),  # one unlabeled
                      '--decide-match', decide, '--decide-boilerplate',
@@ -251,7 +266,9 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
             full['patient_centric/trialspace_round2_decision']['clusters']) == (24, 12)
     assert (full['trial_centric/trialspace_round2_decision']['queries'],
             full['trial_centric/trialspace_round2_decision']['clusters']) == (22, 11)
-    assert result['decision']['pooled']['reasonableness']['n'] == len(union_ab | extra)  # every labeled pair
+    assert result['decision']['pooled']['reasonableness']['n'] == len(union_ab | extra | extra_d)  # every labeled pair
+    assert 'patient_centric/precision/trialspace_round2_composite-minus-trialspace_round2_decision' in \
+        result['retrieval']['paired_differences']
     assert not any(k.startswith('criterion') for k in result['decision']['pooled']) and 'criteria_lines' not in result['counts']
     assert 'decide_criteria' not in stage.read_receipt(out)['identity']['inputs']
     assert 'Full pipeline over every query' in (out / 'report.md').read_text()
@@ -274,4 +291,30 @@ def test_full_denominator_lists_and_metrics_without_criteria(tmp_path, umask):
             assert entry[workflow]['reasonableness']['n'] == len(set(zip(rows.patient_id, rows.cohort_id)))
             assert entry[workflow]['reasonableness']['clusters'] == rows.query_id.nunique()
     assert '## Decision model by ranker denominator' in (out / 'report.md').read_text()
-    assert 'C: TrialSpace top 24 reranked by the decision model' in (out / 'report.md').read_text()  # lists_c's K
+    assert 'C: TrialSpace top 24 reranked by the decision model' in (out / 'report.md').read_text()  # lists' K
+    assert 'D: TrialSpace top 24 reranked by the composite match score' in (out / 'report.md').read_text()
+
+
+def test_default_run_plan_ranks_and_labels_d_and_reuse_keeps_earlier_labels(tmp_path, monkeypatch):
+    monkeypatch.setenv('MMAI_DATA_ROOT', str(tmp_path / 'data'))  # common.EMBEDDERS resolves under it
+    from matchminer_ai.evaluation.retro_fidelity import run as rf_run
+    root = tmp_path / 'run'
+    args = rf_run.parser().parse_args(['--root', str(root), '--trials', 't.csv', '--summaries', 's',
+                                       '--denominator', 'd.csv'])
+    args.patient_queries, args.cohort_queries, args.training_trials = 500, 200, 'trials.csv'
+    jobs = rf_run.plan(args)
+    assert jobs['lists_d'].deps == ['lists_c'] and jobs['lists_d'].command[3] == 'd'
+    assert {'label_match_d', 'label_boilerplate_d'} <= set(jobs)
+    assert jobs['decide_boilerplate'].command[jobs['decide_boilerplate'].command.index('--pairs') + 1] == \
+        str(root / 'lists_d' / 'union.jsonl')  # boilerplate over every ranker's pairs
+    metrics = jobs['metrics'].command
+    assert metrics[metrics.index('--lists') + 1] == str(root / 'lists_d')  # retrieval and decision tables with (d)
+    assert str(root / 'labels' / 'match_d') in metrics and str(root / 'labels' / 'boilerplate_d') in metrics
+    assert {'label_match_d', 'label_boilerplate_d'} <= set(jobs['metrics'].deps)
+    old = tmp_path / 'old'  # --reuse-run --no-new-boilerplate: (d)'s new pairs skip the earlier labels
+    write_json(old / 'reused_labels.json', dict(match=['m1'], boilerplate=['b1']))
+    args.reuse_run, args.no_new_boilerplate, args.compare_all = str(old), True, False
+    reused = rf_run.plan(args)
+    assert 'label_boilerplate_d' not in reused and '--reuse-only' in reused['decide_boilerplate'].command
+    command = reused['label_match_d'].command
+    assert command[command.index('--skip-labeled') + 1] == 'm1'

@@ -6,15 +6,16 @@ This replaces the v22-era real-data evaluations (eval_phi_soc/, eval_phi_enrollm
 BoilerplateChecker, OncoReasoning, GPT checks) for that purpose; those files are kept unchanged.
 
 What it measures, with the teacher (training's labeler and label contracts) as the reference:
-- retrieval: P@20 and the mean teacher 0-6 score of three rankers' top-20 lists, (a) base EmbeddingGemma 2,
-  (b) TrialSpace round 2 and (c) TrialSpace's top K reranked by the fine-tuned decision model's reasonableness;
+- retrieval: P@20 and the mean teacher 0-6 score of four rankers' top-20 lists, (a) base EmbeddingGemma 2,
+  (b) TrialSpace round 2, (c) TrialSpace's top K reranked by the fine-tuned decision model's reasonableness and
+  (d) the same top K reranked by the composite match score the app ranks by (user, 2026-11-26);
 - the decision model: AUROC, AUPRC, Brier score and calibration of its P(yes) for the five match questions, the
   boilerplate question and the per-criterion question, on the merged top-20 pairs, and (metrics v4) the match and
   boilerplate questions on each ranker's own top-20 lists.
 
 Full-denominator mode (``run.py --all-queries --comparison-patient-queries N --comparison-cohort-queries M``): every
-patient and cohort is a query of ranker (c), (a) and (b) run for the seeded comparison subset only, and the metrics
-add (c)'s P@20 over every query. ``--no-criteria`` leaves out the per-criterion question.
+patient and cohort is a query of rankers (c) and (d), (a) and (b) run for the seeded comparison subset only, and the
+metrics add (c)'s P@20 over every query. ``--no-criteria`` leaves out the per-criterion question.
 
 Stages (each a script that writes stage_receipt.json last and answers --check, trialspace/stage.py):
 
@@ -22,7 +23,7 @@ Stages (each a script that writes stage_receipt.json last and answers --check, t
   prepare.py   patients / cohorts / corpus   the labeler-format corpus and the seeded query samples
   embed.py     embed              key texts of one side under one embedder (CPU or GPU)
   retrieve.py  retrieve           exact cosine top K per query and embedder
-  lists.py     lists-ab / lists-c rankers (a)-(c), the merged union, the stratified per-criterion sample
+  lists.py     lists-ab / -c / -d rankers (a)-(d), the merged union, the stratified per-criterion sample
   label.py     label              Nemotron teacher labels (match, boilerplate, criteria) (teacher servers)
   decide.py    decide             the decision model's P(yes) (GPU)
   metrics.py   metrics            metrics.json and report.md

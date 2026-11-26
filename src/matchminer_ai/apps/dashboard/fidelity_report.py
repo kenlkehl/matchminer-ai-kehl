@@ -33,12 +33,16 @@ from matchminer_ai.evaluation.demographics import TABLE1_METHOD, table1_intro
 
 RANKERS = (("embeddinggemma2", "(a) EmbeddingGemma 2 (base)"),
            ("trialspace_round2", "(b) TrialSpace round 2"),
-           ("trialspace_round2_decision", "(c) TrialSpace round 2 top K + decision reasonableness"))
-SHORT = {"embeddinggemma2": "(a)", "trialspace_round2": "(b)", "trialspace_round2_decision": "(c)"}
+           ("trialspace_round2_decision", "(c) TrialSpace round 2 top K + decision reasonableness"),
+           ("trialspace_round2_composite", "(d) TrialSpace round 2 top K + composite match score (as in the app)"))
+SHORT = {"embeddinggemma2": "(a)", "trialspace_round2": "(b)", "trialspace_round2_decision": "(c)",
+         "trialspace_round2_composite": "(d)"}
 WORKFLOWS = (("patient_centric", "Trials for a patient (patient-centric)"),
              ("trial_centric", "Patients for a trial (trial-centric)"))
 DIFFERENCES = (("trialspace_round2", "embeddinggemma2"), ("trialspace_round2_decision", "trialspace_round2"),
-               ("trialspace_round2_decision", "embeddinggemma2"))
+               ("trialspace_round2_decision", "embeddinggemma2"),
+               ("trialspace_round2_composite", "trialspace_round2_decision"),
+               ("trialspace_round2_composite", "trialspace_round2"), ("trialspace_round2_composite", "embeddinggemma2"))
 FAMILY_LABELS = {"reasonableness": "Reasonableness", "cancer_type": "Cancer type", "burden": "Burden",
                  "treatment_history": "Treatment history", "biomarker": "Biomarker", "boilerplate": "Boilerplate",
                  "criterion (all lines)": "Criteria: all",
@@ -51,7 +55,7 @@ BANDS = ("1-20", "21-50", "51-80", "81-100")
 BAND_COLORS = ("#0d366b", "#1c5cab", "#3987e5", "#86b6ef")  # the page's ordinal ramp, nearest ranks darkest
 STAGE_LABELS = {"extraction": "Cohort extraction", "patients": "Patients", "cohort_table": "Cohort table",
                 "corpus": "Corpus and query samples", "retrieve": "Retrieval", "lists_ab": "Lists (a) and (b)",
-                "lists_c": "Lists (c): decision rerank", "metrics": "Metrics"}
+                "lists_c": "Lists (c): decision rerank", "lists_d": "Lists (d): composite rerank", "metrics": "Metrics"}
 RESEARCH_USE = ("For research use. MatchMiner-AI is a research prioritization tool: its scores are screening signals "
                 "for human review, and the reference here is a teacher model's labels, not a clinician's review.")
 
@@ -335,8 +339,13 @@ def models(directory: Path) -> list[tuple[str, str]]:
     lists = receipt(directory, "lists_c").get("content") or {}
     decision = f"fingerprint {str(decide.get('model_fingerprint'))[:12]}" if decide.get("model_fingerprint") else "–"
     k = lists.get("k")
-    return [(RANKERS[0][1], encoder("embeddinggemma2")), (RANKERS[1][1], encoder("trialspace_round2")),
-            (RANKERS[2][1], f"TrialSpace round 2 top {k if k else 'K'}, reranked by the decision model ({decision})")]
+    out = [(RANKERS[0][1], encoder("embeddinggemma2")), (RANKERS[1][1], encoder("trialspace_round2")),
+           (RANKERS[2][1], f"TrialSpace round 2 top {k if k else 'K'}, reranked by the decision model ({decision})")]
+    if receipt(directory, "lists_d"):
+        out.append((RANKERS[3][1], f"TrialSpace round 2 top {k if k else 'K'}, reranked by the composite match score "
+                                   f"P(reasonable) x (1 + P(cancer type) + P(burden) + P(treatment history) + 2 "
+                                   f"P(biomarker)) / 6 of the same decision model, as the app ranks"))
+    return out
 
 
 def title_page(run: dict, directory: Path, info: dict, mode: str, demographics: dict | None) -> list:
@@ -465,7 +474,7 @@ def decision_section(metrics: dict) -> list:
     if not decision:
         return []
     out = [PageBreak(), p("Decision model against the teacher", H1),
-           p("On the merged top-20 pairs of the three rankers: one row per unique pair (boilerplate: per unique "
+           p("On the merged top-20 pairs of the rankers: one row per unique pair (boilerplate: per unique "
              "combination of the two boilerplate texts; criteria: a stratified sample). Yes means potentially "
              "eligible or not clearly failing; for the cancer type, burden, treatment history and biomarker questions, "
              "yes means the cohort specifically requires it and the patient is documented to meet it. AUPRC (no) "
@@ -525,7 +534,9 @@ def decision_section(metrics: dict) -> list:
 def denominator_label(ranker: str, k=None) -> str:
     """A ranker's own top-20 denominator (retro_fidelity.metrics.ranker_label); ``k``: (c)'s retriever depth."""
     labels = {"embeddinggemma2": "A: EmbeddingGemma 2 top 20", "trialspace_round2": "B: TrialSpace top 20",
-              "trialspace_round2_decision": f"C: TrialSpace top {k or 'K'} reranked by the decision model"}
+              "trialspace_round2_decision": f"C: TrialSpace top {k or 'K'} reranked by the decision model",
+              "trialspace_round2_composite": f"D: TrialSpace top {k or 'K'} reranked by the composite match score "
+                                             "(as in the app)"}
     return labels.get(ranker, ranker)
 
 
@@ -701,13 +712,18 @@ def methods_section(metrics: dict, demographics: bool) -> list:
         "the teacher's 0-6 match score (0 unless reasonable, else 1 + cancer type + burden + treatment history + 2 x "
         "biomarker), averaged over the list and then over queries.",
         "<b>Rankers.</b> (a) base EmbeddingGemma 2 and (b) TrialSpace round 2: cosine top 20. (c) the full pipeline: "
-        "TrialSpace's top K reranked by the decision model's reasonableness P(yes), top 20.",
+        "TrialSpace's top K reranked by the decision model's reasonableness P(yes), top 20."
+        + (" (d) the app's ordering: the same top K reranked by the composite match score P(reasonable) x (1 + "
+           "P(cancer type) + P(burden) + P(treatment history) + 2 P(biomarker)) / 6, top 20."
+           if any(k.endswith("/trialspace_round2_composite") for k in (metrics.get("retrieval") or {}).get("table", {}))
+           else ""),
         "<b>Decision model.</b> AUROC, AUPRC, Brier score, expected calibration error (equal-mass bins), calibration "
         "intercept and slope of its P(yes) against the teacher's answers, on the pairs of the merged top-20 lists; "
         "selection-conditioned on retrieval.",
         *(["<b>By ranker denominator.</b> The same decision-model metrics over each ranker's own top-20 lists (A: "
-           "EmbeddingGemma 2, B: TrialSpace, C: TrialSpace's top K reranked by the decision model) instead of their "
-           "union; boilerplate rows cover the combinations with a teacher label."]
+           "EmbeddingGemma 2, B: TrialSpace, C: TrialSpace's top K reranked by the decision model, D: the same top K "
+           "reranked by the composite match score) instead of their union; boilerplate rows cover the combinations "
+           "with a teacher label."]
           if (metrics.get("decision") or {}).get("by_ranker") else []),
         "<b>Intervals.</b> Percentile bootstraps: queries for the ranker comparison"
         + ("; persons or trials for the full pipeline over every query" if full else "")
@@ -747,8 +763,8 @@ def stage_label(job: str) -> str:
         return f"Embed {m[2]}: {name}"
     if m := re.match(r"^decide_(.+)$", job):
         return f"Decision model: {words(m[1])}"
-    if m := re.match(r"^label_(.+)_(ab|c)$", job):
-        return f"Teacher labels: {words(m[1])}, lists {'(a)(b)' if m[2] == 'ab' else '(c)'}"
+    if m := re.match(r"^label_(.+)_(ab|c|d)$", job):
+        return f"Teacher labels: {words(m[1])}, lists {'(a)(b)' if m[2] == 'ab' else f'({m[2]})'}"
     return words(job)
 
 

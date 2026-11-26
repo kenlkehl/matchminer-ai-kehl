@@ -38,10 +38,10 @@ from .settings import mode_side_error
 DEPTH = 3
 DISCOVERY_SECONDS = 60
 # retro_fidelity's stages (run.py), in pipeline order; each writes stage_receipt.json last.
-FIDELITY_STAGES = ("extraction", "patients", "cohort_table", "corpus", "retrieval", "lists_ab", "lists_c",
+FIDELITY_STAGES = ("extraction", "patients", "cohort_table", "corpus", "retrieval", "lists_ab", "lists_c", "lists_d",
                    "decide/match", "decide/boilerplate", "decide/criteria", "labels/match_ab", "labels/match_c",
-                   "labels/boilerplate_ab", "labels/boilerplate_c", "labels/criteria_ab", "labels/criteria_c",
-                   "metrics")
+                   "labels/match_d", "labels/boilerplate_ab", "labels/boilerplate_c", "labels/boilerplate_d",
+                   "labels/criteria_ab", "labels/criteria_c", "metrics")
 RECOMPUTE_STEPS = ("compare", "metrics")
 REPORT = "fidelity_report.pdf"  # in the run's reports/, beside evaluation.demographics' cache
 SYNTHETIC_NOTE = ("Synthetic patients carry no age, race, ethnicity or sex, so this report has no Table 1 and no "

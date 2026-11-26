@@ -43,7 +43,9 @@ def __getattr__(name):
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
-RANKERS = ('embeddinggemma2', 'trialspace_round2', 'trialspace_round2_decision')
+# (a), (b): cosine top 20; (c) TrialSpace's top K reranked by P(reasonable); (d) the same top K reranked by the
+# composite match_quality_score, as the app ranks (lists.py)
+RANKERS = ('embeddinggemma2', 'trialspace_round2', 'trialspace_round2_decision', 'trialspace_round2_composite')
 TOP = 20
 QUERY_KEYS = {'patient_centric': 'patient_queries', 'trial_centric': 'cohort_queries'}
 
