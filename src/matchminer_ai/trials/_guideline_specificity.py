@@ -200,7 +200,10 @@ def validate_decision_fields(state, guideline_title):
             "prior_treatment_excluded using actual drugs/classes, setting and response, "
             "with counts only when the source defines their unit and bounds; "
             "do not infer a regimen count solely from an ordinal line heading; "
-            "do not put treatment history in cancer_burden_allowed."
+            "do not put treatment history in cancer_burden_allowed. "
+            "If the source defines no such history, the line label cannot define the "
+            "population: remove it from the name, name the population by its disease "
+            "setting, and record the undefined boundary in uncertainties."
         )
     if re.match(
         r"(?:no|without|absence of)\s+(?:any\s+)?prior\b",
