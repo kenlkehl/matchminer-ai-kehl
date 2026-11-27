@@ -81,5 +81,5 @@ def test_publish_gives_the_lite_space_its_card_and_the_lite_image(tmp_path):
         for stage in ("base-full", "base-lite", "engines-full", "engines-lite"):
             assert f" AS {stage}\n" in dockerfile
         assert "FROM engines-${MMAI_VARIANT} AS runtime" in dockerfile
-    lite = (tmp_path / "ksg-dfci--matchminer-ai-1226-lite" / "README.md").read_text()
+    lite = (tmp_path / "ksg-dfci--matchminer-ai-1226" / "README.md").read_text()
     assert "OpenRouter with your own API key" in lite

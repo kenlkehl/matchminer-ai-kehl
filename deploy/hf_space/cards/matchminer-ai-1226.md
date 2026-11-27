@@ -1,5 +1,5 @@
 ---
-title: MatchMiner-AI 1226 Lite
+title: MatchMiner-AI 1226
 colorFrom: indigo
 colorTo: blue
 sdk: docker
@@ -20,14 +20,13 @@ tags:
   - matchminer-ai
 ---
 
-# MatchMiner-AI 1226 Lite
+# MatchMiner-AI 1226
 
 The [MatchMiner-AI](https://github.com/kenlkehl/matchminer-ai-kehl) dashboard on the synthetic data of the
 [MatchMiner-AI 1226 release](https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c),
-on a small GPU. It is [MatchMiner-AI 1226](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226) without a
-language model of its own: retrieval and scoring run here, and the LLM tasks use [OpenRouter](https://openrouter.ai),
-with this Space's key for one free model (a shared daily quota) or with your own API key for any model.
-MatchMiner-AI ranks patient-cohort pairs for human review: it is a research tool, not an eligibility engine, and
+on a small GPU, without a language model of its own: retrieval and scoring run here, and the LLM tasks use
+[OpenRouter](https://openrouter.ai), with this Space's key for one free model (a shared daily quota) or with your own
+API key for any model. MatchMiner-AI ranks patient-cohort pairs for human review: it is a research tool, not an eligibility engine, and
 nothing it shows is medical advice.
 
 **All patients here are synthetic.** Do not enter real patient information.

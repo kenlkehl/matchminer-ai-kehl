@@ -2,8 +2,10 @@ name: Hugging Face Space
 
 # Rebuilds the Spaces from this commit whenever main changes the app: uploads deploy/hf_space/space/ with MMAI_COMMIT
 # (deploy/hf_space/publish.py, which also gives a Space its own card), and each Space builds that commit:
-# - ksg-dfci/matchminer-ai-1226 (RTX PRO 6000: Nemotron 3.5 Super in vLLM);
-# - ksg-dfci/matchminer-ai-1226-lite (T4: no local LLM, OpenRouter with each visitor's own key).
+# - ksg-dfci/matchminer-ai-1226 (T4, the lite image: no local LLM; OpenRouter with the Space's hosted key or each
+#   visitor's own).
+# The RTX PRO 6000 Space (ksg-dfci/matchminer-ai-1226-rtxpro, Nemotron 3.5 Super in vLLM) is private and paused, so it
+# is not rebuilt here: publish it by hand (publish.py --space) before restarting it.
 # Needs the repository secret HF_TOKEN: a Hugging Face token with write access to every Space listed. Each Space is
 # its own job, so one that fails (a token without access to it) does not stop the other.
 on:
@@ -41,7 +43,6 @@ jobs:
       matrix:
         space:
           - ksg-dfci/matchminer-ai-1226
-          - ksg-dfci/matchminer-ai-1226-lite
 
     steps:
       - name: Check out repository

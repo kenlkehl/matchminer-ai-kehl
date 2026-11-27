@@ -45,7 +45,7 @@ dashboard:
     frame_ancestors: [https://huggingface.co]
     # The hosted OpenRouter connection: only where the Space has the secret MMAI_OPENROUTER_HOSTED_KEY (the lite
     # Space), the owner's OpenRouter key serves visitors who paste no key of their own, for this one model (the key's
-    # guardrail on OpenRouter allows only it), and is never shown. Without the secret (the full Space) nothing is
+    # guardrail on OpenRouter allows only it), and is never shown. Without the secret (the RTX PRO Space) nothing is
     # offered. OpenRouter's free models allow 20 requests a minute and 50 a day per account (1,000 a day once it has
     # bought $10 of credits), counting failed requests: the app sends at most requests_per_minute for everyone (the
     # others wait), session_daily_requests per browser session and UTC day, and stops at daily_reserve requests left

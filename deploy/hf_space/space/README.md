@@ -1,5 +1,5 @@
 ---
-title: MatchMiner-AI 1226
+title: MatchMiner-AI 1226 RTX PRO
 colorFrom: indigo
 colorTo: blue
 sdk: docker
@@ -23,7 +23,7 @@ tags:
   - matchminer-ai
 ---
 
-# MatchMiner-AI 1226
+# MatchMiner-AI 1226 RTX PRO
 
 The [MatchMiner-AI](https://github.com/kenlkehl/matchminer-ai-kehl) dashboard on the synthetic data of the
 [MatchMiner-AI 1226 release](https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c):

@@ -10,7 +10,7 @@ has its own hardware, by which the image picks its tier (``space/tier.py``).
 
     python deploy/hf_space/publish.py                    # this checkout's HEAD, which must be on GitHub
     python deploy/hf_space/publish.py --commit <sha>
-    python deploy/hf_space/publish.py --space ksg-dfci/matchminer-ai-1226-lite
+    python deploy/hf_space/publish.py --space ksg-dfci/matchminer-ai-1226-rtxpro
     python deploy/hf_space/publish.py --create           # once: create the public Docker Space and request its GPU
     python deploy/hf_space/publish.py --factory-rebuild  # also rebuild without the layer cache
 
@@ -34,19 +34,21 @@ from typing import Any
 
 REPOSITORY = "kenlkehl/matchminer-ai-kehl"
 CARDS = Path(__file__).resolve().parent / "cards"
-# Each Space's hardware flavor (with --create). The workflow publishes to each.
+# Each Space's hardware flavor (with --create). The workflow publishes the public one only.
 SPACES = {
-    # One RTX PRO 6000 (96 GB, Blackwell): vLLM serves Nemotron 3.5 Super there (site.yaml). Not in huggingface_hub's
-    # SpaceHardware enum yet, so passed as a string.
-    "ksg-dfci/matchminer-ai-1226": "rtx-pro-6000",
-    # One T4 (16 GB): no local LLM; the LLM tasks use OpenRouter with each visitor's own key (tier.py).
-    "ksg-dfci/matchminer-ai-1226-lite": "t4-small",
+    # The public Space: one T4 (16 GB), no local LLM; the LLM tasks use OpenRouter, with the Space's hosted key or a
+    # visitor's own (tier.py, site.yaml's hosted_openrouter).
+    "ksg-dfci/matchminer-ai-1226": "t4-small",
+    # One RTX PRO 6000 (96 GB, Blackwell): vLLM serves Nemotron 3.5 Super there (site.yaml). Private and paused;
+    # published by hand (--space) before it is restarted. Not in huggingface_hub's SpaceHardware enum yet, so passed
+    # as a string.
+    "ksg-dfci/matchminer-ai-1226-rtxpro": "rtx-pro-6000",
 }
 # A Space's own card in place of space/README.md.
-SPACE_CARDS = {"ksg-dfci/matchminer-ai-1226-lite": CARDS / "matchminer-ai-1226-lite.md"}
+SPACE_CARDS = {"ksg-dfci/matchminer-ai-1226": CARDS / "matchminer-ai-1226.md"}
 # A Space's image variant (the Dockerfile's MMAI_VARIANT), when not the full one: lite builds no llama.cpp, vLLM or
 # FlashInfer, for a Space that hosts no LLM.
-SPACE_VARIANTS = {"ksg-dfci/matchminer-ai-1226-lite": "lite"}
+SPACE_VARIANTS = {"ksg-dfci/matchminer-ai-1226": "lite"}
 VARIANT_LINE = "ARG MMAI_VARIANT=full\n"
 SPACE = "ksg-dfci/matchminer-ai-1226"
 HARDWARE = SPACES[SPACE]

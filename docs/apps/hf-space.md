@@ -1,7 +1,10 @@
 # Hugging Face Space
 
-[`ksg-dfci/matchminer-ai-1226`](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226) runs the
-[dashboard](dashboard.md) in synthetic mode as a public Docker Space, on one RTX PRO 6000 (96 GB, Blackwell) that
+Two Spaces run the [dashboard](dashboard.md) in synthetic mode from the same files and commit. The public one,
+[`ksg-dfci/matchminer-ai-1226`](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226), is
+[the lite Space](#the-lite-space): a T4 with no LLM of its own. `ksg-dfci/matchminer-ai-1226-rtxpro` (named
+`matchminer-ai-1226` until 2026-11-27, when the lite Space took the name to save cost) is private and paused; it
+runs as a Docker Space on one RTX PRO 6000 (96 GB, Blackwell) that
 sleeps after five hours without visitors. Everything it shows comes from the Hub: the trials, patients, corpus and
 guideline catalogs of [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226),
 TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Super NVFP4 (the
@@ -9,7 +12,7 @@ training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GP
 same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
 [OpenRouter](dashboard.md#openrouter) with a visitor's own API key (`allow_openrouter`), at the visitor's own risk:
 while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
-[The lite Space](#the-lite-space) runs the same image on a T4, with OpenRouter as its only LLM connection: the
+The lite Space runs the same image on a T4, with OpenRouter as its only LLM connection: the
 Space's own key for one free model (shared quota), or a visitor's own key.
 
 ## Files
@@ -36,7 +39,8 @@ may have its own card in `deploy/hf_space/cards/`, which `publish.py` uploads as
 
 `deploy/hf_space/publish.py` uploads `space/` and `MMAI_COMMIT` to a Space repository in one commit, which
 rebuilds the Space. Its `SPACES` lists the Spaces with their hardware: `ksg-dfci/matchminer-ai-1226` (the default,
-an RTX PRO 6000) and `ksg-dfci/matchminer-ai-1226-lite` (a T4, with its own card); `--space` picks one. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
+the lite Space on a T4, with its own card and image variant) and `ksg-dfci/matchminer-ai-1226-rtxpro` (an RTX PRO
+6000); `--space` picks one. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
 the source, frontend and package layers. The commit must be on GitHub, since the image downloads its code there.
 
 ```bash
@@ -45,13 +49,14 @@ python deploy/hf_space/publish.py --commit <sha>
 python deploy/hf_space/publish.py --create           # once: create the public Space with its GPU and sleep time
 python deploy/hf_space/publish.py --factory-rebuild  # also rebuild without the layer cache
 python deploy/hf_space/publish.py --dry-run          # stage only
-python deploy/hf_space/publish.py --space ksg-dfci/matchminer-ai-1226-lite   # the lite Space (likewise --create)
+python deploy/hf_space/publish.py --space ksg-dfci/matchminer-ai-1226-rtxpro   # the RTX PRO Space (likewise --create)
 ```
 
 **Automatic rebuilds.** The workflow `.github/workflows/hf-space.yml` runs `publish.py --commit $GITHUB_SHA` on every
 push to `main` that changes `src/`, `frontend/dashboard/`, `docs/` (the How this works tab serves its pages),
 `pyproject.toml` or `deploy/hf_space/`, and on demand (Actions, **Run workflow**, optionally a factory rebuild), once for
-each Space, as separate jobs: one Space's failure does not stop the other's. It needs the repository secret `HF_TOKEN`:
+each Space in its matrix, as separate jobs: one Space's failure does not stop another's. The matrix lists only the
+public Space; the private, paused RTX PRO Space is published by hand before it is restarted. It needs the repository secret `HF_TOKEN`:
 a Hugging Face token with write access to every Space (a fine-grained token must list each). A token without access
 fails that Space's job with a message saying so; a Space not created yet is skipped with a warning.
 
@@ -130,15 +135,15 @@ Space has no hosted OpenRouter key (that is [the lite Space](#the-lite-space)'s)
 
 ## The lite Space
 
-[`ksg-dfci/matchminer-ai-1226-lite`](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226-lite) runs the same
-image and commit on one T4 (16 GB, `t4-small`), which sleeps after five hours too. It hosts no LLM:
+[`ksg-dfci/matchminer-ai-1226`](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226) (named
+`matchminer-ai-1226-lite` until 2026-11-27; the old name redirects) runs the same image and commit on one T4 (16 GB, `t4-small`), which sleeps after five hours too. It hosts no LLM:
 
 - **Tier:** `tier.py` finds under 40 GB of GPU memory (or none) and sets `MMAI_DASH_LOCAL_SERVER_ENABLED=false`; no
   weights are prefetched and no server starts. With site.yaml's `only` and `allow_openrouter`, OpenRouter with each
   visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
   `nvidia/nemotron-3.5-super-vl`, with reasoning on). Data and models says why there is no local server and shows the
   key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.
-- **Hosted key:** with the Space secret `MMAI_OPENROUTER_HOSTED_KEY` (this Space only; the full Space has none, so
+- **Hosted key:** with the Space secret `MMAI_OPENROUTER_HOSTED_KEY` (this Space only; the RTX PRO Space has none, so
   the same `site.yaml` offers it nothing), the owner's OpenRouter key is every task's default instead, for one model:
   **Hosted: Nemotron 3.5 Super (free, shared quota)**, `nvidia/nemotron-3.5-super-vl:free`, with site.yaml's
   `hosted_openrouter` limits (16 requests a minute for the whole Space, 150 per browser session a day, a stop at 20
@@ -184,8 +189,8 @@ python deploy/hf_space/refresh.py --wait      # restart, and wait until it runs 
 ```
 
 It warns when `MMAI_DATASET_REVISION` pins another commit. The token is `HF_TOKEN` (or the huggingface_hub login), as
-for `publish.py`. A restart repeats the startup below. Add `--space ksg-dfci/matchminer-ai-1226-lite` for the lite
-Space.
+for `publish.py`. A restart repeats the startup below. Add `--space ksg-dfci/matchminer-ai-1226-rtxpro` for the RTX PRO
+Space (a restart also unpauses it).
 
 ## Startup
 
