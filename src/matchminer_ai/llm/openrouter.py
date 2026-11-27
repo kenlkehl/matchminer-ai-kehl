@@ -282,7 +282,7 @@ def admit(ref: str | None, model: str | None, *, sleep=time.sleep) -> None:
         raise OpenRouterError(error, retryable=False)
     quota = hosted_quota(ref)
     if quota is not None:
-        quota.admit(ref, sleep=sleep)
+        quota.admit(ref or "", sleep=sleep)
 
 
 async def admit_async(ref: str | None, model: str | None) -> None:
@@ -292,7 +292,7 @@ async def admit_async(ref: str | None, model: str | None) -> None:
         raise OpenRouterError(error, retryable=False)
     quota = hosted_quota(ref)
     if quota is not None:
-        await quota.admit_async(ref)
+        await quota.admit_async(ref or "")
 
 
 def daily_requests(record) -> dict | None:
@@ -300,7 +300,7 @@ def daily_requests(record) -> dict | None:
     ``free_model_daily_requests`` (in its ``data`` object, or at the top level), else None."""
     if not isinstance(record, dict):
         return None
-    data = record.get("data") if isinstance(record.get("data"), dict) else record
+    data = record["data"] if isinstance(record.get("data"), dict) else record
     daily = data.get("free_model_daily_requests")
     if not isinstance(daily, dict):
         return None
@@ -419,7 +419,7 @@ class HostedQuota:
         if reading is None or reading["daily"] is None or reading["day"] != self._today():
             return None
         since = reading["at"] - COUNTER_LAG_SECONDS
-        return max(0, reading["daily"]["remaining"] - sum(1 for t in self._sent if t >= since))
+        return max(0, int(reading["daily"]["remaining"]) - sum(1 for t in self._sent if t >= since))
 
     # ------------------------------------------------------------------ admission
 
@@ -458,7 +458,7 @@ class HostedQuota:
             if self._booked:
                 at = max(at, self._booked[-1])
             self._booked.append(at)
-            return at - now
+            return float(at - now)
 
     def admit(self, ref: str, *, sleep=time.sleep) -> None:
         """Let one request through ``ref`` go, once it is within every limit (``OpenRouterError`` otherwise)."""
