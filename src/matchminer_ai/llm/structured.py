@@ -470,6 +470,14 @@ class StructuredClient:
                     dispatch_wait = endpoint_pacer(
                         base_url, self.config.model
                     ).wait(self.config.request_start_interval_seconds)
+                if openrouter and endpoint == "/chat/completions":
+                    # The key's model and, for the hosted key, its limits (waiting for a slot), right before the
+                    # request goes; a refusal is final (a fixed text).
+                    try:
+                        router.admit(self.config.api_key_ref, (body or {}).get("model"),
+                                     sleep=cancel_sleep)
+                    except router.OpenRouterError as exc:
+                        raise CredentialsError(str(exc)) from None
                 check_cancelled()
                 with urlopen(request, timeout=self.config.timeout) as response:
                     if endpoint == "/chat/completions" and body and body.get("stream"):
@@ -486,9 +494,14 @@ class StructuredClient:
                 return result
         except HTTPError as exc:
             # Deliberately don't persist server bodies (they may echo credentials).
-            if openrouter and exc.code in (401, 402, 403, 404):
-                # The key, credits, access or the model: retrying cannot fix them (fixed texts).
-                raise CredentialsError(router.status_message(exc.code), http_status=exc.code) from None
+            hosted = openrouter and router.is_hosted(self.config.api_key_ref)
+            if hosted and exc.code == 429:
+                router.rate_limited(self.config.api_key_ref)  # the hosted key pauses: no retry reaches OpenRouter
+            if openrouter and (exc.code in (401, 402, 403, 404) or (hosted and exc.code == 429)):
+                # The key, credits, access or the model: retrying cannot fix them (fixed texts). The hosted key's
+                # 429 too: a retry would spend the account's daily free-model requests.
+                raise CredentialsError(router.status_message(exc.code, hosted=hosted),
+                                       http_status=exc.code) from None
             raise EndpointError(
                 router.status_message(exc.code) if openrouter else f"Endpoint HTTP {exc.code} for {endpoint}",
                 http_status=exc.code,
