@@ -498,7 +498,8 @@ server refuses every other model connection, wherever one is chosen or used:
   `local_server.enabled: false`) is for a machine that cannot host an LLM: Data and models says so instead of showing
   the server's controls, starting or using one is refused, and no autostart runs. With `--local-server-only` and
   `--allow-openrouter` too (the [lite Space](hf-space.md#the-lite-space)), OpenRouter is the only connection and every
-  task's default (the presets' default model, reasoning on), served by each session's own key.
+  task's default (the presets' default model, reasoning on), served by each session's own key, or the
+  [hosted key](#hosted-key)'s model, served by the owner's key until a session pastes its own.
 - **Other network use is unchanged:** Hugging Face model downloads (with `--allow-downloads`) and ClinicalTrials.gov
   fetches.
 
@@ -555,6 +556,52 @@ config and no GPU, so it also serves when no local model server can run.
   (`llm.connections.set_connection_policy`, the mechanism `--local-server-only` uses) refuse it, and
   `allow_openrouter` is an error there. OpenRouter cannot be the app's default connection (`--llm-backend`), since
   the key is per session.
+
+### Hosted key
+
+A synthetic-mode app can also offer its owner's own OpenRouter key to the sessions that pasted none (the
+[lite Space](hf-space.md#the-lite-space) does), for one model: **Hosted: Nemotron 3.5 Super (free, shared quota)**
+on Data and models (`apps.dashboard.hosted_openrouter`, `llm.openrouter.HostedQuota`).
+
+- **When:** the site config has `dashboard.synthetic.hosted_openrouter` (below) *and* the environment has the key in
+  `MMAI_OPENROUTER_HOSTED_KEY` (a Space secret). Without the secret, nothing is offered, so one site config serves an
+  app with the secret and one without. Real mode refuses the block and drops the secret.
+- **The key:** read once at startup and removed from the app's environment before anything else starts, so no child
+  process inherits it (the Space's `entrypoint.sh` runs its helpers without it too). It is kept in memory like a
+  session's key, but nothing of it is shown, not even its last four characters: the page says "this Space's key".
+- **One model:** a request through the hosted key for another model is refused in `llm.openrouter` before anything
+  is sent; restrict the key on OpenRouter to the same model (a guardrail's model allowlist) as the second lock. A
+  session without its own key that saves another model gets "This Space's key serves only <model>; paste your own
+  key for other models".
+- **Default:** with OpenRouter the only connection (no local server, `--local-server-only` and `--allow-openrouter`),
+  the hosted model is every task's default, the chat assistant's included. Each session's requests count against
+  its own share. A session that pastes its own key uses it instead, for any model, as before.
+- **Limits** (OpenRouter's free models allow 20 requests a minute, and 50 a day per account, or 1,000 once it has
+  bought $10 of credits; failed requests count):
+  - at most `requests_per_minute` requests start in any minute, for the whole app; the others wait for a slot;
+  - `session_daily_requests` per browser session and UTC day;
+  - the account's free-model requests left today, from OpenRouter's `GET /api/v1/key` (`free_model_daily_requests`;
+    read at most once a minute, uses no model request) minus what the app sent since (and in the counter's lag
+    before): at `daily_reserve` left, requests stop with a message to paste one's own key. When OpenRouter reports
+    no counter, the other limits still hold;
+  - a 429 through the hosted key is never retried (a retry would spend the day's requests), and the key then pauses
+    for a minute: requests are refused in the app, before anything is sent, so no retry of a task above the request
+    (a summary's quality retries, say) reaches OpenRouter.
+- **Messages:** every refusal is a fixed text that says what to do (wait, or paste one's own key); a patient summary
+  that fails on one shows it instead of the generic failure.
+- **Data and models** shows the option with its model locked, today's requests left for visitors and the session's
+  share, and the notice: requests go to OpenRouter under the Space's account, free models' providers may log
+  prompts, synthetic data only. The connection check reads the key's record through the same once-a-minute reading.
+
+| `hosted_openrouter` key | Default | Meaning |
+| --- | --- | --- |
+| `model` | `nvidia/nemotron-3.5-super-vl:free` | The one model the hosted key serves |
+| `label` | `Nemotron 3.5 Super` | Its name on Data and models |
+| `requests_per_minute` | 16 | Requests a minute for the whole app (at most 20, OpenRouter's free-model limit) |
+| `session_daily_requests` | 150 | Requests per browser session and UTC day |
+| `daily_reserve` | 20 | Requests stop when this many of the account's free-model requests are left today |
+
+The block may be `{}` for the defaults.
 
 ## Real patients
 

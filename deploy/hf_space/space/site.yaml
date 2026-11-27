@@ -43,6 +43,19 @@ dashboard:
     # No benchmark_roots: the Benchmarking tab stays hidden.
     # The Space page shows the app in a frame.
     frame_ancestors: [https://huggingface.co]
+    # The hosted OpenRouter connection: only where the Space has the secret MMAI_OPENROUTER_HOSTED_KEY (the lite
+    # Space), the owner's OpenRouter key serves visitors who paste no key of their own, for this one model (the key's
+    # guardrail on OpenRouter allows only it), and is never shown. Without the secret (the full Space) nothing is
+    # offered. OpenRouter's free models allow 20 requests a minute and 50 a day per account (1,000 a day once it has
+    # bought $10 of credits), counting failed requests: the app sends at most requests_per_minute for everyone (the
+    # others wait), session_daily_requests per browser session and UTC day, and stops at daily_reserve requests left
+    # today (OpenRouter's GET /api/v1/key). A 429 is not retried.
+    hosted_openrouter:
+      model: nvidia/nemotron-3.5-super-vl:free
+      label: Nemotron 3.5 Super
+      requests_per_minute: 16
+      session_daily_requests: 150
+      daily_reserve: 20
     # Every LLM task uses the app's own model server on the Space's GPU, started once the decision model has loaded;
     # the only other model connection accepted is OpenRouter with a visitor's own API key (allow_openrouter: while
     # the server loads, or on hardware without a suitable GPU). On the RTX PRO 6000 (96 GB): vLLM serving Nemotron
@@ -50,7 +63,8 @@ dashboard:
     # package's Super profile gives the reasoning and tool parsers and the sampling). Memory: about 70 GiB of
     # weights, then the KV and Mamba caches inside 84% of the GPU; the remaining ~15 GiB hold the decision model and
     # TrialSpace, which the app loads on the same GPU. On a smaller GPU tier.py picks Bolt's GGUF with llama.cpp (from
-    # 40 GB) or no local server (a T4, the lite Space): OpenRouter is then the only LLM connection.
+    # 40 GB) or no local server (a T4, the lite Space): OpenRouter is then the only LLM connection, with the hosted
+    # key (hosted_openrouter, above) as every task's default where the Space has it.
     local_server:
       only: true
       default: true

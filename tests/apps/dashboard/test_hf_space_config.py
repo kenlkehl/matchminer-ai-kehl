@@ -36,6 +36,11 @@ def test_the_space_site_config_and_its_vllm_server(monkeypatch):
                  "--trust-remote-code", "--enable-prefix-caching", '"method":"mtp"'):
         assert flag in joined
     assert spec.engine == "vllm" and spec.gpu_memory_utilization <= 0.85 and spec.max_model_len >= 200_000
+    # The hosted OpenRouter key's block (used only where the Space has the secret): valid, under the free limits.
+    from matchminer_ai.apps.dashboard.hosted_openrouter import normalize
+
+    hosted = normalize(values["dashboard"]["synthetic"]["hosted_openrouter"])
+    assert hosted["model"].endswith(":free") and hosted["requests_per_minute"] < 20
 
 
 def test_the_spaces_tier_by_gpu_memory():

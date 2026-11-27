@@ -9,7 +9,8 @@ training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GP
 same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
 [OpenRouter](dashboard.md#openrouter) with a visitor's own API key (`allow_openrouter`), at the visitor's own risk:
 while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
-[The lite Space](#the-lite-space) runs the same image on a T4, with OpenRouter as its only LLM connection.
+[The lite Space](#the-lite-space) runs the same image on a T4, with OpenRouter as its only LLM connection: the
+Space's own key for one free model (shared quota), or a visitor's own key.
 
 ## Files
 
@@ -22,8 +23,8 @@ The Space's files are `deploy/hf_space/space/` in this repository:
 | `constraints.txt` | The pinned versions of the heavy dependencies both variants share (torch, transformers, sentence-transformers, huggingface_hub, ...), installed in their own layer before the package |
 | `constraints-engines.txt` | The full variant's: vLLM, flashinfer-python and the CUDA 13.0 compiler pins |
 | `no-engines.txt` | The lite variant's uv override that leaves the package's vLLM dependency out |
-| `site.yaml` | The Space's site config: the published data as `hf://` references at `${MMAI_DATASET_REVISION:-main}`, the local model server, framing by the Space page |
-| `entrypoint.sh` | `mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve`, with the data under `/data` when a storage bucket is mounted there; it logs the GPU, sets the tier (`tier.py`) and, with a local server, starts `prefetch.py` |
+| `site.yaml` | The Space's site config: the published data as `hf://` references at `${MMAI_DATASET_REVISION:-main}`, the local model server, the hosted OpenRouter key's limits, framing by the Space page |
+| `entrypoint.sh` | `mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve`, with the data under `/data` when a storage bucket is mounted there; it logs the GPU, sets the tier (`tier.py`) and, with a local server, starts `prefetch.py` (both without the hosted OpenRouter key in their environment) |
 | `tier.py` | The tier by the GPU's memory: Super with vLLM from 90 GB, Bolt with llama.cpp from 40 GB, else no local model server ([the lite Space](#the-lite-space)) |
 | `prefetch.py` | Downloads the local model server's weights while the app starts (the files the server would download itself) |
 
@@ -80,6 +81,8 @@ folder the revision does not have reads as a missing path, so that feature is un
 - `dashboard.synthetic.local_server`: the only model connection, started once the decision model has loaded: vLLM
   serving Nemotron 3.5 Super NVFP4 (below).
 - `dashboard.synthetic.frame_ancestors`: `https://huggingface.co`, so the Space page can show the app.
+- `dashboard.synthetic.hosted_openrouter`: the [hosted OpenRouter key](dashboard.md#hosted-key)'s model and limits,
+  used only where the Space has the secret `MMAI_OPENROUTER_HOSTED_KEY` ([the lite Space](#the-lite-space)).
 
 Clinical trial management's file (`no_phi/dashboard_trial_management/` under the data root) starts empty and is shared
 by everyone using the Space.
@@ -88,7 +91,8 @@ by everyone using the Space.
 
 Until the local server is ready (or on hardware without a GPU), Data and models offers OpenRouter: a visitor pastes
 their own key, which the app keeps only in memory for that browser session and sends only to OpenRouter, and picks a
-model (by default `nvidia/nemotron-3.5-super-vl`, the same Nemotron 3.5 Super). Nothing else is accepted.
+model (by default `nvidia/nemotron-3.5-super-vl`, the same Nemotron 3.5 Super). Nothing else is accepted. The main
+Space has no hosted OpenRouter key (that is [the lite Space](#the-lite-space)'s).
 
 `site.yaml`'s `local_server.autostart` is a full vLLM spec, so it needs no recipe in the package:
 - **Model:** `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4` at a pinned revision, text only
@@ -134,6 +138,16 @@ image and commit on one T4 (16 GB, `t4-small`), which sleeps after five hours to
   visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
   `nvidia/nemotron-3.5-super-vl`, with reasoning on). Data and models says why there is no local server and shows the
   key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.
+- **Hosted key:** with the Space secret `MMAI_OPENROUTER_HOSTED_KEY` (this Space only; the full Space has none, so
+  the same `site.yaml` offers it nothing), the owner's OpenRouter key is every task's default instead, for one model:
+  **Hosted: Nemotron 3.5 Super (free, shared quota)**, `nvidia/nemotron-3.5-super-vl:free`, with site.yaml's
+  `hosted_openrouter` limits (16 requests a minute for the whole Space, 150 per browser session a day, a stop at 20
+  of the account's free-model requests left today; a 429 is not retried). The key is restricted on OpenRouter (a
+  guardrail's model allowlist) to that model, and the app refuses any other model through it before sending. The app
+  reads the secret once and removes it from its environment; nothing of it is ever shown. Data and models shows the
+  model locked, today's requests left and the session's share, and says that requests go to OpenRouter under the
+  Space's account, that free models' providers may log prompts, and to enter synthetic data only. A visitor may still
+  paste their own key, which then serves instead, for any model.
 - **Decision model:** the T4 (Turing, compute capability 7.5) has no native bfloat16, so `dtype: auto` loads
   MatchEval-1226 in float16 there (`matching.decision_model.PRE_AMPERE_DTYPE`; `MMAI_DASH_DTYPE` or `--dtype` choose
   another). Its own attention code takes the masked-SDPA path below compute capability 8.0 (its flash path needs

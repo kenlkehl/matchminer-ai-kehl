@@ -12,9 +12,11 @@ echo "MatchMiner-AI $(cat /home/user/space/MMAI_COMMIT 2>/dev/null || echo unkno
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || echo "nvidia-smi: none"
 # The local model server by the GPU's memory (tier.py): Nemotron 3.5 Super with vLLM from 90 GB, Bolt with llama.cpp
 # from 40 GB, else none (OpenRouter with each visitor's own key only).
-eval "$(python /home/user/space/tier.py)"
+# The hosted OpenRouter key (the Space secret MMAI_OPENROUTER_HOSTED_KEY, the lite Space's only) goes to the app
+# alone, which removes it from its environment at startup; these helpers run without it.
+eval "$(env -u MMAI_OPENROUTER_HOSTED_KEY python /home/user/space/tier.py)"
 if [ "${MMAI_SPACE_TIER:-}" != openrouter ]; then
     # The local model server's weights download while the app starts (prefetch.py).
-    python /home/user/space/prefetch.py &
+    env -u MMAI_OPENROUTER_HOSTED_KEY python /home/user/space/prefetch.py &
 fi
 exec mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve

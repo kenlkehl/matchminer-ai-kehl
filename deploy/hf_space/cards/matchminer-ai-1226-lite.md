@@ -7,7 +7,7 @@ app_port: 7860
 startup_duration_timeout: 2h
 pinned: false
 license: cc-by-nc-nd-4.0
-short_description: Synthetic-patient trial matching; LLMs via OpenRouter key
+short_description: Synthetic-patient trial matching; LLMs via OpenRouter
 models:
   - ksg-dfci/TrialSpace-1226
   - ksg-dfci/MatchEval-1226
@@ -25,9 +25,10 @@ tags:
 The [MatchMiner-AI](https://github.com/kenlkehl/matchminer-ai-kehl) dashboard on the synthetic data of the
 [MatchMiner-AI 1226 release](https://huggingface.co/collections/ksg-dfci/matchminer-ai-1226-6b02079780cbeb2146ee081c),
 on a small GPU. It is [MatchMiner-AI 1226](https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226) without a
-language model of its own: retrieval and scoring run here, and the LLM tasks use [OpenRouter](https://openrouter.ai)
-with your own API key. MatchMiner-AI ranks patient-cohort pairs for human review: it is a research tool, not an
-eligibility engine, and nothing it shows is medical advice.
+language model of its own: retrieval and scoring run here, and the LLM tasks use [OpenRouter](https://openrouter.ai),
+with this Space's key for one free model (a shared daily quota) or with your own API key for any model.
+MatchMiner-AI ranks patient-cohort pairs for human review: it is a research tool, not an eligibility engine, and
+nothing it shows is medical advice.
 
 **All patients here are synthetic.** Do not enter real patient information.
 
@@ -36,12 +37,17 @@ eligibility engine, and nothing it shows is medical advice.
 - **Retrieval:** [TrialSpace-1226](https://huggingface.co/ksg-dfci/TrialSpace-1226) embeds the patients and cohorts.
 - **Scoring:** [MatchEval-1226](https://huggingface.co/ksg-dfci/MatchEval-1226), the decision model, answers the match,
   boilerplate and per-criterion questions (in float16 on this Space's T4).
-- **LLM tasks** (summaries, checks, the chat assistant): **OpenRouter with your own API key, at your own risk.** Paste
-  the key on Data and models; the key and the synthetic data the tasks send go to OpenRouter under your account, which
-  is billed for them. The Space keeps the key only in memory for your browser session and never shows it again. The
-  default model is NVIDIA's Nemotron 3.5 Super (`nvidia/nemotron-3.5-super-vl`), the model that labeled the training
-  data; Claude and open models are offered too, and any OpenRouter model ID may be typed. Without a key, everything
-  but the LLM tasks works.
+- **LLM tasks** (summaries, checks, the chat assistant), through OpenRouter:
+  - **By default, this Space's key** (Hosted: Nemotron 3.5 Super, free, shared quota): NVIDIA's Nemotron 3.5 Super on
+    OpenRouter's free tier (`nvidia/nemotron-3.5-super-vl:free`), the model that labeled the training data, and no
+    other model. The synthetic data the tasks send go to OpenRouter under this Space's account; free models'
+    providers may log prompts and outputs, so enter synthetic data only. Everyone shares a daily quota of free
+    requests, with at most 16 a minute (the others wait) and 150 per browser session a day; Data and models shows
+    what is left. When it runs out, paste your own key.
+  - **OpenRouter with your own API key, at your own risk**, for any model. Paste the key on Data and models; the key
+    and the synthetic data the tasks send then go to OpenRouter under your account, which is billed for them. The
+    Space keeps the key only in memory for your browser session and never shows it again. Nemotron 3.5 Super
+    (`nvidia/nemotron-3.5-super-vl`), Claude and open models are offered, and any OpenRouter model ID may be typed.
 - **Data:** [mmai-synthetic-1226](https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226), downloaded at
   startup, with its guideline catalogs (NCI PDQ) when it has them.
 

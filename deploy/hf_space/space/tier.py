@@ -5,7 +5,8 @@ exports this prints (one image serves every Space, whatever its hardware).
 - ``bolt``, 40 GB or more (an L40S): Nemotron 3.5 Bolt's GGUF with llama.cpp (its 24 GB file and KV cache, beside
   the decision model and TrialSpace).
 - ``openrouter``, less or no GPU (a T4): no local model server. With site.yaml's ``only`` and ``allow_openrouter``,
-  the LLM tasks then use OpenRouter with each visitor's own API key, and nothing else.
+  the LLM tasks then use OpenRouter, and nothing else: with each visitor's own API key, or, where the Space has the
+  secret ``MMAI_OPENROUTER_HOSTED_KEY`` (site.yaml's ``hosted_openrouter``), the Space's own key for one model.
 
 The lite image (the Dockerfile's ``MMAI_VARIANT=lite``) has no engines, so it is always ``openrouter``, on any GPU.
 """
