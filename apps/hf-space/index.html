@@ -2244,7 +2244,8 @@ training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GP
 same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
 <a href="../dashboard/#openrouter">OpenRouter</a> with a visitor's own API key (<code>allow_openrouter</code>), at the visitor's own risk:
 while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
-<a href="#the-lite-space">The lite Space</a> runs the same image on a T4, with OpenRouter as its only LLM connection.</p>
+<a href="#the-lite-space">The lite Space</a> runs the same image on a T4, with OpenRouter as its only LLM connection: the
+Space's own key for one free model (shared quota), or a visitor's own key.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
 <p>The Space's files are <code>deploy/hf_space/space/</code> in this repository:</p>
 <table>
@@ -2277,11 +2278,11 @@ while the local server loads, or on hardware without a suitable GPU. It needs no
 </tr>
 <tr>
 <td><code>site.yaml</code></td>
-<td>The Space's site config: the published data as <code>hf://</code> references at <code>${MMAI_DATASET_REVISION:-main}</code>, the local model server, framing by the Space page</td>
+<td>The Space's site config: the published data as <code>hf://</code> references at <code>${MMAI_DATASET_REVISION:-main}</code>, the local model server, the hosted OpenRouter key's limits, framing by the Space page</td>
 </tr>
 <tr>
 <td><code>entrypoint.sh</code></td>
-<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there; it logs the GPU, sets the tier (<code>tier.py</code>) and, with a local server, starts <code>prefetch.py</code></td>
+<td><code>mmai-dashboard --mode synthetic --port 7860 --allow-downloads serve</code>, with the data under <code>/data</code> when a storage bucket is mounted there; it logs the GPU, sets the tier (<code>tier.py</code>) and, with a local server, starts <code>prefetch.py</code> (both without the hosted OpenRouter key in their environment)</td>
 </tr>
 <tr>
 <td><code>tier.py</code></td>
@@ -2339,13 +2340,16 @@ folder the revision does not have reads as a missing path, so that feature is un
 <li><code>dashboard.synthetic.local_server</code>: the only model connection, started once the decision model has loaded: vLLM
   serving Nemotron 3.5 Super NVFP4 (below).</li>
 <li><code>dashboard.synthetic.frame_ancestors</code>: <code>https://huggingface.co</code>, so the Space page can show the app.</li>
+<li><code>dashboard.synthetic.hosted_openrouter</code>: the <a href="../dashboard/#hosted-key">hosted OpenRouter key</a>'s model and limits,
+  used only where the Space has the secret <code>MMAI_OPENROUTER_HOSTED_KEY</code> (<a href="#the-lite-space">the lite Space</a>).</li>
 </ul>
 <p>Clinical trial management's file (<code>no_phi/dashboard_trial_management/</code> under the data root) starts empty and is shared
 by everyone using the Space.</p>
 <h2 id="the-llm-server">The LLM server<a class="headerlink" href="#the-llm-server" title="Permanent link">&para;</a></h2>
 <p>Until the local server is ready (or on hardware without a GPU), Data and models offers OpenRouter: a visitor pastes
 their own key, which the app keeps only in memory for that browser session and sends only to OpenRouter, and picks a
-model (by default <code>nvidia/nemotron-3.5-super-vl</code>, the same Nemotron 3.5 Super). Nothing else is accepted.</p>
+model (by default <code>nvidia/nemotron-3.5-super-vl</code>, the same Nemotron 3.5 Super). Nothing else is accepted. The main
+Space has no hosted OpenRouter key (that is <a href="#the-lite-space">the lite Space</a>'s).</p>
 <p><code>site.yaml</code>'s <code>local_server.autostart</code> is a full vLLM spec, so it needs no recipe in the package:
 - <strong>Model:</strong> <code>nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4</code> at a pinned revision, text only
   (<code>--language-model-only</code>), served under its own ID. So the package's Super profile applies: the <code>nemotron_v3</code>
@@ -2409,6 +2413,16 @@ image and commit on one T4 (16 GB, <code>t4-small</code>), which sleeps after fi
   visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
   <code>nvidia/nemotron-3.5-super-vl</code>, with reasoning on). Data and models says why there is no local server and shows the
   key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.</li>
+<li><strong>Hosted key:</strong> with the Space secret <code>MMAI_OPENROUTER_HOSTED_KEY</code> (this Space only; the full Space has none, so
+  the same <code>site.yaml</code> offers it nothing), the owner's OpenRouter key is every task's default instead, for one model:
+  <strong>Hosted: Nemotron 3.5 Super (free, shared quota)</strong>, <code>nvidia/nemotron-3.5-super-vl:free</code>, with site.yaml's
+  <code>hosted_openrouter</code> limits (16 requests a minute for the whole Space, 150 per browser session a day, a stop at 20
+  of the account's free-model requests left today; a 429 is not retried). The key is restricted on OpenRouter (a
+  guardrail's model allowlist) to that model, and the app refuses any other model through it before sending. The app
+  reads the secret once and removes it from its environment; nothing of it is ever shown. Data and models shows the
+  model locked, today's requests left and the session's share, and says that requests go to OpenRouter under the
+  Space's account, that free models' providers may log prompts, and to enter synthetic data only. A visitor may still
+  paste their own key, which then serves instead, for any model.</li>
 <li><strong>Decision model:</strong> the T4 (Turing, compute capability 7.5) has no native bfloat16, so <code>dtype: auto</code> loads
   MatchEval-1226 in float16 there (<code>matching.decision_model.PRE_AMPERE_DTYPE</code>; <code>MMAI_DASH_DTYPE</code> or <code>--dtype</code> choose
   another). Its own attention code takes the masked-SDPA path below compute capability 8.0 (its flash path needs

@@ -2418,6 +2418,11 @@ other's folders); shared values sit directly under <code>dashboard</code>.</p>
 <td>The <a href="../../apps/dashboard/#local-model-server">local model server</a>: <code>only</code> (the local server is the only model connection), <code>autostart</code> (a server spec, or a JSON or YAML file), <code>default</code>, <code>llama_server</code> (the binary), <code>enabled</code> (false: no local server on this machine) and, synthetic mode only, <code>allow_openrouter</code> (with <code>only</code>, also accept <a href="../../apps/dashboard/#openrouter">OpenRouter</a> with a session's own key; with <code>enabled: false</code> too, OpenRouter only), as <code>--local-server-only</code>, <code>--local-server-autostart</code>, <code>--local-server-default</code>, <code>--llama-server</code>, <code>--no-local-server</code> and <code>--allow-openrouter</code></td>
 </tr>
 <tr>
+<td><code>synthetic.hosted_openrouter</code></td>
+<td>none</td>
+<td>The <a href="../../apps/dashboard/#hosted-key">hosted OpenRouter key</a> (synthetic mode only; real mode refuses it): with the secret <code>MMAI_OPENROUTER_HOSTED_KEY</code> set too, the owner's OpenRouter key serves sessions without their own, for one model. <code>model</code> (<code>nvidia/nemotron-3.5-super-vl:free</code>), <code>label</code> (<code>Nemotron 3.5 Super</code>), <code>requests_per_minute</code> (16, at most 20), <code>session_daily_requests</code> (150) and <code>daily_reserve</code> (20); <code>{}</code> for the defaults</td>
+</tr>
+<tr>
 <td><code>synthetic_run</code></td>
 <td><code>&lt;data root&gt;/no_phi/synthetic_run</code></td>
 <td>TrialSpace rounds, the decision model, synthetic mode's trials and patients; or a published run, <code>hf://datasets/&lt;org&gt;/&lt;name&gt;@&lt;revision&gt;</code>, built into <code>&lt;data root&gt;/no_phi/synthetic_runs/</code> before the app serves</td>
