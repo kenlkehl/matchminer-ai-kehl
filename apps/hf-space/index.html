@@ -2235,8 +2235,11 @@
 
 
 <h1 id="hugging-face-space">Hugging Face Space<a class="headerlink" href="#hugging-face-space" title="Permanent link">&para;</a></h1>
-<p><a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226"><code>ksg-dfci/matchminer-ai-1226</code></a> runs the
-<a href="../dashboard/">dashboard</a> in synthetic mode as a public Docker Space, on one RTX PRO 6000 (96 GB, Blackwell) that
+<p>Two Spaces run the <a href="../dashboard/">dashboard</a> in synthetic mode from the same files and commit. The public one,
+<a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226"><code>ksg-dfci/matchminer-ai-1226</code></a>, is
+<a href="#the-lite-space">the lite Space</a>: a T4 with no LLM of its own. <code>ksg-dfci/matchminer-ai-1226-rtxpro</code> (named
+<code>matchminer-ai-1226</code> until 2026-11-27, when the lite Space took the name to save cost) is private and paused; it
+runs as a Docker Space on one RTX PRO 6000 (96 GB, Blackwell) that
 sleeps after five hours without visitors. Everything it shows comes from the Hub: the trials, patients, corpus and
 guideline catalogs of <a href="https://huggingface.co/datasets/ksg-dfci/mmai-synthetic-1226">mmai-synthetic-1226</a>,
 TrialSpace-1226 and MatchEval-1226 at the preset's pinned revisions, and NVIDIA's Nemotron 3.5 Super NVFP4 (the
@@ -2244,7 +2247,7 @@ training teacher) for every LLM task, served by vLLM on the Space's GPU. On a GP
 same image serves Nemotron 3.5 Bolt's GGUF with llama.cpp instead. The only other model connection it accepts is
 <a href="../dashboard/#openrouter">OpenRouter</a> with a visitor's own API key (<code>allow_openrouter</code>), at the visitor's own risk:
 while the local server loads, or on hardware without a suitable GPU. It needs no sign-in and has no Benchmarking tab.
-<a href="#the-lite-space">The lite Space</a> runs the same image on a T4, with OpenRouter as its only LLM connection: the
+The lite Space runs the same image on a T4, with OpenRouter as its only LLM connection: the
 Space's own key for one free model (shared quota), or a visitor's own key.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
 <p>The Space's files are <code>deploy/hf_space/space/</code> in this repository:</p>
@@ -2300,19 +2303,21 @@ may have its own card in <code>deploy/hf_space/cards/</code>, which <code>publis
 <h2 id="publishing">Publishing<a class="headerlink" href="#publishing" title="Permanent link">&para;</a></h2>
 <p><code>deploy/hf_space/publish.py</code> uploads <code>space/</code> and <code>MMAI_COMMIT</code> to a Space repository in one commit, which
 rebuilds the Space. Its <code>SPACES</code> lists the Spaces with their hardware: <code>ksg-dfci/matchminer-ai-1226</code> (the default,
-an RTX PRO 6000) and <code>ksg-dfci/matchminer-ai-1226-lite</code> (a T4, with its own card); <code>--space</code> picks one. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
+the lite Space on a T4, with its own card and image variant) and <code>ksg-dfci/matchminer-ai-1226-rtxpro</code> (an RTX PRO
+6000); <code>--space</code> picks one. Docker's layer cache keeps llama.cpp and the pinned dependencies, so a code update rebuilds only
 the source, frontend and package layers. The commit must be on GitHub, since the image downloads its code there.</p>
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>deploy/hf_space/publish.py<span class="w">                    </span><span class="c1"># this checkout's HEAD (pushed, no uncommitted changes)</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--commit<span class="w"> </span>&lt;sha&gt;
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--create<span class="w">           </span><span class="c1"># once: create the public Space with its GPU and sleep time</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--factory-rebuild<span class="w">  </span><span class="c1"># also rebuild without the layer cache</span>
 python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--dry-run<span class="w">          </span><span class="c1"># stage only</span>
-python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--space<span class="w"> </span>ksg-dfci/matchminer-ai-1226-lite<span class="w">   </span><span class="c1"># the lite Space (likewise --create)</span>
+python<span class="w"> </span>deploy/hf_space/publish.py<span class="w"> </span>--space<span class="w"> </span>ksg-dfci/matchminer-ai-1226-rtxpro<span class="w">   </span><span class="c1"># the RTX PRO Space (likewise --create)</span>
 </code></pre></div>
 <p><strong>Automatic rebuilds.</strong> The workflow <code>.github/workflows/hf-space.yml</code> runs <code>publish.py --commit $GITHUB_SHA</code> on every
 push to <code>main</code> that changes <code>src/</code>, <code>frontend/dashboard/</code>, <code>docs/</code> (the How this works tab serves its pages),
 <code>pyproject.toml</code> or <code>deploy/hf_space/</code>, and on demand (Actions, <strong>Run workflow</strong>, optionally a factory rebuild), once for
-each Space, as separate jobs: one Space's failure does not stop the other's. It needs the repository secret <code>HF_TOKEN</code>:
+each Space in its matrix, as separate jobs: one Space's failure does not stop another's. The matrix lists only the
+public Space; the private, paused RTX PRO Space is published by hand before it is restarted. It needs the repository secret <code>HF_TOKEN</code>:
 a Hugging Face token with write access to every Space (a fine-grained token must list each). A token without access
 fails that Space's job with a message saying so; a Space not created yet is skipped with a warning.</p>
 <h2 id="data-and-models">Data and models<a class="headerlink" href="#data-and-models" title="Permanent link">&para;</a></h2>
@@ -2405,15 +2410,15 @@ Space has no hosted OpenRouter key (that is <a href="#the-lite-space">the lite S
     unversioned names such as <code>libcudart.so</code> beside the versioned libraries, and the CUDA toolkit's driver stub as
     <code>lib/stubs/libcuda.so</code> (only linked against; the host driver's <code>libcuda.so.1</code> is loaded at run time).</p>
 <h2 id="the-lite-space">The lite Space<a class="headerlink" href="#the-lite-space" title="Permanent link">&para;</a></h2>
-<p><a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226-lite"><code>ksg-dfci/matchminer-ai-1226-lite</code></a> runs the same
-image and commit on one T4 (16 GB, <code>t4-small</code>), which sleeps after five hours too. It hosts no LLM:</p>
+<p><a href="https://huggingface.co/spaces/ksg-dfci/matchminer-ai-1226"><code>ksg-dfci/matchminer-ai-1226</code></a> (named
+<code>matchminer-ai-1226-lite</code> until 2026-11-27; the old name redirects) runs the same image and commit on one T4 (16 GB, <code>t4-small</code>), which sleeps after five hours too. It hosts no LLM:</p>
 <ul>
 <li><strong>Tier:</strong> <code>tier.py</code> finds under 40 GB of GPU memory (or none) and sets <code>MMAI_DASH_LOCAL_SERVER_ENABLED=false</code>; no
   weights are prefetched and no server starts. With site.yaml's <code>only</code> and <code>allow_openrouter</code>, OpenRouter with each
   visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
   <code>nvidia/nemotron-3.5-super-vl</code>, with reasoning on). Data and models says why there is no local server and shows the
   key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.</li>
-<li><strong>Hosted key:</strong> with the Space secret <code>MMAI_OPENROUTER_HOSTED_KEY</code> (this Space only; the full Space has none, so
+<li><strong>Hosted key:</strong> with the Space secret <code>MMAI_OPENROUTER_HOSTED_KEY</code> (this Space only; the RTX PRO Space has none, so
   the same <code>site.yaml</code> offers it nothing), the owner's OpenRouter key is every task's default instead, for one model:
   <strong>Hosted: Nemotron 3.5 Super (free, shared quota)</strong>, <code>nvidia/nemotron-3.5-super-vl:free</code>, with site.yaml's
   <code>hosted_openrouter</code> limits (16 requests a minute for the whole Space, 150 per browser session a day, a stop at 20
@@ -2474,8 +2479,8 @@ rebuild:</p>
 python<span class="w"> </span>deploy/hf_space/refresh.py<span class="w"> </span>--wait<span class="w">      </span><span class="c1"># restart, and wait until it runs again</span>
 </code></pre></div>
 <p>It warns when <code>MMAI_DATASET_REVISION</code> pins another commit. The token is <code>HF_TOKEN</code> (or the huggingface_hub login), as
-for <code>publish.py</code>. A restart repeats the startup below. Add <code>--space ksg-dfci/matchminer-ai-1226-lite</code> for the lite
-Space.</p>
+for <code>publish.py</code>. A restart repeats the startup below. Add <code>--space ksg-dfci/matchminer-ai-1226-rtxpro</code> for the RTX PRO
+Space (a restart also unpauses it).</p>
 <h2 id="startup">Startup<a class="headerlink" href="#startup" title="Permanent link">&para;</a></h2>
 <p>A Space has no persistent disk unless a storage bucket is mounted, so every start after sleep repeats the work:</p>
 <ol>
