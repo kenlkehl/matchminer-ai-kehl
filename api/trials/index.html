@@ -5992,8 +5992,10 @@ models or context windows require a separate output directory.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>On resume, retry fresh every request whose saved attempts all failed, instead of replaying those failures.
-Its failed attempts are moved aside (<code>retired-&lt;time&gt;/</code> in its checkpoint); accepted answers are kept.</p>
+                <p>On resume, ask again the requests whose failure ended the last run (each stage's recorded failures, with
+their fallbacks) instead of replaying their saved failures. Their attempts are moved aside
+(<code>retired-&lt;time&gt;/</code> in the checkpoint); accepted answers, and requests a fallback or split answered, are
+kept.</p>
               </div>
             </td>
             <td>
@@ -6207,7 +6209,9 @@ branch. Human source review is required; outputs are not treatment advice.</p>
 <span class="normal">220</span>
 <span class="normal">221</span>
 <span class="normal">222</span>
-<span class="normal">223</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">summarize_guidelines</span><span class="p">(</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">summarize_guidelines</span><span class="p">(</span>
     <span class="n">source_directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">disease</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -6264,8 +6268,10 @@ branch. Human source review is required; outputs are not treatment advice.</p>
 <span class="sd">        provenance; subsequent requests record the new transport. Different</span>
 <span class="sd">        models or context windows require a separate output directory.</span>
 <span class="sd">    retry_failed : bool, optional</span>
-<span class="sd">        On resume, retry fresh every request whose saved attempts all failed, instead of replaying those failures.</span>
-<span class="sd">        Its failed attempts are moved aside (``retired-&lt;time&gt;/`` in its checkpoint); accepted answers are kept.</span>
+<span class="sd">        On resume, ask again the requests whose failure ended the last run (each stage's recorded failures, with</span>
+<span class="sd">        their fallbacks) instead of replaying their saved failures. Their attempts are moved aside</span>
+<span class="sd">        (``retired-&lt;time&gt;/`` in the checkpoint); accepted answers, and requests a fallback or split answered, are</span>
+<span class="sd">        kept.</span>
 
 <span class="sd">    Returns</span>
 <span class="sd">    -------</span>
@@ -6531,9 +6537,7 @@ Clinical correctness is not established. Human source review remains required.</
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/guidelines.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">321</span>
-<span class="normal">322</span>
-<span class="normal">323</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">323</span>
 <span class="normal">324</span>
 <span class="normal">325</span>
 <span class="normal">326</span>
@@ -6598,7 +6602,9 @@ Clinical correctness is not established. Human source review remains required.</
 <span class="normal">385</span>
 <span class="normal">386</span>
 <span class="normal">387</span>
-<span class="normal">388</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">add_guideline_cohort_criteria</span><span class="p">(</span>
+<span class="normal">388</span>
+<span class="normal">389</span>
+<span class="normal">390</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">add_guideline_cohort_criteria</span><span class="p">(</span>
     <span class="n">catalog_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
@@ -6703,9 +6709,7 @@ Original records, raw responses and a reconstructable audit are retained.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/guidelines.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">250</span>
-<span class="normal">251</span>
-<span class="normal">252</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">252</span>
 <span class="normal">253</span>
 <span class="normal">254</span>
 <span class="normal">255</span>
@@ -6771,7 +6775,9 @@ Original records, raw responses and a reconstructable audit are retained.</p>
 <span class="normal">315</span>
 <span class="normal">316</span>
 <span class="normal">317</span>
-<span class="normal">318</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">review_guideline_citations</span><span class="p">(</span>
+<span class="normal">318</span>
+<span class="normal">319</span>
+<span class="normal">320</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">review_guideline_citations</span><span class="p">(</span>
     <span class="n">catalog</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
@@ -6869,9 +6875,7 @@ correctness, source applicability, or completeness.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/matchminer_ai/trials/guidelines.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">226</span>
-<span class="normal">227</span>
-<span class="normal">228</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">228</span>
 <span class="normal">229</span>
 <span class="normal">230</span>
 <span class="normal">231</span>
@@ -6890,7 +6894,9 @@ correctness, source applicability, or completeness.</p>
 <span class="normal">244</span>
 <span class="normal">245</span>
 <span class="normal">246</span>
-<span class="normal">247</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">audit_guideline_catalog</span><span class="p">(</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">audit_guideline_catalog</span><span class="p">(</span>
     <span class="n">source_directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">disease</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Verify a completed catalog against its local sources and raw checkpoints.</span>
