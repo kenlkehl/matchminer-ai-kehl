@@ -13,7 +13,8 @@ LLM tasks (``matchminer_ai.llm.local_server``).
 - **No local server** (``--no-local-server``, site config ``local_server.enabled: false``): for a machine that cannot
   host an LLM (no GPU, or one too small). The panel says so, and starting or using a server is refused. With
   ``--local-server-only`` and ``--allow-openrouter`` too (the Hugging Face Space on a small GPU), OpenRouter with a
-  session's own key is then the only connection, and every task's default (``settings.guideline_settings``).
+  session's own key, or the hosted key (``hosted_openrouter``), is then the only connection, and every task's default
+  (``settings.guideline_settings``).
 - **GPUs:** discovered with ``llm.gpus``; each GPU's memory is split into this app (its process and its children),
   the local server (its process group) and other processes. Process IDs are not sent to the page.
 - **Use:** once the server is ready, a session's tasks can use it (``use``), as an OpenAI-compatible connection with
@@ -46,6 +47,9 @@ ONLY_OR_OPENROUTER = ("This dashboard uses only its own local model server (--lo
                       "your own key; other model connections are refused.")
 NO_SERVER = ("This dashboard runs no local model server: this machine's GPU is too small for an LLM, or it has none. "
              "Use OpenRouter with your own API key (Models, on Data and models).")
+NO_SERVER_HOSTED = ("This dashboard runs no local model server: this machine's GPU is too small for an LLM, or it has "
+                    "none. Its LLM tasks use OpenRouter with this Space's key (one free model, shared quota), or with "
+                    "your own API key for any model (Models, on Data and models).")
 OPENROUTER_BACKEND = "openrouter"
 OPENROUTER_REAL = "OpenRouter is offered in synthetic mode only; real mode never sends patient data to it."
 NOT_READY = ("This dashboard uses only its own local model server (--local-server-only), which is not ready: start it "
@@ -200,7 +204,8 @@ class LocalServerControl:
     def describe(self, log_lines: int = 200) -> dict:
         server = self.server
         return {"only": self.only, "allow_openrouter": self.allow_openrouter, "enabled": self.enabled,
-                "disabled_reason": None if self.enabled else NO_SERVER,
+                "disabled_reason": None if self.enabled else (
+                    NO_SERVER_HOSTED if getattr(self.guidelines, "hosted", None) is not None else NO_SERVER),
                 "server": server.describe(log_lines) if server else None,
                 "default_on_ready": self.make_default, "allow_downloads": self.allow_downloads,
                 "hub_cache": str(ls.hub_cache()), "default_model": ls.recipes().get("default"),

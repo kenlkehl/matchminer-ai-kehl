@@ -284,7 +284,11 @@ class Inference:
         progress("Summarizing the cancer history · this may take several minutes")
         result = summarize_patients(frame, config=config)
         if len(result) != 1 or not str(result.iloc[0].cancer_history_summary).strip():
-            raise InputError("The summarizer did not return one usable patient summary.")
+            from matchminer_ai.llm.openrouter import hosted_stop
+
+            # The hosted OpenRouter key's quota (its own fixed text, which says what to do), else the generic text.
+            raise InputError(hosted_stop(self.settings.api_key_ref)
+                             or "The summarizer did not return one usable patient summary.")
         return {
             "summary": str(result.iloc[0].cancer_history_summary),
             "exclusion_evidence": str(

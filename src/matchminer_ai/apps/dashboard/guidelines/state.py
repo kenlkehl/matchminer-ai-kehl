@@ -7,6 +7,9 @@
   process's memory; the session holds only its reference (``Settings.api_key_ref``). It is never written, logged or
   sent back to the browser (``config_view`` shows only that a key is set and its last four characters), and it is
   forgotten when the session expires or the user removes it.
+- **The hosted OpenRouter key** (synthetic mode, ``apps.dashboard.hosted_openrouter``): serves every OpenRouter
+  connection of a session without its own key, through the session's own reference to it (``key_ref``), for one
+  model only (``update`` refuses another without the session's own key). Nothing of it is ever shown.
 - **The patient workspace:** a session's guideline jobs (summaries, guideline searches, workup reviews) and its
   extraction records.
 - **Populations:** a session's population and its guideline-space cohort (``population.PopulationSessions``).
@@ -62,6 +65,10 @@ class GuidelineState:
         self.workspace_settings: dict[str, dict] = {}
         # Each session's OpenRouter key reference ({"ref", "updated"}); the key is in llm.openrouter's memory.
         self.openrouter_keys: dict[str, dict] = {}
+        # The hosted OpenRouter connection's limits (``llm.openrouter.HostedQuota``) and the name of its model; the
+        # app sets them when it has one.
+        self.hosted: openrouter.HostedQuota | None = None
+        self.hosted_label = ""
         self.lock = threading.RLock()
 
     # ------------------------------------------------------------------ expiry
@@ -88,16 +95,24 @@ class GuidelineState:
 
     # ------------------------------------------------------------------ connections
 
-    def current_settings(self, owner: str) -> Settings:
+    def key_ref(self, owner: str) -> str:
+        """The OpenRouter key a session's OpenRouter connections use: its own, else its reference to the hosted key
+        (when the app has one), else none ("")."""
         with self.lock:
-            entry = self.workspace_settings.get(owner)
             key = self.openrouter_keys.get(owner)
             if key is not None:
                 key["updated"] = time.monotonic()
+                return str(key["ref"])
+        return self.hosted.session_ref(owner) if self.hosted is not None else ""
+
+    def current_settings(self, owner: str) -> Settings:
+        with self.lock:
+            entry = self.workspace_settings.get(owner)
+            ref = self.key_ref(owner)
             if entry is None:
-                return self.settings if key is None else replace(self.settings, api_key_ref=key["ref"])
+                return replace(self.settings, api_key_ref=ref) if ref else self.settings
             entry["updated"] = time.monotonic()
-            return replace(self.settings, **self.allowed(entry["values"]), api_key_ref=key["ref"] if key else "")
+            return replace(self.settings, **self.allowed(entry["values"]), api_key_ref=ref)
 
     def refusal(self, values: dict) -> str | None:
         """Why a connection is refused (``--local-server-only``: anything but the app's ready local server, and
@@ -109,6 +124,16 @@ class GuidelineState:
     def openrouter_refusal(self) -> str | None:
         """Why this app does not offer OpenRouter (None when it does)."""
         return self.refusal({"llm_backend": OPENROUTER})
+
+    def hosted_refusal(self, owner: str, values: dict) -> str | None:
+        """Why a session without its own key may not save an OpenRouter connection: the hosted key serves its one
+        model only."""
+        if (self.hosted is None or values.get("llm_backend") != OPENROUTER
+                or values.get("model") == self.hosted.model):
+            return None
+        with self.lock:
+            own = owner in self.openrouter_keys
+        return None if own else openrouter.MODEL_LOCKED.format(model=self.hosted.model)
 
     def set_openrouter_key(self, owner: str, key: str) -> None:
         """Keep a session's OpenRouter key in memory (``ValueError`` with a fixed text when it is not a key)."""
@@ -179,7 +204,7 @@ class GuidelineState:
     def update(self, owner: str, values: dict, *, task: str | None, apply_to_all: bool) -> Settings:
         """Save a session's connection for ``task`` (or, with ``apply_to_all``, for every task). A connection the
         app refuses (``refusal``) raises ``InputError``."""
-        reason = self.refusal(values)
+        reason = self.refusal(values) or self.hosted_refusal(owner, values)
         if reason:
             raise InputError(reason)
         with self.lock:
@@ -200,15 +225,26 @@ class GuidelineState:
                 values = {**saved, "task_connections": {**previous.task_connections, task: values}}
             else:
                 values = {**values, "task_connections": {}}
-            updated = replace(self.settings, **values)
+            updated = replace(self.settings, **values, api_key_ref=previous.api_key_ref)
             self.workspace_settings[owner] = {"values": values, "updated": time.monotonic()}
             return updated
 
-    def config_view(self, selected: Settings) -> dict:
+    def config_view(self, selected: Settings, owner: str | None = None) -> dict:
+        """``/api/models``: the session's connections (``selected``: its settings) and what the app offers. ``owner``:
+        the session, for its share of the hosted key's quota."""
         settings = self.settings
         only = self.local_server is not None and self.local_server.only
         project = vertex_project() if not only else ""
         offered = self.openrouter_refusal() is None
+        # The session's own key only: the hosted key is never "set" for it, and nothing of it is shown.
+        own_key = openrouter.has_key(selected.api_key_ref) and not openrouter.is_hosted(selected.api_key_ref)
+        hosted = None
+        if offered and self.hosted is not None:
+            from ..hosted_openrouter import view
+
+            ref = self.hosted.session_ref(owner) if owner is not None else (
+                selected.api_key_ref if openrouter.is_hosted(selected.api_key_ref) else "")
+            hosted = view(self.hosted, ref, self.hosted_label, own_key=own_key)
         return dict(
             **connection_view(selected),
             tasks={task: {"label": label, **connection_view(selected.for_task(task))}
@@ -222,11 +258,12 @@ class GuidelineState:
             local_defaults={"endpoint": settings.endpoint, "model": settings.model, "tokenizer": settings.tokenizer},
             local_server=(self.local_server.connection_view() if self.local_server is not None else
                           {"only": False, "state": None, "endpoint": None, "model": None, "tokenizer": None}),
-            # The key itself is never sent back: only whether one is set and its last four characters.
+            # The key itself is never sent back: only whether one is set and its last four characters. The hosted key:
+            # nothing of it, only its model, limits and what is left today (``hosted``).
             openrouter=({"offered": True, "endpoint": openrouter.ENDPOINT, "notice": OPENROUTER_NOTICE,
-                         "key_set": openrouter.has_key(selected.api_key_ref),
-                         "key_hint": openrouter.key_hint(selected.api_key_ref),
-                         "default_model": openrouter.presets()["default"],
+                         "key_set": own_key,
+                         "key_hint": openrouter.key_hint(selected.api_key_ref) if own_key else None,
+                         "default_model": openrouter.presets()["default"], "hosted": hosted,
                          "models": [{"id": key, "label": entry.get("label") or key,
                                      "reasoning": bool(entry.get("reasoning", False)),
                                      "claude": openrouter.is_claude(key)}

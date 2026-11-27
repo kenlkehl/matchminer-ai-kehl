@@ -143,6 +143,10 @@ class DashSettings(Settings):
     # Space page (https://huggingface.co). Its session cookie is then a partitioned third-party cookie (SameSite=None,
     # Secure), so a framed app keeps its session. Default: no framing.
     frame_ancestors: tuple[str, ...] = ()
+    # Synthetic mode only: the hosted OpenRouter connection (site config dashboard.synthetic.hosted_openrouter;
+    # ``hosted_openrouter``): the app owner's key from MMAI_OPENROUTER_HOSTED_KEY serves sessions without their own,
+    # for one model, within its limits. Offered only when the secret is set too. None: no hosted connection.
+    hosted_openrouter: dict | None = None
 
     def __post_init__(self):
         if self.mode not in MODES:
@@ -171,6 +175,12 @@ class DashSettings(Settings):
             self.local_server_default = True
         if self.allow_openrouter and real:
             raise ValueError("OpenRouter is for synthetic mode only (allow_openrouter); real mode never offers it.")
+        if self.hosted_openrouter is not None:
+            from .hosted_openrouter import REAL, normalize
+
+            if real:
+                raise ValueError(REAL)
+            self.hosted_openrouter = normalize(self.hosted_openrouter)
         if self.llm_backend == "openrouter":
             raise ValueError("OpenRouter needs each browser session's own key, so it cannot be the default connection; "
                              "choose it on Data and models.")
@@ -223,29 +233,30 @@ class DashSettings(Settings):
 
     @property
     def openrouter_only(self) -> bool:
-        """OpenRouter with a session's own key is the only LLM connection: no local server here, and nothing else
-        accepted (--local-server-only with --allow-openrouter)."""
+        """OpenRouter is the only LLM connection, with a session's own key or the hosted one: no local server here, and
+        nothing else accepted (--local-server-only with --allow-openrouter)."""
         return self.local_server_only and self.allow_openrouter and not self.local_server_enabled
 
     @property
     def store_path(self) -> Path:
         return self.store_dir / "dashboard.json"
 
-def guideline_settings(dash: "DashSettings", decision_model: dict | None = None):
+def guideline_settings(dash: "DashSettings", decision_model: dict | None = None, *, hosted_model: str | None = None):
     """The guideline features' settings (``guidelines.settings.Settings``) for the app: real mode reads real
     patients; the default model connection is the app's (``--llm-*``); TrialSpace and the decision model run on
     the app's device with the app's decision model (``decision_model``: its preset section).
 
     With ``--local-server-only`` there is no default connection until the local model server is ready (an empty
     endpoint, which LLM tasks refuse), whatever the ``--llm-*`` options and the site config name. With OpenRouter as
-    the only connection (``openrouter_only``) the default is OpenRouter's default model with reasoning on, which each
-    session's own key then serves (until a session pastes one, LLM tasks say to)."""
+    the only connection (``openrouter_only``) the default is the hosted connection's model (``hosted_model``, served
+    by the hosted key to sessions without their own) or else OpenRouter's default model, with reasoning on, which
+    each session's own key then serves (until a session pastes one, LLM tasks say to)."""
     from .guidelines.settings import LOCAL, OPENROUTER, Settings as GuidelineSettings, default_task_connections
 
     if dash.openrouter_only:
         from matchminer_ai.llm import openrouter
 
-        model = openrouter.presets()["default"]
+        model = hosted_model or openrouter.presets()["default"]
         return GuidelineSettings(phi=dash.real, llm_backend=OPENROUTER, endpoint=openrouter.ENDPOINT, model=model,
                                  tokenizer=openrouter.model_settings(model)["tokenizer"], reasoning=True,
                                  device=dash.device, decision_model=dict(decision_model or {}), task_connections={})
@@ -416,6 +427,9 @@ def parse_settings(argv: list[str] | None = None) -> DashSettings:
     values["allow_downloads"] = bool(args.allow_downloads or (_env("allow_downloads") or "").lower() in ("1", "true"))
     values["require_token"] = bool(args.require_token or (_env("require_token") or "").lower() in ("1", "true"))
     values.update(local_server_settings(args, args.mode))
+    hosted = load_site_config().get(f"dashboard.{args.mode}.hosted_openrouter", resolve=False)
+    if hosted is not None and hosted is not False:  # real mode refuses it (DashSettings)
+        values["hosted_openrouter"] = hosted
     frames = args.frame_ancestors or _env("frame_ancestors") or load_site_config().get(
         f"dashboard.{args.mode}.frame_ancestors", resolve=False)
     if frames:

@@ -10,7 +10,8 @@
   every connection but the app's ready local model server (and OpenRouter with ``--allow-openrouter``;
   ``GuidelineState.refusal``).
 - ``/api/models/openrouter-key``: a session's own OpenRouter key (synthetic mode only), kept in the app's memory;
-  no response ever contains it (``GuidelineState.set_openrouter_key``).
+  no response ever contains it (``GuidelineState.set_openrouter_key``). Without one, a session's OpenRouter
+  connections use the hosted key when the app has one (``apps.dashboard.hosted_openrouter``), for its model only.
 
 Long work runs as session jobs (``guidelines.state.GuidelineState.jobs``) polled through ``/api/jobs/{id}``.
 """
@@ -156,7 +157,8 @@ def router(g: GuidelineState) -> APIRouter:
 
     @api.get("/api/models")
     def models(request: Request):
-        return g.config_view(g.current_settings(session_owner(request)))
+        owner = session_owner(request)
+        return g.config_view(g.current_settings(owner), owner)
 
     @api.post("/api/models")
     def update_models(body: LLMSettings, request: Request):
@@ -174,8 +176,9 @@ def router(g: GuidelineState) -> APIRouter:
             # The server fixes OpenRouter's endpoint; the session's key goes nowhere else.
             values.update(endpoint=openrouter.ENDPOINT,
                           tokenizer=body.tokenizer or openrouter.model_settings(body.model)["tokenizer"])
-        updated = g.update(session_owner(request), values, task=body.task, apply_to_all=body.apply_to_all)
-        return g.config_view(updated)
+        owner = session_owner(request)
+        updated = g.update(owner, values, task=body.task, apply_to_all=body.apply_to_all)
+        return g.config_view(updated, owner)
 
     @api.post("/api/models/check")
     async def check_model(body: EndpointCheck, request: Request):
@@ -195,7 +198,8 @@ def router(g: GuidelineState) -> APIRouter:
             except ValueError as exc:
                 return {"available": False, "endpoint": openrouter.ENDPOINT, "models": [], "model": None,
                         "error": str(exc)}
-            # The key's own record and the public model list; no prompt. Errors are fixed texts.
+            # The key's own record and the public model list; no prompt (the hosted key: its model only, and its
+            # quota's reading of the key's record). Errors are fixed texts.
             result = await asyncio.to_thread(openrouter.check, selected.api_key_ref, model)
             return {"available": result["available"], "endpoint": openrouter.ENDPOINT,
                     "models": [model] if result["available"] else [],
@@ -253,13 +257,13 @@ def router(g: GuidelineState) -> APIRouter:
             raise InputError(openrouter.BAD_KEY)
         owner = session_owner(request)
         g.set_openrouter_key(owner, key)  # fixed texts only
-        return g.config_view(g.current_settings(owner))
+        return g.config_view(g.current_settings(owner), owner)
 
     @api.delete("/api/models/openrouter-key")
     def forget_openrouter_key(request: Request):
         owner = session_owner(request)
         g.forget_openrouter_key(owner)
-        return g.config_view(g.current_settings(owner))
+        return g.config_view(g.current_settings(owner), owner)
 
     # ------------------------------------------------------------------ the patient's notes
 

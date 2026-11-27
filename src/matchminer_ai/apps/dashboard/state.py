@@ -61,6 +61,11 @@ class DashState:
         mode's: the synthetic run's patients); tests choose it."""
         started = time.monotonic()
         self.settings, self.log = settings, log
+        # The hosted OpenRouter connection (synthetic mode): its secret leaves the environment before any child
+        # process starts.
+        from .hosted_openrouter import setup as setup_hosted
+
+        self.hosted_openrouter = setup_hosted(settings, log)
         settings.store_dir.mkdir(parents=True, exist_ok=True)
         settings.store_dir.chmod(0o700)
         settings.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -106,8 +111,11 @@ class DashState:
 
         config = getattr(self.decisions, "config", None)
         section = config.raw.get("decision_model") if config is not None else None
-        self.guidelines = GuidelineState(guideline_settings or default_guideline_settings(settings, section),
-                                         inference=guideline_inference)
+        hosted = self.hosted_openrouter
+        self.guidelines = GuidelineState(guideline_settings or default_guideline_settings(
+            settings, section, hosted_model=hosted.model if hosted else None), inference=guideline_inference)
+        if hosted is not None:
+            self.guidelines.hosted, self.guidelines.hosted_label = hosted, settings.hosted_openrouter["label"]
         # ---- patients
         self.patient_source = patient_source or ("population" if settings.real else "training")
         if self.patient_source not in PATIENT_SOURCES:
@@ -118,7 +126,7 @@ class DashState:
             + (f": {self.patients_error}" if self.patients_error else ""))
         self.evidence = CatalogEvidence(settings.good_options_catalog)  # read on demand (evidence dialogs)
         # The checks' default connection: none with --local-server-only until the local server is ready; with
-        # OpenRouter the only connection, its default model (each session's own key serves it).
+        # OpenRouter the only connection, its default model (the hosted key's, else each session's own key serves it).
         if getattr(settings, "openrouter_only", False):
             g = self.guidelines.settings
             default = Connection.make("openrouter", g.endpoint, g.model, g.tokenizer, thinking=True)

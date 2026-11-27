@@ -257,7 +257,7 @@ class Settings:
     failure_threshold: int = 3
     task_connections: dict = field(default_factory=dict)
     # The browser session's OpenRouter key in the app's memory (``llm.openrouter.register_key``), for every task
-    # whose connection is OpenRouter; never the key itself.
+    # whose connection is OpenRouter: its own, else its reference to the hosted key; never the key itself.
     api_key_ref: str = field(default="", repr=False)
 
     def __post_init__(self):
@@ -349,6 +349,10 @@ class Settings:
             from ..core.errors import InputError
 
             raise InputError(openrouter.NO_KEY)
+        if self.llm_backend == OPENROUTER and (locked := openrouter.model_error(self.api_key_ref, self.model)):
+            from ..core.errors import InputError
+
+            raise InputError(locked)  # the hosted key serves its one model only
 
     @property
     def thinking_supported(self):

@@ -64,7 +64,7 @@ export interface ModelConfig extends TaskConnection {
     enabled?: boolean;
   };
   /** OpenRouter with the session's own key (synthetic mode only). The key is never sent back: only whether one
-   * is set and its last four characters. */
+   * is set and its last four characters. `hosted`: this Space's own key, for one model (nothing of it is sent). */
   openrouter: OpenRouterView;
   device: string;
   ttl_minutes: number;
@@ -83,7 +83,33 @@ export type OpenRouterView =
       key_hint: string | null;
       default_model: string;
       models: { id: string; label: string; reasoning: boolean; claude: boolean }[];
+      hosted: HostedOpenRouter | null;
     };
+
+/** The hosted OpenRouter connection: this Space's key serves sessions without their own, for `model` only, within
+ * a shared quota. */
+export interface HostedOpenRouter {
+  label: string;
+  model: string;
+  notice: string;
+  /** The session's own key is set, so it serves OpenRouter requests instead. */
+  own_key: boolean;
+  requests_per_minute: number;
+  reserve: number;
+  /** The account's free-model requests today; `known` false when OpenRouter reports none. `available`: left for
+   * visitors (above the reserve). */
+  today: {
+    known: boolean;
+    remaining: number | null;
+    available: number | null;
+    limit: number | null;
+  };
+  session: { used: number; share: number; remaining: number };
+  /** Why requests stop now (the day's quota or this session's share), else null. */
+  stopped: string | null;
+  /** Why the quota could not be read, else null. */
+  error: string | null;
+}
 
 export interface ModelCheck {
   available: boolean;
@@ -108,7 +134,12 @@ export function connectionLabel(config: ModelConfig, c: TaskConnection): string 
   const vertex = config.vertex_profiles[c.llm_backend];
   if (vertex) return `${vertex.label} (Google Vertex)`;
   if (c.llm_backend === "claude_databricks") return `${claudeName(c.model)} (Databricks gateway)`;
-  if (c.llm_backend === "openrouter") return `${c.model} (OpenRouter)`;
+  if (c.llm_backend === "openrouter") {
+    const routed = config.openrouter.offered ? config.openrouter : null;
+    if (routed?.hosted && !routed.key_set && c.model === routed.hosted.model)
+      return `${c.model} (OpenRouter, this Space's key)`;
+    return `${c.model} (OpenRouter)`;
+  }
   return `${c.model} at ${c.endpoint}`;
 }
 

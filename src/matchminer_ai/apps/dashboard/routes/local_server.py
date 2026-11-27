@@ -71,8 +71,8 @@ def router(control: LocalServerControl) -> APIRouter:
 
     @api.post("/api/local-server/use")
     def use(body: UseBody, request: Request):
-        updated = control.use(owner(request), task=body.task, apply_to_all=body.apply_to_all,
-                              reasoning=body.reasoning)
-        return control.guidelines.config_view(updated)
+        session = owner(request)
+        updated = control.use(session, task=body.task, apply_to_all=body.apply_to_all, reasoning=body.reasoning)
+        return control.guidelines.config_view(updated, session)
 
     return api

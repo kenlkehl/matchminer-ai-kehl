@@ -10,6 +10,7 @@ import {
   type Backend,
   claudeName,
   connectionLabel,
+  type HostedOpenRouter,
   type ModelCheck,
   type ModelConfig,
   modelsOptions,
@@ -21,12 +22,15 @@ import { llmOptions } from "@/lib/queries";
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm";
 /** One connector for the Vertex profiles (each is a model); the form's own value, not a backend. */
 const VERTEX = "vertex";
+/** OpenRouter with this Space's key (one model, a shared quota); the form's own value, not a backend. */
+const HOSTED = "hosted";
 
 /**
  * Each LLM task's connection for this browser session: an OpenAI-compatible server (its models read
  * from /v1/models), a Vertex profile, Claude through the Databricks gateway (the default) or, in
  * synthetic mode, OpenRouter with the user's own key. A job keeps the connection it started with. The
- * server's command line sets the default.
+ * server's command line sets the default. A Space with its own OpenRouter key also offers that key, for
+ * one model, to sessions without a key of their own.
  */
 export function ModelsPanel() {
   const config = useQuery(modelsOptions());
@@ -107,6 +111,8 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   const localReady = localServer.state === "ready" && Boolean(localServer.endpoint);
   const only = localServer.only;
   const openRouter = config.openrouter.offered ? config.openrouter : null;
+  // This Space's own key: one model, for sessions without a key of their own (theirs serves instead once set).
+  const hosted = openRouter?.hosted ?? null;
   // No local server here (--no-local-server): with --local-server-only, OpenRouter is the only connection.
   const noLocal = localServer.enabled === false;
   const [backend, setBackend] = useState<Backend>(
@@ -129,6 +135,14 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
     current.llm_backend === "local" ? current.tokenizer : "",
   );
   const [reasoning, setReasoning] = useState(current.reasoning);
+  const [useHosted, setUseHosted] = useState(
+    Boolean(
+      hosted &&
+      !openRouter?.key_set &&
+      current.llm_backend === "openrouter" &&
+      current.model === hosted.model,
+    ),
+  );
   const [backup, setBackup] = useState(current.backup_enabled);
   const [threshold, setThreshold] = useState(current.failure_threshold);
   const [checked, setChecked] = useState<ModelCheck | null>(null);
@@ -151,7 +165,14 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
   );
   const isBackup = BACKUP_TASKS.includes(task);
   const useLocal = only && !routed;
+  const chooseHosted = (offered: HostedOpenRouter) => {
+    setUseHosted(true);
+    setBackend("openrouter");
+    setModel(offered.model);
+    setReasoning(openRouter?.models.find((m) => m.id === offered.model)?.reasoning ?? true);
+  };
   const chooseBackend = (value: Backend) => {
+    setUseHosted(false);
     if (value === "openrouter" && openRouter && backend !== "openrouter") {
       // OpenRouter offers its default model first, with its reasoning setting.
       const first = openRouter.models.find((m) => m.id === openRouter.default_model);
@@ -167,7 +188,11 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       : routed
         ? routed.endpoint
         : (vertex?.endpoint ?? claude?.endpoint ?? endpoint),
-    model: useLocal ? localServer.model : (vertex?.model ?? model),
+    model: useLocal
+      ? localServer.model
+      : useHosted && hosted
+        ? hosted.model
+        : (vertex?.model ?? model),
     tokenizer: useLocal
       ? localServer.tokenizer
       : vertex
@@ -227,10 +252,13 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
             <span className="text-xs text-gray-500">Connection</span>
             <select
               className={SELECT}
-              value={vertex ? VERTEX : backend}
+              value={useHosted && hosted ? HOSTED : vertex ? VERTEX : backend}
               onChange={(e) => {
                 const value = e.target.value;
-                if (value === VERTEX) {
+                if (value === HOSTED) {
+                  if (hosted) chooseHosted(hosted);
+                } else if (value === VERTEX) {
+                  setUseHosted(false);
                   const first = vertexKeys[0];
                   if (!vertex && first) setBackend(first as Backend);
                 } else chooseBackend(value as Backend);
@@ -251,6 +279,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
                   {p.label}
                 </option>
               ))}
+              {hosted ? <option value={HOSTED}>{hosted.label}</option> : null}
               {openRouter ? (
                 <option value="openrouter">OpenRouter (your own API key)</option>
               ) : null}
@@ -262,6 +291,13 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
                 ? `Local model server: ${localServer.model ?? ""} at ${localServer.endpoint ?? ""}`
                 : "The local model server is not ready: start it above, or use OpenRouter with your own API key."}
             </p>
+          ) : routed && useHosted && hosted ? (
+            <label className="flex min-w-96 flex-1 flex-col gap-1">
+              <span className="text-xs text-gray-500">
+                Model (the only one this Space's key serves)
+              </span>
+              <Input value={hosted.model} readOnly disabled />
+            </label>
           ) : routed ? (
             <OpenRouterModel view={routed} model={model} setModel={setModel} />
           ) : vertex ? (
@@ -387,7 +423,11 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
           )}
         </div>
       )}
-      {routed ? <OpenRouterKey view={routed} /> : null}
+      {routed && useHosted && hosted ? (
+        <HostedQuota view={hosted} />
+      ) : routed ? (
+        <OpenRouterKey view={routed} />
+      ) : null}
       <div className="flex flex-wrap items-center gap-4">
         {!claude && !(routed && routedClaude) ? (
           <label className="flex items-center gap-2">
@@ -474,6 +514,34 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
 }
 
 type OfferedOpenRouter = Extract<OpenRouterView, { offered: true }>;
+
+/**
+ * OpenRouter with this Space's key: its notice, today's shared quota and this session's share. Nothing
+ * of the key is ever shown.
+ */
+function HostedQuota({ view }: { view: HostedOpenRouter }) {
+  const today = view.today;
+  return (
+    <div className="flex flex-col gap-1 rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+      <p>{view.notice}</p>
+      <p>
+        {today.known
+          ? `Shared quota today: about ${String(today.available ?? 0)} requests left for visitors${
+              today.limit ? ` (of ${String(today.limit)} a day for this Space's account)` : ""
+            }; it resets at 00:00 UTC.`
+          : "Shared quota today: OpenRouter has not reported it."}{" "}
+        This browser session: {view.session.remaining} of its {view.session.share} requests a day
+        left. At most {view.requests_per_minute} requests a minute go out; the others wait for a
+        slot.
+      </p>
+      {view.own_key ? (
+        <p>Your own OpenRouter key is set for this session, so it serves these requests instead.</p>
+      ) : null}
+      {view.stopped ? <p className="text-red-700">{view.stopped}</p> : null}
+      {view.error && !view.stopped ? <p className="text-red-700">{view.error}</p> : null}
+    </div>
+  );
+}
 
 /** An OpenRouter model ID: any, with the app's suggestions (presets/openrouter.yaml). */
 function OpenRouterModel({

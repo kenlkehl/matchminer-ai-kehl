@@ -15,6 +15,9 @@ from .settings import parse_settings
 
 
 def main(argv=None):
+    from matchminer_ai.llm.openrouter import take_hosted_key
+
+    take_hosted_key()  # the hosted OpenRouter key leaves the environment before anything else starts
     settings = parse_settings(argv)
     if settings.command == "serve" and settings.real and not is_loopback(settings.host):
         sys.exit(f"Refusing to serve on {settings.host}: real mode shows patient records and confidential protocol "
@@ -77,7 +80,10 @@ def main(argv=None):
 
     atexit.register(state.local_server.shutdown)
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
-    if settings.openrouter_only:
+    if settings.openrouter_only and state.hosted_openrouter is not None:
+        print(f"LLM tasks use only OpenRouter (no local model server here): this app's hosted key for "
+              f"{state.hosted_openrouter.model}, or a visitor's own API key set on Data and models.", flush=True)
+    elif settings.openrouter_only:
         print("LLM tasks use only OpenRouter with each visitor's own API key (no local model server here); set it on "
               "Data and models.", flush=True)
     elif settings.local_server_only:

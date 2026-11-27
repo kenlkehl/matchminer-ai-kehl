@@ -6,7 +6,8 @@ Every backend the app offers works, as for the other LLM tasks (``guidelines.set
   Messages route, with the server's Databricks CLI profile), the default with the site config's Opus endpoint. The
   conversation so far is cached (``cache_control``), so each step of a turn reads the earlier steps from the cache;
 - a Vertex profile (the server's Application Default Credentials);
-- OpenRouter with the session's own key (synthetic mode only), Claude there at the same effort as through the gateway;
+- OpenRouter with the session's own key or the hosted key (synthetic mode only), Claude there at the same effort as
+  through the gateway;
 - an OpenAI-compatible server (its context window read from ``/v1/models``).
 
 Every answer is one JSON object in the action schema (``actions``), constrained by the endpoint's JSON-schema

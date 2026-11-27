@@ -13,7 +13,8 @@ The connection profiles are the package's (``matchminer_ai.llm.connections``, sh
 - an OpenAI-compatible server (vLLM): a URL, by default the site config's ``endpoints.teacher.url`` (an on-prem
   Nemotron 3.5 Super server), and a model chosen from the server's ``/v1/models``;
 - OpenRouter (synthetic mode only; ``matchminer_ai.llm.openrouter``): a model ID at OpenRouter's fixed endpoint, with
-  the key the browser session pasted, kept in the app's memory (``api_key_ref``).
+  the key the browser session pasted, kept in the app's memory (``api_key_ref``), or else the hosted key
+  (``hosted_openrouter``) for its one model.
 
 Sampling comes from the inference package's model profiles: each check's section gets ``sampling_profile: auto`` and
 loses the section's own fixed sampling keys (the GoodOption preset's greedy decoding), so the served model's profile
@@ -162,6 +163,8 @@ class Connection:
             return vertex_credentials_error()
         if self.openrouter and not openrouter.has_key(self.api_key_ref):
             return openrouter.NO_KEY
+        if self.openrouter:  # the hosted key serves its one model only
+            return openrouter.model_error(self.api_key_ref, self.model)
         return None
 
     @property
