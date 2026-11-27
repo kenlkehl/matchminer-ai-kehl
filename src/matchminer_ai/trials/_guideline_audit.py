@@ -25,7 +25,7 @@ from ._guideline_completeness import VERSION as COVERAGE_VERSION
 from ._guideline_completeness import validate_report as validate_coverage_report
 from ._guideline_ownership import VERSION as OWNERSHIP_VERSION
 from ._guideline_ownership import branch_ledger
-from ._guideline_quotes import MARKUP_MATCHING, materialize_quoted_state, resolve_excerpt
+from ._guideline_quotes import EXCERPT_RULES, materialize_quoted_state, resolve_excerpt
 from ._guideline_quote_repair import VERSION as QUOTE_REPAIR_VERSION
 from ._guideline_quote_repair import audit_repair
 from ._guideline_schema import (
@@ -101,10 +101,10 @@ def audit_catalog(guideline, output):
     history_path = output / "endpoint_history.json"
     endpoint_history = read_json(history_path) if history_path.exists() else []
     validate_transport_record(settings, settings, endpoint_history)
-    # Quoted-excerpt catalogs re-audit under the excerpt-matching rule their run recorded (MARKUP_MATCHING).
+    # Quoted-excerpt catalogs re-audit under the excerpt-matching rule their run recorded (EXCERPT_RULES).
     citation_version = config.get("stage_versions", {}).get("detail_citations")
-    quoted_details = citation_version in MARKUP_MATCHING
-    markup = MARKUP_MATCHING.get(citation_version, False)
+    quoted_details = citation_version in EXCERPT_RULES
+    rule = EXCERPT_RULES.get(citation_version, "exact")
     current_json = (
         config.get("stage_versions", {}).get("json_normalization")
         == JSON_NORMALIZATION_VERSION
@@ -130,7 +130,7 @@ def audit_catalog(guideline, output):
                     result = accepted["result"]
                     if kind == "detail" and "space" in result:
                         if quoted_details:
-                            materialized = materialize_quoted_state(result, guideline.pages, markup=markup)
+                            materialized = materialize_quoted_state(result, guideline.pages, rule=rule)
                         else:
                             materialized = materialize_evidence(result, guideline.pages)
                         normalized_results[kind].add(digest(materialized))

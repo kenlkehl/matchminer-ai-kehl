@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from matchminer_ai.trials._guideline_quotes import (
-    MARKUP_MATCHING, VERSION, materialize_quoted_state, resolve_excerpt,
+    EXCERPT_RULES, VERSION, materialize_quoted_state, resolve_excerpt,
 )
 from matchminer_ai.trials._guideline_sources import Page
 from test_guideline_extraction import quoted_state
@@ -72,13 +72,29 @@ def test_markup_matching_is_gated_and_returns_the_source_markup(page):
                     "<tr><td rowspan='3'>I</td><td>T1, N0, M0</td><td>T1 = Synthetic tumor size.</td></tr>"):
         with pytest.raises(ValueError, match="does not occur verbatim"):
             resolve_excerpt(table, excerpt)  # v1 catalogs re-audit with whitespace-only matching
-        ids, quote = resolve_excerpt(table, excerpt, markup=True)
+        ids, quote = resolve_excerpt(table, excerpt, rule="markup")
         assert ids == [2] and quote in row and quote.startswith("I</td>")
     with pytest.raises(ValueError, match="occurs 2 times"):
-        resolve_excerpt(table, "Synthetic tumor size.", markup=True)
+        resolve_excerpt(table, "Synthetic tumor size.", rule="markup")
     with pytest.raises(ValueError, match="does not occur verbatim"):
-        resolve_excerpt(table, "I T1, N0, M0 T1 = Synthetic tumour size.", markup=True)
-    assert MARKUP_MATCHING == {"source-excerpts-v1": False, VERSION: True}
+        resolve_excerpt(table, "I T1, N0, M0 T1 = Synthetic tumour size.", rule="markup")
+
+
+def test_entities_rule_equates_character_references_and_keeps_raw_offsets(page):
+    from matchminer_ai.trials._guideline_quote_repair import targets
+
+    row = "<tr><td>T2 = Synthetic tumor &gt;7 cm and &#8804;10&nbsp;cm.</td></tr>"
+    table = replace(page, text=f"Table 2.\nIntro line.\n{row}\n")
+    ids, quote = resolve_excerpt(table, "T2 = Synthetic tumor >7 cm and \u226410 cm.", rule="entities")
+    assert ids == [3] and quote == "T2 = Synthetic tumor &gt;7 cm and &#8804;10&nbsp;cm."
+    with pytest.raises(ValueError, match="does not occur verbatim"):
+        resolve_excerpt(table, "T2 = Synthetic tumor >7 cm", rule="markup")
+    # A catalog replays each repair under the rule its receipt records, so a v2 repair still saw this as invalid.
+    record = quoted_state()
+    record["evidence"] = [{"page_id": table.id, "source_text": "Synthetic tumor >7 cm"}]
+    assert (0, 0) in [t[:2] for t in targets(record, {table.id: table}, rule="markup")]
+    assert (0, 0) not in [t[:2] for t in targets(record, {table.id: table}, rule="entities")]
+    assert EXCERPT_RULES == {"source-excerpts-v1": "exact", "source-excerpts-v2": "markup", VERSION: "entities"}
 
 
 def test_unsupplied_page_and_excessive_spans_are_rejected(page):

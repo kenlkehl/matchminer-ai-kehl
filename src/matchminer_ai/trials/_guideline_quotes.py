@@ -1,6 +1,8 @@
 """Resolve final citations from exact source excerpts instead of model-selected offsets."""
 
 import copy
+import functools
+import html
 import re
 
 from ._guideline_schema import (
@@ -13,11 +15,13 @@ from ._guideline_schema import (
     validate_state,
 )
 
-VERSION = "source-excerpts-v2"
-# The excerpt-matching rule of each recorded detail_citations version: v1 matches whitespace only, v2 also matches an
-# excerpt's visible words across the page's markup. A catalog re-audits under the rule its run config records, so
-# catalogs built under v1 keep their exact v1 audit.
-MARKUP_MATCHING = {"source-excerpts-v1": False, VERSION: True}
+VERSION = "source-excerpts-v3"
+# The excerpt-matching rule of each recorded detail_citations version (resolve_excerpt): v1 matches whitespace only;
+# v2 also matches an excerpt's visible words across the page's markup; v3 also equates the page's HTML character
+# references with the characters they stand for. A catalog re-audits under the rule its run config records, so a
+# catalog built under v1 or v2 keeps its exact audit.
+EXCERPT_RULES = {"source-excerpts-v1": "exact", "source-excerpts-v2": "markup", VERSION: "entities"}
+RULE = EXCERPT_RULES[VERSION]
 QUOTED_EVIDENCE = arr(obj({"page_id": STRING, "source_text": STRING}))
 QUOTED_DETAIL = copy.deepcopy(STATE)
 QUOTED_DETAIL["properties"]["evidence"] = QUOTED_EVIDENCE
@@ -31,22 +35,57 @@ for _kind in ("diagnostic_workup", "treatment_options"):
 MARKUP = r"<[A-Za-z/!][^<>]*>"
 
 
-def resolve_excerpt(page, excerpt, *, markup=False):
+# An HTML character reference in a source page: named (&gt;), decimal (&#8805;) or hexadecimal (&#x2265;).
+ENTITY = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);")
+
+
+@functools.lru_cache(maxsize=256)
+def _visible(text):
+    """``text`` with its character references decoded, and the raw span each decoded character came from."""
+    chars, spans, position = [], [], 0
+    for reference in ENTITY.finditer(text):
+        value = html.unescape(reference.group())
+        if value == reference.group():
+            continue  # not a reference html.unescape knows; kept as written
+        chars.append(text[position:reference.start()])
+        spans.extend((i, i + 1) for i in range(position, reference.start()))
+        chars.append(value)
+        spans.extend([(reference.start(), reference.end())] * len(value))
+        position = reference.end()
+    chars.append(text[position:])
+    spans.extend((i, i + 1) for i in range(position, len(text)))
+    return "".join(chars), tuple(spans)
+
+
+def _words_pattern(words, separator):
+    return re.compile(separator.join(re.escape(word) for word in words))
+
+
+def resolve_excerpt(page, excerpt, *, rule="exact"):
     """Match whitespace only; never fuzzy-match words or guess an ambiguous location.
 
-    With ``markup``, when the words occur nowhere with whitespace alone between them, markup is skipped too: an excerpt
-    quoting a table row or linked text by its visible words matches across the page's HTML tags (and tags the excerpt
-    itself carries are skipped, so their attribute quoting need not match). The returned quote is always the page's
-    own text.
+    ``rule`` widens what may lie between and within the excerpt's words, one level at a time, and only when the
+    previous level finds nothing: ``"markup"`` (v2) matches an excerpt quoting a table row or linked text by its visible
+    words across the page's HTML tags (tags in the excerpt are skipped, so their attribute quoting need not match);
+    ``"entities"`` (v3) also equates the page's character references (``&gt;``, ``&#8805;``) with the characters the
+    excerpt writes. The returned line addresses and quote always come from the page's own raw text.
     """
+    if rule not in {"exact", "markup", "entities"}:
+        raise ValueError(f"Unknown excerpt-matching rule: {rule!r}")
     if not isinstance(excerpt, str) or not excerpt.strip():
         raise ValueError("Citation source_text must be a nonempty verbatim excerpt")
-    pattern = re.compile(r"\s+".join(re.escape(word) for word in excerpt.split()))
-    matches = list(pattern.finditer(page.text))
-    words = re.sub(MARKUP, " ", excerpt).split() if markup else []
-    if not matches and words:
-        separator = rf"(?:\s|{MARKUP})+"
-        matches = list(re.finditer(separator.join(re.escape(word) for word in words), page.text))
+    text = page.text
+    matches = [m.span() for m in _words_pattern(excerpt.split(), r"\s+").finditer(text)]
+    separator = rf"(?:\s|{MARKUP})+"
+    words = re.sub(MARKUP, " ", excerpt).split()
+    if not matches and rule != "exact" and words:
+        matches = [m.span() for m in _words_pattern(words, separator).finditer(text)]
+    if not matches and rule == "entities" and ENTITY.search(text + excerpt):
+        visible, spans = _visible(text)
+        decoded = re.sub(MARKUP, " ", html.unescape(excerpt)).split()
+        if decoded:
+            matches = [(spans[m.start()][0], spans[m.end() - 1][1])
+                       for m in _words_pattern(decoded, separator).finditer(visible) if m.end() > m.start()]
     if not matches:
         raise ValueError(
             f"{page.id}: source_text does not occur verbatim on this supplied page: "
@@ -58,12 +97,12 @@ def resolve_excerpt(page, excerpt, *, markup=False):
             f"{page.id}: source_text occurs {len(matches)} times; include more surrounding "
             "source words to identify the intended branch unambiguously."
         )
-    match = matches[0]
-    first = page.text.count("\n", 0, match.start()) + 1
-    last = page.text.count("\n", 0, match.end() - 1) + 1
+    start, end = matches[0]
+    first = text.count("\n", 0, start) + 1
+    last = text.count("\n", 0, end - 1) + 1
     if last - first >= 12:
         raise ValueError(f"{page.id}: split excerpts spanning more than 12 lines")
-    return list(range(first, last + 1)), match.group()
+    return list(range(first, last + 1)), text[start:end]
 
 
 def _owners(state):
@@ -72,7 +111,7 @@ def _owners(state):
         yield from state[kind]
 
 
-def materialize_quoted_state(state, pages, *, markup=MARKUP_MATCHING[VERSION]):
+def materialize_quoted_state(state, pages, *, rule=RULE):
     """Derive addresses and displayed quotations in code, preserving all clinical fields."""
     validate_shape(state, QUOTED_DETAIL)
     result = copy.deepcopy(state)
@@ -84,7 +123,7 @@ def materialize_quoted_state(state, pages, *, markup=MARKUP_MATCHING[VERSION]):
             try:
                 if item["page_id"] not in pages:
                     raise ValueError(f"Unknown or unsupplied evidence page: {item['page_id']}")
-                ids, quote = resolve_excerpt(pages[item["page_id"]], item["source_text"], markup=markup)
+                ids, quote = resolve_excerpt(pages[item["page_id"]], item["source_text"], rule=rule)
             except ValueError as exc:
                 errors.append(f"{owner['name']} excerpt {number}: {exc}")
                 continue
