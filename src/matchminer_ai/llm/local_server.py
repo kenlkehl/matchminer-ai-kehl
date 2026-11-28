@@ -697,7 +697,7 @@ def recommend(model: str, engine: str | None, gpus: Sequence, installed: Mapping
             values["gpu_memory_utilization"] = suggested_utilization(gpus)
     spec = ServerSpec.from_dict(values)
     result: dict = {"known": recipe is not None, "key": key, "label": (recipe or {}).get("label") or model,
-                    "reasoning": bool((recipe or {}).get("reasoning", True)), "proposal": proposal,
+                    "reasoning": bool((recipe or {}).get("reasoning", False)), "proposal": proposal,
                     "engine": engine, "spec": spec.to_dict(), "variant": (variant or {}).get("name"),
                     "variants": [{"name": v.get("name"), "memory_gb": v.get("memory_gb"), "note": v.get("note")}
                                  for v in entry.get("variants") or ()],

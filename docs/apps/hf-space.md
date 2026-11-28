@@ -141,7 +141,7 @@ Space has no hosted OpenRouter key (that is [the lite Space](#the-lite-space)'s)
 - **Tier:** `tier.py` finds under 40 GB of GPU memory (or none) and sets `MMAI_DASH_LOCAL_SERVER_ENABLED=false`; no
   weights are prefetched and no server starts. With site.yaml's `only` and `allow_openrouter`, OpenRouter with each
   visitor's own key is then the only LLM connection the app accepts, and every task's default (Nemotron 3.5 Super,
-  `nvidia/nemotron-3.5-super-vl`, with reasoning on). Data and models says why there is no local server and shows the
+  `nvidia/nemotron-3.5-super-vl`, with reasoning off). Data and models says why there is no local server and shows the
   key field; until a visitor pastes a key, the LLM tasks say to, and everything else works.
 - **Hosted key:** with the Space secret `MMAI_OPENROUTER_HOSTED_KEY` (this Space only; the RTX PRO Space has none, so
   the same `site.yaml` offers it nothing), the owner's OpenRouter key is every task's default instead, for one model:

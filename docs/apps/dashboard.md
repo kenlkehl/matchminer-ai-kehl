@@ -498,7 +498,7 @@ server refuses every other model connection, wherever one is chosen or used:
   `local_server.enabled: false`) is for a machine that cannot host an LLM: Data and models says so instead of showing
   the server's controls, starting or using one is refused, and no autostart runs. With `--local-server-only` and
   `--allow-openrouter` too (the [lite Space](hf-space.md#the-lite-space)), OpenRouter is the only connection and every
-  task's default (the presets' default model, reasoning on), served by each session's own key, or the
+  task's default (the presets' default model, reasoning off), served by each session's own key, or the
   [hosted key](#hosted-key)'s model, served by the owner's key until a session pastes its own.
 - **Other network use is unchanged:** Hugging Face model downloads (with `--allow-downloads`) and ClinicalTrials.gov
   fetches.

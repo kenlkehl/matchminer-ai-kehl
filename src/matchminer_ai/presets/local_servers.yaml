@@ -6,7 +6,7 @@
 # - spec: ServerSpec fields; variants: alternatives by the chosen GPUs' free memory (the first that fits is used);
 # - served_name: the API's model name (the base model's ID, so the app's request profile matches it on every engine);
 # - tokenizer: a repository with the tokenizer, for the app's prompt budgets;
-# - reasoning: whether "Use for every task" turns the model's thinking switch on by default.
+# - reasoning: whether "Use for every task" turns the model's thinking switch on by default (off unless set).
 default: nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB
 models:
   nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB:
@@ -14,7 +14,6 @@ models:
     license: OpenMDW-1.1
     served_name: nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB
     tokenizer: nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB
-    reasoning: true
     # Verified 2026-11-24. Text only: the cards' image and video settings (the vision projector, local media
     # paths) are left out.
     source: >-

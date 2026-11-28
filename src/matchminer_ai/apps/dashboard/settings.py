@@ -249,7 +249,7 @@ def guideline_settings(dash: "DashSettings", decision_model: dict | None = None,
     With ``--local-server-only`` there is no default connection until the local model server is ready (an empty
     endpoint, which LLM tasks refuse), whatever the ``--llm-*`` options and the site config name. With OpenRouter as
     the only connection (``openrouter_only``) the default is the hosted connection's model (``hosted_model``, served
-    by the hosted key to sessions without their own) or else OpenRouter's default model, with reasoning on, which
+    by the hosted key to sessions without their own) or else OpenRouter's default model, with reasoning off, which
     each session's own key then serves (until a session pastes one, LLM tasks say to)."""
     from .guidelines.settings import LOCAL, OPENROUTER, Settings as GuidelineSettings, default_task_connections
 
@@ -258,7 +258,7 @@ def guideline_settings(dash: "DashSettings", decision_model: dict | None = None,
 
         model = hosted_model or openrouter.presets()["default"]
         return GuidelineSettings(phi=dash.real, llm_backend=OPENROUTER, endpoint=openrouter.ENDPOINT, model=model,
-                                 tokenizer=openrouter.model_settings(model)["tokenizer"], reasoning=True,
+                                 tokenizer=openrouter.model_settings(model)["tokenizer"], reasoning=False,
                                  device=dash.device, decision_model=dict(decision_model or {}), task_connections={})
     if dash.local_server_only:
         return GuidelineSettings(phi=dash.real, llm_backend=LOCAL, endpoint="", model="", tokenizer="",

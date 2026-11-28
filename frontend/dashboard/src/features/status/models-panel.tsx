@@ -169,7 +169,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
     setUseHosted(true);
     setBackend("openrouter");
     setModel(offered.model);
-    setReasoning(openRouter?.models.find((m) => m.id === offered.model)?.reasoning ?? true);
+    setReasoning(openRouter?.models.find((m) => m.id === offered.model)?.reasoning ?? false);
   };
   const chooseBackend = (value: Backend) => {
     setUseHosted(false);
@@ -177,7 +177,7 @@ export function TaskForm({ config, task }: { config: ModelConfig; task: Task }) 
       // OpenRouter offers its default model first, with its reasoning setting.
       const first = openRouter.models.find((m) => m.id === openRouter.default_model);
       setModel(openRouter.default_model);
-      setReasoning(first?.reasoning ?? true);
+      setReasoning(first?.reasoning ?? false);
     }
     setBackend(value);
   };
